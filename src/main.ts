@@ -1,7 +1,11 @@
 import 'reflect-metadata';
+import { config } from 'dotenv';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ReplService } from './modules/repl/services/repl.service';
+
+// Load .env file
+config();
 
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule, {

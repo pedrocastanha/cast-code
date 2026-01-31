@@ -9,7 +9,6 @@ coverage/
 *.tsbuildinfo
 nest-cli.json
 package-lock.json
-package.json
 tsconfig.json
 tsconfig.build.json
 .claude/

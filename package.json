@@ -1,0 +1,64 @@
+{
+  "name": "cast-code",
+  "version": "1.0.0",
+  "description": "Multi-agent CLI system powered by DeepAgents",
+  "main": "dist/main.js",
+  "bin": {
+    "cast": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "cli",
+    "langchain",
+    "deepagents",
+    "multi-agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "dependencies": {
+    "@langchain/core": "latest",
+    "@langchain/langgraph": "latest",
+    "@langchain/openai": "latest",
+    "@nestjs/common": "^10.0.0",
+    "@nestjs/core": "^10.0.0",
+    "@nestjs/platform-express": "^10.0.0",
+    "deepagents": "latest",
+    "dotenv": "^17.2.3",
+    "glob": "^11.0.0",
+    "gray-matter": "^4.0.3",
+    "langchain": "latest",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.0.0",
+    "@nestjs/schematics": "^10.0.0",
+    "@swc/cli": "^0.5.2",
+    "@swc/core": "^1.15.11",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.27.2",
+    "ts-node": "^10.9.0",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
