@@ -108,19 +108,23 @@ export class DeepAgentService implements OnModuleInit {
   async *chat(message: string): AsyncGenerator<string> {
     this.messages.push(new HumanMessage(message));
 
-    const stream = await this.agent.stream({
-      messages: this.messages,
-    });
+    const stream = this.agent.streamEvents(
+      {
+        messages: this.messages,
+      },
+      {
+        version: 'v2',
+      }
+    );
 
     let fullResponse = '';
 
-    for await (const chunk of stream) {
-      if (chunk.agent?.messages) {
-        for (const msg of chunk.agent.messages) {
-          if (typeof msg.content === 'string') {
-            yield msg.content;
-            fullResponse += msg.content;
-          }
+    for await (const event of stream) {
+      if (event.event === 'on_chat_model_stream' && event.data?.chunk?.content) {
+        const content = event.data.chunk.content;
+        if (typeof content === 'string' && content) {
+          yield content;
+          fullResponse += content;
         }
       }
     }

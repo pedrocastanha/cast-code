@@ -36,6 +36,7 @@ export class ReplService {
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
+      completer: this.completer.bind(this),
     });
 
     this.prompt();
@@ -134,6 +135,17 @@ export class ReplService {
 
   private print(message: string) {
     console.log(message);
+  }
+
+  private completer(line: string): [string[], string] {
+    const commands = ['/help', '/clear', '/exit', '/quit'];
+
+    if (!line.startsWith('/')) {
+      return [[], line];
+    }
+
+    const hits = commands.filter((cmd) => cmd.startsWith(line));
+    return [hits.length ? hits : commands, line];
   }
 
   stop() {
