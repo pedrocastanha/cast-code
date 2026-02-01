@@ -20,8 +20,16 @@ export class FilesystemToolsService {
 
   private createReadFileTool() {
     return tool(
-      async ({ filePath, offset, limit }) => {
+      async (input) => {
         try {
+          const filePath = (input as any).filePath || (input as any).file_path;
+          const offset = (input as any).offset;
+          const limit = (input as any).limit;
+
+          if (!filePath) {
+            return 'Error: filePath is required';
+          }
+
           const content = await fs.readFile(filePath, 'utf-8');
           const lines = content.split('\n');
           const start = offset || 0;
@@ -37,7 +45,7 @@ export class FilesystemToolsService {
         name: 'read_file',
         description: 'Read contents of a file. Returns numbered lines.',
         schema: z.object({
-          filePath: z.string().describe('Absolute path to the file'),
+          file_path: z.string().describe('Absolute path to the file'),
           offset: z.number().optional().describe('Line number to start from (0-indexed)'),
           limit: z.number().optional().describe('Number of lines to read'),
         }),
@@ -47,8 +55,15 @@ export class FilesystemToolsService {
 
   private createWriteFileTool() {
     return tool(
-      async ({ filePath, content }) => {
+      async (input) => {
         try {
+          const filePath = (input as any).filePath || (input as any).file_path;
+          const content = (input as any).content;
+
+          if (!filePath || !content) {
+            return 'Error: filePath and content are required';
+          }
+
           const dir = path.dirname(filePath);
           await fs.mkdir(dir, { recursive: true });
           await fs.writeFile(filePath, content, 'utf-8');
@@ -62,7 +77,7 @@ export class FilesystemToolsService {
         name: 'write_file',
         description: 'Write content to a file. Creates directories if needed.',
         schema: z.object({
-          filePath: z.string().describe('Absolute path to the file'),
+          file_path: z.string().describe('Absolute path to the file'),
           content: z.string().describe('Content to write'),
         }),
       },
@@ -71,8 +86,17 @@ export class FilesystemToolsService {
 
   private createEditFileTool() {
     return tool(
-      async ({ filePath, oldString, newString, replaceAll }) => {
+      async (input) => {
         try {
+          const filePath = (input as any).filePath || (input as any).file_path;
+          const oldString = (input as any).oldString || (input as any).old_string;
+          const newString = (input as any).newString || (input as any).new_string;
+          const replaceAll = (input as any).replaceAll || (input as any).replace_all || false;
+
+          if (!filePath || !oldString || !newString) {
+            return 'Error: filePath, oldString, and newString are required';
+          }
+
           const content = await fs.readFile(filePath, 'utf-8');
 
           if (!content.includes(oldString)) {
@@ -99,10 +123,10 @@ export class FilesystemToolsService {
         name: 'edit_file',
         description: 'Edit a file by replacing a string with another.',
         schema: z.object({
-          filePath: z.string().describe('Absolute path to the file'),
-          oldString: z.string().describe('Text to replace'),
-          newString: z.string().describe('New text'),
-          replaceAll: z.boolean().optional().default(false).describe('Replace all occurrences'),
+          file_path: z.string().describe('Absolute path to the file'),
+          old_string: z.string().describe('Text to replace'),
+          new_string: z.string().describe('New text'),
+          replace_all: z.boolean().optional().default(false).describe('Replace all occurrences'),
         }),
       },
     );
@@ -136,8 +160,16 @@ export class FilesystemToolsService {
 
   private createGrepTool() {
     return tool(
-      async ({ pattern, searchPath, filePattern }) => {
+      async (input) => {
         try {
+          const pattern = (input as any).pattern;
+          const searchPath = (input as any).searchPath || (input as any).search_path;
+          const filePattern = (input as any).filePattern || (input as any).file_pattern;
+
+          if (!pattern) {
+            return 'Error: pattern is required';
+          }
+
           const files = await glob(filePattern || '**/*', {
             cwd: searchPath || process.cwd(),
             nodir: true,
@@ -177,8 +209,8 @@ export class FilesystemToolsService {
         description: 'Search for a pattern in files.',
         schema: z.object({
           pattern: z.string().describe('Regex pattern to search'),
-          searchPath: z.string().optional().describe('Directory to search in'),
-          filePattern: z.string().optional().describe('Glob pattern for files'),
+          search_path: z.string().optional().describe('Directory to search in'),
+          file_pattern: z.string().optional().describe('Glob pattern for files'),
         }),
       },
     );

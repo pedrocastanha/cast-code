@@ -36,13 +36,9 @@ export class ReplService {
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      terminal: true,
+      terminal: false,
       completer: this.completer.bind(this),
     });
-
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
-    }
 
     this.prompt();
   }

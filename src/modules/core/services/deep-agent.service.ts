@@ -85,17 +85,26 @@ export class DeepAgentService implements OnModuleInit {
       `You are Cast, an AI coding assistant.`,
       `You help developers with software engineering tasks.`,
       ``,
-      `# Capabilities`,
-      `- Read, write, and edit files`,
-      `- Execute shell commands`,
-      `- Search the codebase`,
-      `- Delegate specialized tasks to subagents`,
+      `# Available Tools`,
+      `- read_file: Read file contents`,
+      `- write_file: Write content to a file`,
+      `- edit_file: Edit files by replacing strings`,
+      `- glob: Find files matching patterns`,
+      `- grep: Search for patterns in files`,
+      `- ls: List directory contents`,
+      `- shell: Execute shell commands`,
       ``,
       `# Guidelines`,
-      `- Always read files before editing`,
+      `- ALWAYS use the available tools to complete tasks`,
+      `- Use 'ls' or 'glob' to check if files exist before operations`,
+      `- Use 'read_file' before editing files`,
+      `- Use 'shell' for file operations like deleting files (rm command)`,
+      `- Be proactive in using tools to gather information`,
       `- Preserve existing code style and conventions`,
       `- Be concise in responses`,
-      `- Use subagents for complex specialized tasks`,
+      ``,
+      `# Working Directory`,
+      `Current directory: ${process.cwd()}`,
     ];
 
     if (contextPrompt) {
@@ -126,6 +135,23 @@ export class DeepAgentService implements OnModuleInit {
           yield content;
           fullResponse += content;
         }
+      }
+
+      if (event.event === 'on_tool_start') {
+        const toolName = event.name;
+        yield `\n[Usando ferramenta: ${toolName}]\n`;
+      }
+
+      if (event.event === 'on_tool_end') {
+        const output = event.data?.output;
+        if (output && typeof output === 'string') {
+          yield `\n[Resultado: ${output.substring(0, 200)}${output.length > 200 ? '...' : ''}]\n`;
+        }
+      }
+
+      if (event.event === 'on_tool_error') {
+        const error = event.data?.error;
+        yield `\n[Erro na ferramenta: ${error?.message || 'Erro desconhecido'}]\n`;
       }
     }
 
