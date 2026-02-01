@@ -17,3 +17,6 @@ tsconfig.build.json
 .claude
 claude.md
 EXPLANATION.md
+/docs
+docs/
+docs

@@ -186,8 +186,14 @@ export class FilesystemToolsService {
 
   private createLsTool() {
     return tool(
-      async ({ directory }) => {
+      async (input) => {
         try {
+          const directory = (input as any).directory || (input as any).path;
+
+          if (!directory) {
+            return 'Error: directory parameter is required';
+          }
+
           const entries = await fs.readdir(directory, { withFileTypes: true });
 
           return entries.map((e) => `${e.isDirectory() ? 'd' : 'f'} ${e.name}`).join('\n');
@@ -199,7 +205,10 @@ export class FilesystemToolsService {
         name: 'ls',
         description: 'List directory contents.',
         schema: z.object({
-          directory: z.string().describe('Directory path'),
+          directory: z.string().describe('Directory path').optional(),
+          path: z.string().describe('Directory path (alias for directory)').optional(),
+        }).refine(data => data.directory || data.path, {
+          message: 'Either directory or path must be provided',
         }),
       },
     );

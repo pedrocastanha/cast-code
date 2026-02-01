@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { StructuredTool } from '@langchain/core/tools';
 import { FilesystemToolsService } from './filesystem-tools.service';
 import { ShellToolsService } from './shell-tools.service';
 import { SearchToolsService } from './search-tools.service';
+import { TaskToolsService } from '../../tasks/services/task-tools.service';
 
 @Injectable()
 export class ToolsRegistryService {
@@ -12,6 +13,8 @@ export class ToolsRegistryService {
     private readonly filesystemTools: FilesystemToolsService,
     private readonly shellTools: ShellToolsService,
     private readonly searchTools: SearchToolsService,
+    @Inject(forwardRef(() => TaskToolsService))
+    private readonly taskTools: TaskToolsService,
   ) {
     this.registerBuiltInTools();
   }
@@ -21,6 +24,7 @@ export class ToolsRegistryService {
       ...this.filesystemTools.getTools(),
       ...this.shellTools.getTools(),
       ...this.searchTools.getTools(),
+      ...this.taskTools.getTools(),
     ];
 
     for (const t of allTools) {
