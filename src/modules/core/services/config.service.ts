@@ -7,20 +7,26 @@ interface GlobalConfigFrontmatter {
   model?: string;
   temperature?: number;
   apiKey?: string;
+  provider?: string;
+  ollamaBaseUrl?: string;
 }
 
 export interface GlobalConfig {
   model: string;
   temperature: number;
   apiKey: string;
+  provider: string;
+  ollamaBaseUrl: string;
 }
 
 @Injectable()
 export class ConfigService {
   private config: GlobalConfig = {
-    model: DEFAULT_MODEL,
+    model: process.env.OLLAMA_MODEL || DEFAULT_MODEL,
     temperature: DEFAULT_TEMPERATURE,
     apiKey: process.env.OPENAI_API_KEY || '',
+    provider: process.env.LLM_PROVIDER || 'openai',
+    ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   };
 
   constructor(private readonly markdownParser: MarkdownParserService) {}
@@ -33,13 +39,15 @@ export class ConfigService {
         await this.markdownParser.parse<GlobalConfigFrontmatter>(configPath);
 
       this.config = {
-        model: frontmatter.model || this.config.model,
+        model: frontmatter.model || process.env.OLLAMA_MODEL || this.config.model,
         temperature: frontmatter.temperature ?? this.config.temperature,
         apiKey: frontmatter.apiKey || process.env.OPENAI_API_KEY || '',
+        provider: frontmatter.provider || process.env.LLM_PROVIDER || this.config.provider,
+        ollamaBaseUrl: frontmatter.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || this.config.ollamaBaseUrl,
       };
     }
 
-    if (!this.config.apiKey) {
+    if (this.config.provider === 'openai' && !this.config.apiKey) {
       throw new Error(
         'OPENAI_API_KEY not configured. Set it in environment or ~/.cast/config.md',
       );
@@ -60,5 +68,13 @@ export class ConfigService {
 
   getApiKey(): string {
     return this.config.apiKey;
+  }
+
+  getProvider(): string {
+    return this.config.provider;
+  }
+
+  getOllamaBaseUrl(): string {
+    return this.config.ollamaBaseUrl;
   }
 }

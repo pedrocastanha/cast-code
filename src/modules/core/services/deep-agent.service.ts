@@ -1,5 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatOllama } from '@langchain/ollama';
+import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
 import { createDeepAgent } from 'deepagents';
 import { ConfigService } from './config.service';
@@ -52,18 +54,29 @@ export class DeepAgentService implements OnModuleInit {
       await this.skillRegistry.loadProjectSkills(skillsOverridePath);
     }
 
-    const model = new ChatOpenAI({
-      modelName: this.configService.getModel(),
-      temperature: this.configService.getTemperature(),
-      openAIApiKey: this.configService.getApiKey(),
-      streaming: true,
-    });
+    const provider = this.configService.getProvider();
+    let model: BaseChatModel;
+
+    if (provider === 'ollama') {
+      model = new ChatOllama({
+        model: this.configService.getModel(),
+        temperature: this.configService.getTemperature(),
+        baseUrl: this.configService.getOllamaBaseUrl(),
+      });
+    } else {
+      model = new ChatOpenAI({
+        modelName: this.configService.getModel(),
+        temperature: this.configService.getTemperature(),
+        openAIApiKey: this.configService.getApiKey(),
+        streaming: true,
+      });
+    }
 
     const contextPrompt = this.projectContext.getContextPrompt();
     const subagents = this.agentRegistry.getSubagentDefinitions(contextPrompt);
     const tools = this.toolsRegistry.getAllTools();
     const mcpTools = this.mcpRegistry.getAllMcpTools();
-    const systemPrompt = this.buildSystemPrompt(contextPrompt);
+    const systemPrompt = this.buildSystemPrompt(contextPrompt, tools, mcpTools);
 
     this.agent = createDeepAgent({
       model,
@@ -80,32 +93,51 @@ export class DeepAgentService implements OnModuleInit {
     };
   }
 
-  private buildSystemPrompt(contextPrompt: string): string {
+  private buildSystemPrompt(
+    contextPrompt: string,
+    tools: any[],
+    mcpTools: any[],
+  ): string {
     const parts = [
       `You are Cast, an AI coding assistant.`,
       `You help developers with software engineering tasks.`,
       ``,
       `# Available Tools`,
-      `- read_file: Read file contents`,
-      `- write_file: Write content to a file`,
-      `- edit_file: Edit files by replacing strings`,
-      `- glob: Find files matching patterns`,
-      `- grep: Search for patterns in files`,
-      `- ls: List directory contents`,
-      `- shell: Execute shell commands`,
+      `You have access to the following tools to complete tasks:`,
       ``,
+    ];
+
+    // Adiciona ferramentas built-in
+    if (tools.length > 0) {
+      parts.push(`## Built-in Tools`);
+      tools.forEach((tool) => {
+        parts.push(`- ${tool.name}: ${tool.description}`);
+      });
+      parts.push(``);
+    }
+
+    // Adiciona ferramentas MCP
+    if (mcpTools.length > 0) {
+      parts.push(`## MCP (Model Context Protocol) Tools`);
+      parts.push(`These tools are provided by MCP servers and give you access to external services:`);
+      mcpTools.forEach((tool) => {
+        parts.push(`- ${tool.name}: ${tool.description}`);
+      });
+      parts.push(``);
+    }
+
+    parts.push(
       `# Guidelines`,
       `- ALWAYS use the available tools to complete tasks`,
-      `- Use 'ls' or 'glob' to check if files exist before operations`,
-      `- Use 'read_file' before editing files`,
-      `- Use 'shell' for file operations like deleting files (rm command)`,
+      `- Use glob to find files and grep to search content`,
+      `- Use read_file before editing files to understand the current content`,
       `- Be proactive in using tools to gather information`,
       `- Preserve existing code style and conventions`,
-      `- Be concise in responses`,
+      `- Be concise in responses but thorough in your work`,
       ``,
       `# Working Directory`,
       `Current directory: ${process.cwd()}`,
-    ];
+    );
 
     if (contextPrompt) {
       parts.push('', contextPrompt);
