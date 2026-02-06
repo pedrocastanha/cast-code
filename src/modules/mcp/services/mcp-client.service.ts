@@ -244,7 +244,6 @@ export class McpClientService extends EventEmitter {
     const connection = this.connections.get(name);
     if (!connection) return false;
 
-    // Kill existing process if any
     if (connection.process) {
       try {
         (connection.process as ChildProcess).kill();
