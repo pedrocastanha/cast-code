@@ -284,20 +284,24 @@ export class FilesystemToolsService {
     return tool(
       async ({ pattern, cwd }) => {
         try {
-          const searchDir = cwd || process.cwd();
+          const searchDir = cwd
+            ? (path.isAbsolute(cwd) ? cwd : path.resolve(process.cwd(), cwd))
+            : process.cwd();
+
           const files = await glob(pattern, {
             cwd: searchDir,
             ignore: DEFAULT_IGNORE,
           });
 
           if (files.length === 0) {
-            return `No files found matching "${pattern}" in ${searchDir}`;
+            return `No files found matching "${pattern}" in ${searchDir}.\nTip: The working directory is ${process.cwd()}. Use "**/*.ext" to search recursively.`;
           }
 
           const sorted = files.sort();
           const limited = sorted.slice(0, 200);
 
-          let result = limited.join('\n');
+          let result = `Found ${sorted.length} file(s) matching "${pattern}" in ${searchDir}:\n\n`;
+          result += limited.join('\n');
           if (sorted.length > 200) {
             result += `\n\n... (${sorted.length - 200} more files. Use a more specific pattern.)`;
           }
@@ -318,7 +322,7 @@ export class FilesystemToolsService {
           cwd: z
             .string()
             .optional()
-            .describe('Working directory (default: project root)'),
+            .describe('Working directory (default: project root). Can be relative or absolute.'),
         }),
       },
     );
@@ -354,7 +358,12 @@ export class FilesystemToolsService {
           });
 
           const flags = caseSensitive ? 'g' : 'gi';
-          const regex = new RegExp(pattern, flags);
+          let regex: RegExp;
+          try {
+            regex = new RegExp(pattern, flags);
+          } catch (regexError) {
+            return `Error: Invalid regex pattern "${pattern}": ${(regexError as Error).message}. Use a valid JavaScript regex.`;
+          }
 
           if (outputMode === 'files_with_matches') {
             const matchingFiles: string[] = [];
@@ -513,6 +522,9 @@ export class FilesystemToolsService {
             .sort((a, b) => a.name.localeCompare(b.name));
 
           const lines = [
+            `Directory: ${resolvedPath}`,
+            `${dirs.length} directories, ${files.length} files`,
+            '',
             ...dirs.map((e) => `d ${e.name}/`),
             ...files.map((e) => `f ${e.name}`),
           ];

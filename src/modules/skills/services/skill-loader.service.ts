@@ -25,13 +25,19 @@ export class SkillLoaderService implements OnModuleInit {
 
     const parsed = await this.markdownParser.parseAll<SkillFrontmatter>(this.definitionsPath);
 
-    for (const [name, { frontmatter, content }] of parsed) {
-      this.skills.set(name, {
-        name: frontmatter.name || name,
+    for (const [relativePath, { frontmatter, content }] of parsed) {
+      const shortName = frontmatter.name || relativePath.split('/').pop() || relativePath;
+      const skillDef: SkillDefinition = {
+        name: shortName,
         description: frontmatter.description || '',
         tools: frontmatter.tools || [],
         guidelines: content,
-      });
+      };
+
+      this.skills.set(relativePath, skillDef);
+      if (shortName !== relativePath) {
+        this.skills.set(shortName, skillDef);
+      }
     }
   }
 

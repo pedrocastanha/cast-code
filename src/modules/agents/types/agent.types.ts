@@ -1,3 +1,5 @@
+import { StructuredTool } from '@langchain/core/tools';
+
 export interface AgentFrontmatter {
   name: string;
   description: string;
@@ -22,7 +24,7 @@ export interface ResolvedAgent {
   description: string;
   model: string;
   temperature: number;
-  tools: unknown[];
+  tools: StructuredTool[];
   systemPrompt: string;
   mcp: string[];
 }
@@ -31,5 +33,5 @@ export interface SubagentDefinition {
   name: string;
   description: string;
   systemPrompt: string;
-  tools: unknown[];
+  tools: StructuredTool[];
 }

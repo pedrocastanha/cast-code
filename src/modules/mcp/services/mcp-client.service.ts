@@ -6,6 +6,8 @@ import { McpConfig, McpTool, McpConnection } from '../types';
 @Injectable()
 export class McpClientService extends EventEmitter {
   private connections: Map<string, McpConnection> = new Map();
+  private stdioBuffers: Map<string, string> = new Map();
+  private requestIdCounter = 0;
 
   async connect(name: string, config: McpConfig): Promise<boolean> {
     if (this.connections.has(name)) {
@@ -27,14 +29,14 @@ export class McpClientService extends EventEmitter {
       if (config.type === 'stdio' && config.command) {
         await this.connectStdio(name, connection);
       } else if (config.type === 'sse' && config.endpoint) {
-        await this.connectSse(name, connection);
+        throw new Error('SSE transport not yet supported. Use stdio or http instead.');
       } else if (config.type === 'http' && config.endpoint) {
         await this.connectHttp(name, connection);
       }
 
       connection.status = 'connected';
       return true;
-    } catch {
+    } catch (error) {
       connection.status = 'error';
       return false;
     }
@@ -49,18 +51,42 @@ export class McpClientService extends EventEmitter {
     });
 
     connection.process = proc;
+    this.stdioBuffers.set(name, '');
 
     proc.stdout?.on('data', (data: Buffer) => {
-      this.handleMessage(name, data.toString());
+      const buffer = (this.stdioBuffers.get(name) || '') + data.toString();
+      const lines = buffer.split('\n');
+
+      this.stdioBuffers.set(name, lines.pop() || '');
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const parsed = JSON.parse(trimmed);
+          this.emit(`response:${name}`, parsed);
+        } catch {
+        }
+      }
     });
 
     proc.stderr?.on('data', (data: Buffer) => {
-      console.error(`MCP ${name} stderr:`, data.toString());
+      const msg = data.toString().trim();
+      if (msg && !msg.startsWith('Debugger') && !msg.startsWith('Warning')) {
+        console.error(`MCP ${name} stderr:`, msg);
+      }
     });
 
-    proc.on('close', () => {
+    proc.on('close', (code) => {
       connection.status = 'disconnected';
+      this.stdioBuffers.delete(name);
       this.emit('disconnected', name);
+
+      if (code !== null && code !== 0) {
+        setTimeout(() => {
+          this.reconnect(name).catch(() => {});
+        }, 3000);
+      }
     });
 
     await this.sendRequest(name, 'initialize', {
@@ -73,29 +99,49 @@ export class McpClientService extends EventEmitter {
     connection.tools = toolsResponse?.tools || [];
   }
 
-  private async connectSse(name: string, connection: McpConnection): Promise<void> {
-    connection.tools = [];
-  }
-
   private async connectHttp(name: string, connection: McpConnection): Promise<void> {
-    const response = await fetch(`${connection.config.endpoint}/tools/list`, {
+    const endpoint = connection.config.endpoint!;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (connection.config.env?.AUTH_TOKEN) {
+      headers['Authorization'] = `Bearer ${connection.config.env.AUTH_TOKEN}`;
+    }
+
+    const initResponse = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: this.nextId(),
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'cast-code', version: '1.0.0' },
+        },
+      }),
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      connection.tools = data.tools || [];
+    if (!initResponse.ok) {
+      throw new Error(`HTTP MCP init failed: ${initResponse.status} ${initResponse.statusText}`);
     }
-  }
 
-  private handleMessage(name: string, message: string) {
-    try {
-      const parsed = JSON.parse(message);
-      this.emit(`response:${name}`, parsed);
-    } catch {
-      throw new TypeError('Invalid JSON message received from MCP');
+    const toolsResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: this.nextId(),
+        method: 'tools/list',
+        params: {},
+      }),
+    });
+
+    if (toolsResponse.ok) {
+      const data = await toolsResponse.json();
+      connection.tools = data.result?.tools || data.tools || [];
     }
   }
 
@@ -111,11 +157,13 @@ export class McpClientService extends EventEmitter {
     }
 
     return new Promise((resolve) => {
-      const id = Date.now().toString();
+      const id = this.nextId();
       const request = JSON.stringify({ jsonrpc: '2.0', id, method, params });
+      let resolved = false;
 
       const handler = (response: any) => {
-        if (response.id === id) {
+        if (response.id === id && !resolved) {
+          resolved = true;
           this.off(`response:${name}`, handler);
           resolve(response.result);
         }
@@ -125,9 +173,12 @@ export class McpClientService extends EventEmitter {
       (connection.process as ChildProcess).stdin?.write(request + '\n');
 
       setTimeout(() => {
-        this.off(`response:${name}`, handler);
-        resolve(null);
-      }, 10000);
+        if (!resolved) {
+          resolved = true;
+          this.off(`response:${name}`, handler);
+          resolve(null);
+        }
+      }, 15000);
     });
   }
 
@@ -147,12 +198,27 @@ export class McpClientService extends EventEmitter {
     }
 
     if (connection.config.type === 'http') {
-      const response = await fetch(`${connection.config.endpoint}/tools/call`, {
+      const endpoint = connection.config.endpoint!;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (connection.config.env?.AUTH_TOKEN) {
+        headers['Authorization'] = `Bearer ${connection.config.env.AUTH_TOKEN}`;
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: toolName, arguments: args }),
+        headers,
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: this.nextId(),
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+        }),
       });
-      return response.json();
+
+      const data = await response.json();
+      return data.result || data;
     }
 
     return null;
@@ -162,6 +228,45 @@ export class McpClientService extends EventEmitter {
     return this.connections.get(name)?.tools || [];
   }
 
+  getStatus(name: string): string {
+    return this.connections.get(name)?.status || 'unknown';
+  }
+
+  getAllStatuses(): Map<string, string> {
+    const statuses = new Map<string, string>();
+    for (const [name, conn] of this.connections) {
+      statuses.set(name, conn.status);
+    }
+    return statuses;
+  }
+
+  private async reconnect(name: string): Promise<boolean> {
+    const connection = this.connections.get(name);
+    if (!connection) return false;
+
+    // Kill existing process if any
+    if (connection.process) {
+      try {
+        (connection.process as ChildProcess).kill();
+      } catch {}
+    }
+
+    connection.status = 'connecting';
+    try {
+      if (connection.config.type === 'stdio') {
+        await this.connectStdio(name, connection);
+      } else if (connection.config.type === 'http') {
+        await this.connectHttp(name, connection);
+      }
+      connection.status = 'connected';
+      this.emit('reconnected', name);
+      return true;
+    } catch {
+      connection.status = 'error';
+      return false;
+    }
+  }
+
   disconnect(name: string) {
     const connection = this.connections.get(name);
 
@@ -169,6 +274,7 @@ export class McpClientService extends EventEmitter {
       (connection.process as ChildProcess).kill();
     }
 
+    this.stdioBuffers.delete(name);
     this.connections.delete(name);
   }
 
@@ -176,5 +282,9 @@ export class McpClientService extends EventEmitter {
     for (const name of this.connections.keys()) {
       this.disconnect(name);
     }
+  }
+
+  private nextId(): string {
+    return `${++this.requestIdCounter}`;
   }
 }

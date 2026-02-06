@@ -192,19 +192,21 @@ export class SmartInput {
 
   private handleInputData(data: string) {
     let needsRender = false;
+    let bufferChanged = false;
     let i = 0;
 
     while (i < data.length) {
       if (data[i] === '\x1b' && data[i + 1] === '[') {
         const rest = data.slice(i);
 
+        // Navigation keys: render but DON'T recompute suggestions
         if (rest.startsWith('\x1b[A'))  { this.keyUp();    i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[B'))  { this.keyDown();  i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[C'))  { this.keyRight(); i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[D'))  { this.keyLeft();  i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[H'))  { this.cursor = 0; i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[F'))  { this.cursor = this.buffer.length; i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[3~')) { this.keyDelete(); i += 4; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[3~')) { this.keyDelete(); i += 4; needsRender = true; bufferChanged = true; continue; }
 
         i++;
         continue;
@@ -217,9 +219,9 @@ export class SmartInput {
         case 0x0a:
           this.keyEnter();
           i++;
-          continue; // Enter trata render internamente
+          continue; // Enter handles render internally
 
-        case 0x09: // Tab
+        case 0x09: // Tab — navigate/accept, don't recompute
           this.keyTab();
           needsRender = true;
           break;
@@ -228,6 +230,7 @@ export class SmartInput {
         case 0x08:
           this.keyBackspace();
           needsRender = true;
+          bufferChanged = true;
           break;
 
         case 0x03: // Ctrl+C
@@ -250,15 +253,17 @@ export class SmartInput {
           needsRender = true;
           break;
 
-        case 0x15: // Ctrl+U (limpa antes do cursor)
+        case 0x15: // Ctrl+U (clear before cursor)
           this.buffer = this.buffer.slice(this.cursor);
           this.cursor = 0;
           needsRender = true;
+          bufferChanged = true;
           break;
 
-        case 0x0b: // Ctrl+K (limpa após cursor)
+        case 0x0b: // Ctrl+K (clear after cursor)
           this.buffer = this.buffer.slice(0, this.cursor);
           needsRender = true;
+          bufferChanged = true;
           break;
 
         case 0x01: // Ctrl+A (home)
@@ -274,6 +279,7 @@ export class SmartInput {
         case 0x17: // Ctrl+W (delete word back)
           this.deleteWordBack();
           needsRender = true;
+          bufferChanged = true;
           break;
 
         default:
@@ -284,6 +290,7 @@ export class SmartInput {
               this.buffer.slice(this.cursor);
             this.cursor++;
             needsRender = true;
+            bufferChanged = true;
           }
       }
 
@@ -291,7 +298,11 @@ export class SmartInput {
     }
 
     if (needsRender) {
-      this.computeSuggestions();
+      // Only recompute suggestions when buffer content changed
+      // Navigation keys (arrows, Tab) should NOT reset the selected index
+      if (bufferChanged) {
+        this.computeSuggestions();
+      }
       this.render();
     }
   }
@@ -365,8 +376,12 @@ export class SmartInput {
   private keyTab() {
     if (this.suggestions.length > 0) {
       if (this.selectedIndex < 0) {
+        // First Tab: select first suggestion and accept it immediately
         this.selectedIndex = 0;
+        this.acceptSuggestion();
+        this.computeSuggestions();
       } else {
+        // Subsequent Tab: accept current selection
         this.acceptSuggestion();
         this.computeSuggestions();
       }
@@ -437,6 +452,11 @@ export class SmartInput {
     }
 
     this.selectedIndex = -1;
+
+    // If accepted a directory (ends with /), keep showing suggestions for navigation
+    if (s.text.endsWith('/')) {
+      this.computeSuggestions();
+    }
   }
 
   private computeSuggestions() {

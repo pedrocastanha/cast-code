@@ -226,14 +226,56 @@ export class DeepAgentService implements OnModuleInit {
       `  - Better to ask than to guess wrong!`,
       `  - Use type="confirm" for yes/no, "choice" for options, "text" for open input`,
       ``,
-      `## Planning`,
-      `- Use **enter_plan_mode** for complex tasks that need planning before execution`,
-      `- Use **exit_plan_mode** to present the plan for user approval`,
+      `## Planning (CRITICAL)`,
+      `- Use **enter_plan_mode** BEFORE executing complex tasks (3+ files, new features, refactoring)`,
+      `- In plan mode: explore the codebase thoroughly, then write a step-by-step plan`,
+      `- Use **exit_plan_mode** to present the plan for user approval before executing`,
+      `- ALWAYS plan before you act on complex requests. Never jump straight to editing.`,
       ``,
       `## Memory`,
       `- Use **memory_write** to save important learnings and project insights`,
       `- Use **memory_read** to recall previously saved notes`,
       `- Memory persists across sessions — use it to avoid repeating mistakes`,
+      ``,
+    );
+
+    parts.push(
+      `# Execution Protocol`,
+      ``,
+      `## When the user asks you to "understand", "explore", or "analyze" the project:`,
+      `1. FIRST: ls the root directory to see the project structure`,
+      `2. SECOND: Read key config files (package.json, tsconfig.json, pyproject.toml, Cargo.toml, etc.)`,
+      `3. THIRD: Use glob to map the full directory tree: glob("**/*", with key patterns)`,
+      `4. FOURTH: Read the most important files (entry points, main modules, README)`,
+      `5. FIFTH: Present a structured summary with:`,
+      `   - Project type and framework`,
+      `   - Directory structure overview`,
+      `   - Key modules and their purpose`,
+      `   - Dependencies and patterns used`,
+      `   - Architecture diagram (if applicable)`,
+      `Do NOT stop after reading 1-2 files. Be EXHAUSTIVE. Read as many files as needed.`,
+      ``,
+      `## When the user asks you to implement something:`,
+      `1. FIRST: Understand the current codebase (read relevant files)`,
+      `2. SECOND: If the task touches 3+ files, use enter_plan_mode`,
+      `3. THIRD: Create a task list with task_create for each step`,
+      `4. FOURTH: Execute each step, marking tasks as completed`,
+      `5. FIFTH: Verify your changes (re-read edited files, run tests if available)`,
+      `6. SIXTH: Summarize what was done`,
+      ``,
+      `## Tool Chain Patterns (use these sequences):`,
+      `- **Find something**: glob → grep → read_file`,
+      `- **Edit a file**: read_file → edit_file → read_file (verify)`,
+      `- **Explore a module**: ls → glob("module/**/*") → read_file (multiple key files)`,
+      `- **Debug an issue**: grep (error message) → read_file → edit_file → shell (test)`,
+      `- **New feature**: enter_plan_mode → task_create → [implement] → shell (test) → exit_plan_mode`,
+      ``,
+      `## Thoroughness Rules:`,
+      `- NEVER give up after one failed search. Try different patterns, directories, and approaches.`,
+      `- ALWAYS verify your changes by re-reading the file after editing.`,
+      `- If tests exist, run them after making changes: shell("npm test") or equivalent.`,
+      `- When you encounter an error, analyze it and try to fix it — don't just report it.`,
+      `- If a task is complex, break it into subtasks with task_create.`,
       ``,
     );
 
@@ -293,73 +335,227 @@ export class DeepAgentService implements OnModuleInit {
     return parts.join('\n');
   }
 
+  private formatToolStart(toolName: string, input: any): string {
+    const dim = '\x1b[2m';
+    const cyan = '\x1b[36m';
+    const reset = '\x1b[0m';
+    const icon = '\u23bf';
+
+    let detail = '';
+
+    switch (toolName) {
+      case 'read_file':
+        detail = input?.file_path ? ` ${input.file_path}` : '';
+        break;
+      case 'write_file':
+        detail = input?.file_path ? ` ${input.file_path}` : '';
+        break;
+      case 'edit_file':
+        detail = input?.file_path ? ` ${input.file_path}` : '';
+        break;
+      case 'glob':
+        detail = input?.pattern ? ` ${input.pattern}` : '';
+        if (input?.cwd) detail += ` in ${input.cwd}`;
+        break;
+      case 'grep':
+        detail = input?.pattern ? ` "${input.pattern}"` : '';
+        if (input?.file_pattern) detail += ` (${input.file_pattern})`;
+        break;
+      case 'shell':
+        if (input?.command) {
+          const cmd = input.command.length > 80 ? input.command.slice(0, 80) + '...' : input.command;
+          detail = ` ${cmd}`;
+        }
+        break;
+      case 'shell_background':
+        if (input?.command) {
+          const cmd = input.command.length > 60 ? input.command.slice(0, 60) + '...' : input.command;
+          detail = ` ${cmd}`;
+        }
+        break;
+      case 'ls':
+        detail = ` ${input?.directory || input?.path || '.'}`;
+        break;
+      case 'web_search':
+        detail = input?.query ? ` "${input.query}"` : '';
+        break;
+      case 'web_fetch':
+        detail = input?.url ? ` ${input.url}` : '';
+        break;
+      case 'task_create':
+        detail = input?.title ? ` "${input.title}"` : '';
+        break;
+      case 'task_update':
+        detail = input?.id ? ` #${input.id} → ${input?.status || ''}` : '';
+        break;
+      case 'task_list':
+        detail = '';
+        break;
+      case 'task_get':
+        detail = input?.id ? ` #${input.id}` : '';
+        break;
+      case 'ask_user_question':
+        detail = input?.question ? ` "${input.question.slice(0, 50)}${input.question.length > 50 ? '...' : ''}"` : '';
+        break;
+      case 'enter_plan_mode':
+        detail = ' Starting plan...';
+        break;
+      case 'exit_plan_mode':
+        detail = ' Submitting plan';
+        break;
+      case 'memory_write':
+        detail = input?.key ? ` ${input.key}` : '';
+        break;
+      case 'memory_read':
+        detail = input?.key ? ` ${input.key}` : '';
+        break;
+      case 'memory_search':
+        detail = input?.query ? ` "${input.query}"` : '';
+        break;
+      default:
+        if (input) {
+          const keys = Object.keys(input);
+          if (keys.length > 0) {
+            const firstVal = String(input[keys[0]]).slice(0, 60);
+            detail = ` ${keys[0]}=${firstVal}`;
+          }
+        }
+    }
+
+    return `\n${dim}  ${cyan}${icon}${reset}${dim} ${toolName}${detail}${reset}\n`;
+  }
+
+  private formatToolEnd(toolName: string, output: string): string {
+    if (!output || output.length === 0) return '';
+
+    const dim = '\x1b[2m';
+    const green = '\x1b[32m';
+    const reset = '\x1b[0m';
+
+    switch (toolName) {
+      case 'read_file': {
+        const lineCount = output.split('\n').length;
+        return `${dim}    ${green}\u2713${reset}${dim} ${lineCount} lines${reset}\n`;
+      }
+      case 'write_file':
+        return `${dim}    ${green}\u2713${reset}${dim} ${output.slice(0, 120)}${reset}\n`;
+      case 'edit_file': {
+        if (output.startsWith('Error')) {
+          return `${dim}    \x1b[31m${output.slice(0, 150)}${reset}\n`;
+        }
+        return `${dim}    ${green}\u2713${reset}${dim} ${output.slice(0, 120)}${reset}\n`;
+      }
+      case 'glob': {
+        const lines = output.split('\n').filter(l => l.trim());
+        const fileCount = lines.length;
+        const preview = lines.slice(0, 5).map(l => `${dim}    ${l.slice(0, 100)}${reset}`).join('\n');
+        const more = fileCount > 5 ? `\n${dim}    ... (${fileCount - 5} more)${reset}` : '';
+        return `${preview}${more}\n`;
+      }
+      case 'grep': {
+        const lines = output.split('\n').filter(l => l.trim());
+        const preview = lines.slice(0, 5).map(l => `${dim}    ${l.slice(0, 120)}${reset}`).join('\n');
+        const more = lines.length > 5 ? `\n${dim}    ... (${lines.length - 5} more)${reset}` : '';
+        return `${preview}${more}\n`;
+      }
+      case 'shell':
+      case 'shell_background': {
+        const lines = output.split('\n');
+        const preview = lines.slice(0, 8).map(l => `${dim}    ${l.slice(0, 150)}${reset}`).join('\n');
+        const more = lines.length > 8 ? `\n${dim}    ... (${lines.length - 8} more lines)${reset}` : '';
+        return `${preview}${more}\n`;
+      }
+      case 'ls': {
+        const lines = output.split('\n').filter(l => l.trim());
+        const preview = lines.slice(0, 10).map(l => `${dim}    ${l}${reset}`).join('\n');
+        const more = lines.length > 10 ? `\n${dim}    ... (${lines.length - 10} more)${reset}` : '';
+        return `${preview}${more}\n`;
+      }
+      default: {
+        const lines = output.split('\n');
+        const preview = lines.slice(0, 3).map(l => `${dim}    ${l.slice(0, 120)}${reset}`).join('\n');
+        const more = lines.length > 3 ? `\n${dim}    ... (${lines.length - 3} more lines)${reset}` : '';
+        return `${preview}${more}\n`;
+      }
+    }
+  }
+
   async *chat(message: string): AsyncGenerator<string> {
     this.messages.push(new HumanMessage(message));
 
-    const stream = this.agent.streamEvents(
-      {
-        messages: this.messages,
-      },
-      {
-        version: 'v2',
-      }
-    );
+    let stream: any;
+    try {
+      stream = this.agent.streamEvents(
+        {
+          messages: this.messages,
+        },
+        {
+          version: 'v2',
+        }
+      );
+    } catch (error) {
+      yield `\n\x1b[31m  Error starting agent: ${(error as Error).message}\x1b[0m\n`;
+      return;
+    }
 
     let fullResponse = '';
+    let lastToolName = '';
+    let interactionInputTokens = 0;
+    let interactionOutputTokens = 0;
 
-    for await (const event of stream) {
-      if (event.event === 'on_chat_model_stream' && event.data?.chunk?.content) {
-        const content = event.data.chunk.content;
-        if (typeof content === 'string' && content) {
-          yield content;
-          fullResponse += content;
-        }
-      }
-
-      if (event.event === 'on_tool_start') {
-        const toolName = event.name;
-        const input = event.data?.input;
-        let detail = '';
-
-        if (toolName === 'read_file' && input?.file_path) {
-          detail = ` ${input.file_path}`;
-        } else if (toolName === 'write_file' && input?.file_path) {
-          detail = ` ${input.file_path}`;
-        } else if (toolName === 'edit_file' && input?.file_path) {
-          detail = ` ${input.file_path}`;
-        } else if (toolName === 'glob' && input?.pattern) {
-          detail = ` ${input.pattern}`;
-        } else if (toolName === 'grep' && input?.pattern) {
-          detail = ` "${input.pattern}"`;
-        } else if (toolName === 'shell' && input?.command) {
-          const cmd = input.command.length > 60 ? input.command.slice(0, 60) + '...' : input.command;
-          detail = ` ${cmd}`;
-        } else if (toolName === 'ls' && input?.directory) {
-          detail = ` ${input.directory}`;
+    try {
+      for await (const event of stream) {
+        if (event.event === 'on_chat_model_stream' && event.data?.chunk?.content) {
+          const content = event.data.chunk.content;
+          if (typeof content === 'string' && content) {
+            yield content;
+            fullResponse += content;
+          }
         }
 
-        yield `\n\x1b[2m  \u23bf ${toolName}${detail}\x1b[0m\n`;
-      }
+        if (event.event === 'on_llm_end') {
+          const usage = event.data?.output?.llmOutput?.tokenUsage
+            || event.data?.output?.llmOutput?.usage
+            || event.data?.output?.usage_metadata;
+          if (usage) {
+            interactionInputTokens += usage.promptTokens || usage.input_tokens || 0;
+            interactionOutputTokens += usage.completionTokens || usage.output_tokens || 0;
+          }
+        }
 
-      if (event.event === 'on_tool_end') {
-        const output = event.data?.output;
-        if (output && typeof output === 'string' && output.length > 0) {
-          const lines = output.split('\n');
-          const previewLines = lines.slice(0, 3);
-          const preview = previewLines.map(l => `\x1b[2m    ${l.slice(0, 120)}\x1b[0m`).join('\n');
-          const more = lines.length > 3 ? `\n\x1b[2m    ... (${lines.length - 3} more lines)\x1b[0m` : '';
-          yield `${preview}${more}\n`;
+        if (event.event === 'on_tool_start') {
+          lastToolName = event.name;
+          yield this.formatToolStart(event.name, event.data?.input);
+        }
+
+        if (event.event === 'on_tool_end') {
+          const output = event.data?.output;
+          if (output && typeof output === 'string') {
+            yield this.formatToolEnd(lastToolName, output);
+          }
+        }
+
+        if (event.event === 'on_tool_error') {
+          const error = event.data?.error;
+          yield `\n\x1b[31m  \u2717 Error: ${error?.message || 'Unknown error'}\x1b[0m\n`;
         }
       }
-
-      if (event.event === 'on_tool_error') {
-        const error = event.data?.error;
-        yield `\n\x1b[31m  \u2717 Error: ${error?.message || 'Unknown error'}\x1b[0m\n`;
+    } catch (error) {
+      const msg = (error as Error).message;
+      if (!msg.includes('abort') && !msg.includes('cancel')) {
+        yield `\n\x1b[31m  Stream error: ${msg}\x1b[0m\n`;
       }
     }
 
     if (fullResponse) {
       this.messages.push(new AIMessage(fullResponse));
+    }
+
+    this.tokenCount += interactionInputTokens + interactionOutputTokens;
+
+    if (interactionInputTokens > 0 || interactionOutputTokens > 0) {
+      const fmt = (n: number) => n.toLocaleString();
+      yield `\n\x1b[2m  \u2500 tokens: ${fmt(interactionInputTokens)} in / ${fmt(interactionOutputTokens)} out (session: ${fmt(this.tokenCount)})\x1b[0m\n`;
     }
   }
 
@@ -374,5 +570,9 @@ export class DeepAgentService implements OnModuleInit {
 
   getMessageCount(): number {
     return this.messages.length;
+  }
+
+  getTokenCount(): number {
+    return this.tokenCount;
   }
 }

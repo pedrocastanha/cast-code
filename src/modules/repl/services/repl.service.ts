@@ -131,31 +131,62 @@ export class ReplService {
   }
 
   private getMentionSuggestions(partial: string): Suggestion[] {
-    if (partial === '' || partial.startsWith('g')) {
-      const opts: Suggestion[] = [
-        { text: '@git:status', display: '@git:status', description: 'Git status' },
-        { text: '@git:diff',   display: '@git:diff',   description: 'Git diff' },
-        { text: '@git:log',    display: '@git:log',     description: 'Git log' },
-        { text: '@git:branch', display: '@git:branch',  description: 'Branches' },
-        { text: '@git:stash',  display: '@git:stash',   description: 'Stash list' },
-      ];
+    const gitOpts: Suggestion[] = [
+      { text: '@git:status', display: '@git:status', description: 'Git status' },
+      { text: '@git:diff',   display: '@git:diff',   description: 'Git diff' },
+      { text: '@git:log',    display: '@git:log',     description: 'Git log' },
+      { text: '@git:branch', display: '@git:branch',  description: 'Branches' },
+      { text: '@git:stash',  display: '@git:stash',   description: 'Stash list' },
+    ];
 
-      if (partial === '') {
-        return [...opts, ...this.getFileEntries('', '')];
+    if (partial === '') {
+      return [...gitOpts, ...this.getFileEntries('')];
+    }
+
+    if (partial.startsWith('git:') || partial === 'git') {
+      return gitOpts.filter(o => o.text.startsWith('@' + partial));
+    }
+
+    if (partial.includes('/')) {
+      const results = this.getFileEntries(partial);
+      if (partial.startsWith('g')) {
+        return [...gitOpts.filter(o => o.text.startsWith('@' + partial)), ...results];
       }
+      return results;
+    }
 
-      if (partial.startsWith('git')) {
-        return opts.filter(o => o.text.startsWith('@' + partial));
+    const dirEntries = this.getFileEntries(partial);
+    const fuzzyEntries = this.getFuzzyFileEntries(partial);
+
+    const seen = new Set(dirEntries.map(e => e.text));
+    const merged = [...dirEntries];
+    for (const entry of fuzzyEntries) {
+      if (!seen.has(entry.text)) {
+        merged.push(entry);
+        seen.add(entry.text);
       }
     }
 
-    return this.getFileEntries(partial, partial);
+    const matchingGit = gitOpts.filter(o => o.text.startsWith('@' + partial));
+    return [...matchingGit, ...merged].slice(0, 30);
   }
 
-  private getFileEntries(partial: string, _filterPrefix: string): Suggestion[] {
+  private getFileEntries(partial: string): Suggestion[] {
     try {
-      const dir = partial.includes('/') ? path.dirname(partial) : '.';
-      const prefix = partial.includes('/') ? path.basename(partial) : partial;
+      let dir: string;
+      let prefix: string;
+
+      if (partial.endsWith('/')) {
+        dir = partial.slice(0, -1) || '.';
+        prefix = '';
+      } else if (partial.includes('/')) {
+        dir = path.dirname(partial);
+        prefix = path.basename(partial);
+      } else {
+        dir = '.';
+        prefix = partial;
+      }
+
       const resolved = path.resolve(process.cwd(), dir);
 
       if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
@@ -163,22 +194,69 @@ export class ReplService {
       }
 
       const entries = fs.readdirSync(resolved, { withFileTypes: true });
-      const ignore = ['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__'];
+      const ignore = ['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__', '.cache'];
 
       return entries
         .filter(e => !ignore.includes(e.name))
-        .filter(e => !e.name.startsWith('.') || partial.startsWith('.'))
-        .filter(e => e.name.startsWith(prefix))
+        .filter(e => !e.name.startsWith('.') || partial.startsWith('.') || prefix.startsWith('.'))
+        .filter(e => prefix === '' || e.name.toLowerCase().startsWith(prefix.toLowerCase()))
         .map(e => {
-          const rel = dir === '.' ? e.name : `${dir}/${e.name}`;
+          const relDir = dir === '.' ? '' : dir + '/';
           const isDir = e.isDirectory();
           return {
-            text: '@' + rel + (isDir ? '/' : ''),
-            display: '@' + rel + (isDir ? '/' : ''),
+            text: '@' + relDir + e.name + (isDir ? '/' : ''),
+            display: '@' + relDir + e.name + (isDir ? '/' : ''),
             description: isDir ? 'dir' : '',
           };
         })
-        .slice(0, 20);
+        .slice(0, 30);
+    } catch {
+      return [];
+    }
+  }
+
+  private getFuzzyFileEntries(partial: string): Suggestion[] {
+    if (!partial || partial.length < 2) return [];
+
+    try {
+      const cwd = process.cwd();
+      const ignore = new Set(['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__', '.cache']);
+      const results: Suggestion[] = [];
+      const needle = partial.toLowerCase();
+
+      const searchDir = (dir: string, relPrefix: string, depth: number) => {
+        if (depth > 2 || results.length >= 30) return;
+
+        let entries: fs.Dirent[];
+        try {
+          entries = fs.readdirSync(path.resolve(cwd, dir), { withFileTypes: true });
+        } catch {
+          return;
+        }
+
+        for (const e of entries) {
+          if (results.length >= 30) break;
+          if (ignore.has(e.name) || (e.name.startsWith('.') && !partial.startsWith('.'))) continue;
+
+          const rel = relPrefix ? relPrefix + '/' + e.name : e.name;
+          const isDir = e.isDirectory();
+
+          if (e.name.toLowerCase().includes(needle)) {
+            results.push({
+              text: '@' + rel + (isDir ? '/' : ''),
+              display: '@' + rel + (isDir ? '/' : ''),
+              description: isDir ? 'dir' : '',
+            });
+          }
+
+          if (isDir) {
+            searchDir(rel, rel, depth + 1);
+          }
+        }
+      };
+
+      searchDir('.', '', 0);
+      return results;
     } catch {
       return [];
     }
@@ -395,11 +473,14 @@ export class ReplService {
         w(`  ${C.dim}No agents loaded.${C.reset}\r\n`);
         w(`  ${C.dim}Create one with /agents create or add .md files to .cast/definitions/agents/${C.reset}\r\n`);
       } else {
+        const maxName = Math.max(...agents.map(a => a.name.length));
         for (const a of agents) {
-          w(`  ${C.cyan}${a.name}${C.reset}  ${C.dim}${a.description}${C.reset}\r\n`);
+          const toolNames = (a.tools as any[]).map((t: any) => t.name).join(', ');
+          const toolsInfo = toolNames ? ` ${C.dim}[${toolNames}]${C.reset}` : '';
+          w(`  ${C.cyan}${a.name}${C.reset}${' '.repeat(maxName - a.name.length + 2)}${C.dim}${a.description}${C.reset}${toolsInfo}\r\n`);
         }
       }
-      w(`\r\n  ${C.dim}/agents create - create a new agent${C.reset}\r\n\r\n`);
+      w(`\r\n  ${C.dim}/agents <name> - agent details  |  /agents create - new agent${C.reset}\r\n\r\n`);
       return;
     }
 
@@ -410,12 +491,12 @@ export class ReplService {
 
     const agent = this.agentRegistry.resolveAgent(sub);
     if (agent) {
+      const toolNames = (agent.tools as any[]).map((t: any) => t.name);
       w(`\r\n${C.bold}Agent: ${C.cyan}${agent.name}${C.reset}\r\n`);
-      w(`  Description: ${agent.description}\r\n`);
-      w(`  Model:       ${agent.model}\r\n`);
-      w(`  Tools:       ${agent.tools.length}\r\n`);
-      w(`  MCP:         ${agent.mcp.length > 0 ? agent.mcp.join(', ') : 'none'}\r\n`);
-      w(`  Prompt:      ${agent.systemPrompt.slice(0, 100)}...\r\n\r\n`);
+      w(`  ${C.dim}Description:${C.reset} ${agent.description}\r\n`);
+      w(`  ${C.dim}Model:${C.reset}       ${agent.model}\r\n`);
+      w(`  ${C.dim}Tools (${toolNames.length}):${C.reset}  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}\r\n`);
+      w(`  ${C.dim}MCP:${C.reset}         ${agent.mcp.length > 0 ? agent.mcp.join(', ') : 'none'}\r\n\r\n`);
     } else {
       w(`${C.red}  Agent "${sub}" not found${C.reset}\r\n`);
     }
@@ -679,6 +760,7 @@ export class ReplService {
     const w = (s: string) => process.stdout.write(s);
     w(`\r\n${C.bold}Session:${C.reset}\r\n`);
     w(`  Messages:  ${this.deepAgent.getMessageCount()}\r\n`);
+    w(`  Tokens:    ${C.cyan}${this.deepAgent.getTokenCount().toLocaleString()}${C.reset}\r\n`);
     w(`  CWD:       ${process.cwd()}\r\n`);
     w(`  Provider:  ${this.configService.getProvider()}/${this.configService.getModel()}\r\n\r\n`);
   }
