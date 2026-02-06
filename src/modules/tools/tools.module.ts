@@ -5,9 +5,10 @@ import { SearchToolsService } from './services/search-tools.service';
 import { ToolsRegistryService } from './services/tools-registry.service';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { MemoryModule } from '../memory/memory.module';
 
 @Module({
-  imports: [PermissionsModule, forwardRef(() => TasksModule)],
+  imports: [PermissionsModule, forwardRef(() => TasksModule), forwardRef(() => MemoryModule)],
   providers: [
     FilesystemToolsService,
     ShellToolsService,

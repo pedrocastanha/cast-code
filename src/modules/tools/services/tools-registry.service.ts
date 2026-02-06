@@ -4,6 +4,7 @@ import { FilesystemToolsService } from './filesystem-tools.service';
 import { ShellToolsService } from './shell-tools.service';
 import { SearchToolsService } from './search-tools.service';
 import { TaskToolsService } from '../../tasks/services/task-tools.service';
+import { MemoryToolsService } from '../../memory/services/memory-tools.service';
 
 @Injectable()
 export class ToolsRegistryService {
@@ -15,6 +16,8 @@ export class ToolsRegistryService {
     private readonly searchTools: SearchToolsService,
     @Inject(forwardRef(() => TaskToolsService))
     private readonly taskTools: TaskToolsService,
+    @Inject(forwardRef(() => MemoryToolsService))
+    private readonly memoryTools: MemoryToolsService,
   ) {
     this.registerBuiltInTools();
   }
@@ -25,6 +28,7 @@ export class ToolsRegistryService {
       ...this.shellTools.getTools(),
       ...this.searchTools.getTools(),
       ...this.taskTools.getTools(),
+      ...this.memoryTools.getTools(),
     ];
 
     for (const t of allTools) {

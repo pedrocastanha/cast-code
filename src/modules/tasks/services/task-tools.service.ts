@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { TaskManagementService } from './task-management.service';
+import { PlanModeService } from './plan-mode.service';
 import { TaskStatus } from '../types/task.types';
 import { PromptService } from '../../permissions/services/prompt.service';
 
@@ -9,6 +10,7 @@ import { PromptService } from '../../permissions/services/prompt.service';
 export class TaskToolsService {
   constructor(
     private taskService: TaskManagementService,
+    private planModeService: PlanModeService,
     private promptService: PromptService,
   ) {}
 
@@ -19,6 +21,8 @@ export class TaskToolsService {
       this.createTaskListTool(),
       this.createTaskGetTool(),
       this.createAskUserQuestionTool(),
+      this.createEnterPlanModeTool(),
+      this.createExitPlanModeTool(),
     ];
   }
 
@@ -207,6 +211,86 @@ export class TaskToolsService {
             .array(z.string())
             .optional()
             .describe('Array of choices for type=choice'),
+        }),
+      },
+    );
+  }
+
+  private createEnterPlanModeTool() {
+    return tool(
+      async ({ title, description }) => {
+        try {
+          await this.planModeService.enterPlanMode(title, description);
+          return JSON.stringify({
+            success: true,
+            message: 'Entered plan mode. Explore the codebase, design your approach, then use exit_plan_mode to present the plan for approval.',
+          });
+        } catch (error) {
+          return JSON.stringify({
+            success: false,
+            error: (error as Error).message,
+          });
+        }
+      },
+      {
+        name: 'enter_plan_mode',
+        description:
+          'Enter planning mode for complex tasks. In plan mode, you should explore the codebase using read_file, glob, and grep to understand the architecture, then create a detailed plan. Use exit_plan_mode when ready to present the plan for user approval.',
+        schema: z.object({
+          title: z.string().describe('Title of the plan (e.g., "Implement user authentication")'),
+          description: z
+            .string()
+            .describe('Brief description of what will be planned'),
+        }),
+      },
+    );
+  }
+
+  private createExitPlanModeTool() {
+    return tool(
+      async ({ tasks }) => {
+        try {
+          const approved = await this.planModeService.exitPlanMode(
+            tasks.map((t) => ({
+              subject: t.subject,
+              description: t.description,
+              activeForm: t.activeForm,
+              dependencies: t.dependencies,
+            })),
+          );
+
+          return JSON.stringify({
+            success: true,
+            approved,
+            message: approved
+              ? 'Plan approved! You can now execute the tasks.'
+              : 'Plan was not approved. Ask the user what they want to change.',
+          });
+        } catch (error) {
+          return JSON.stringify({
+            success: false,
+            error: (error as Error).message,
+          });
+        }
+      },
+      {
+        name: 'exit_plan_mode',
+        description:
+          'Exit planning mode and present the plan for user approval. The user will see all tasks and can approve, modify, or cancel the plan.',
+        schema: z.object({
+          tasks: z
+            .array(
+              z.object({
+                subject: z.string().describe('Task title'),
+                description: z.string().describe('What this task does'),
+                activeForm: z.string().optional().describe('Present continuous form'),
+                dependencies: z
+                  .array(z.string())
+                  .optional()
+                  .describe('Task IDs this depends on'),
+              }),
+            )
+            .describe('Array of tasks that make up the plan'),
         }),
       },
     );

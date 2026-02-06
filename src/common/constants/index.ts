@@ -20,8 +20,19 @@ export const BUILT_IN_TOOLS = [
   'grep',
   'ls',
   'shell',
+  'shell_background',
   'web_search',
   'web_fetch',
+  'task_create',
+  'task_update',
+  'task_list',
+  'task_get',
+  'ask_user_question',
+  'enter_plan_mode',
+  'exit_plan_mode',
+  'memory_write',
+  'memory_read',
+  'memory_search',
 ] as const;
 
 export type BuiltInToolName = (typeof BUILT_IN_TOOLS)[number];

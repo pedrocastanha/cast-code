@@ -11,7 +11,7 @@ export class SearchToolsService {
   private createWebSearchTool() {
     return tool(
       async ({ query }) => {
-        return `Web search for "${query}" - Integration pending. Configure search provider in .kimi/config.md`;
+        return `Web search for "${query}" - Integration pending. Configure search provider in .cast/config.md`;
       },
       {
         name: 'web_search',

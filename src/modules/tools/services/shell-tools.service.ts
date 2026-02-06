@@ -92,16 +92,14 @@ export class ShellToolsService {
         const outputFile = path.join(os.tmpdir(), `cast-bg-${processId}.log`);
 
         return new Promise((resolve) => {
+          const logFd = require('fs').openSync(outputFile, 'w');
+
           const child = spawn(command, {
             cwd: cwd || process.cwd(),
             shell: true,
             detached: true,
-            stdio: 'ignore',
+            stdio: ['ignore', logFd, logFd],
           });
-
-          const logStream = require('fs').createWriteStream(outputFile);
-          if (child.stdout) child.stdout.pipe(logStream);
-          if (child.stderr) child.stderr.pipe(logStream);
 
           this.backgroundProcesses.set(processId, {
             process: child,
@@ -111,6 +109,7 @@ export class ShellToolsService {
           });
 
           child.unref();
+          require('fs').closeSync(logFd);
 
           resolve(
             JSON.stringify({

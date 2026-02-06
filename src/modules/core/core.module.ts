@@ -6,10 +6,12 @@ import { SkillsModule } from '../skills/skills.module';
 import { ToolsModule } from '../tools/tools.module';
 import { McpModule } from '../mcp/mcp.module';
 import { ProjectModule } from '../project/project.module';
+import { MemoryModule } from '../memory/memory.module';
+import { MentionsModule } from '../mentions/mentions.module';
 
 @Module({
-  imports: [AgentsModule, SkillsModule, ToolsModule, McpModule, ProjectModule],
+  imports: [AgentsModule, SkillsModule, ToolsModule, McpModule, ProjectModule, MemoryModule, MentionsModule],
   providers: [ConfigService, DeepAgentService],
-  exports: [ConfigService, DeepAgentService],
+  exports: [ConfigService, DeepAgentService, MentionsModule, McpModule, AgentsModule, SkillsModule],
 })
 export class CoreModule {}

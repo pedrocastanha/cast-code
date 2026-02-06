@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { StructuredTool } from '@langchain/core/tools';
 import { SkillLoaderService } from './skill-loader.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
-import { ResolvedSkill } from '../types';
+import { ResolvedSkill, SkillDefinition } from '../types';
 
 @Injectable()
 export class SkillRegistryService {
@@ -49,6 +49,14 @@ export class SkillRegistryService {
     const skills = this.resolveSkills(skillNames);
 
     return skills.map((s) => `## ${s.name}\n${s.guidelines}`).join('\n\n');
+  }
+
+  getAllSkills(): SkillDefinition[] {
+    return this.skillLoader.getAllSkills();
+  }
+
+  getSkillNames(): string[] {
+    return this.skillLoader.getSkillNames();
   }
 
   async loadProjectSkills(projectPath: string) {

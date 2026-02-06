@@ -4,8 +4,10 @@ import { CoreModule } from './modules/core/core.module';
 import { ReplModule } from './modules/repl/repl.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { TasksModule } from './modules/tasks/tasks.module';
+import { MemoryModule } from './modules/memory/memory.module';
+import { MentionsModule } from './modules/mentions/mentions.module';
 
 @Module({
-  imports: [CommonModule, CoreModule, ReplModule, PermissionsModule, TasksModule],
+  imports: [CommonModule, CoreModule, ReplModule, PermissionsModule, TasksModule, MemoryModule, MentionsModule],
 })
 export class AppModule {}
