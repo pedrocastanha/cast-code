@@ -51,6 +51,23 @@ export class SkillRegistryService {
     return skills.map((s) => `## ${s.name}\n${s.guidelines}`).join('\n\n');
   }
 
+  getAllSkillKnowledge(): string {
+    const skills = this.skillLoader.getAllSkills();
+    const seen = new Set<string>();
+    const parts: string[] = [];
+
+    for (const skill of skills) {
+      if (seen.has(skill.name)) continue;
+      seen.add(skill.name);
+
+      if (skill.guidelines && skill.guidelines.trim()) {
+        parts.push(skill.guidelines.trim());
+      }
+    }
+
+    return parts.join('\n\n---\n\n');
+  }
+
   getAllSkills(): SkillDefinition[] {
     return this.skillLoader.getAllSkills();
   }

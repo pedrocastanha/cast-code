@@ -2,9 +2,9 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatOllama } from '@langchain/ollama';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { execSync } from 'child_process';
-import { createDeepAgent } from 'deepagents';
+import { createDeepAgent, FilesystemBackend } from 'deepagents';
 import { ConfigService } from './config.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
@@ -15,11 +15,21 @@ import { SkillRegistryService } from '../../skills/services/skill-registry.servi
 import { MemoryService } from '../../memory/services/memory.service';
 import { ProjectInitResult } from '../../project/types';
 
+const SUMMARIZE_THRESHOLD = 40;
+const KEEP_RECENT = 10;
+const RECURSION_LIMIT = 100;
+const DEEPAGENT_BUILTIN_TOOLS = new Set([
+  'read_file', 'write_file', 'edit_file', 'glob', 'grep', 'ls',
+  'write_todos', 'task',
+]);
+
 @Injectable()
 export class DeepAgentService implements OnModuleInit {
   private agent: any;
+  private model: BaseChatModel | null = null;
   private messages: BaseMessage[] = [];
   private tokenCount = 0;
+  private lastToolOutputs: { tool: string; output: string }[] = [];
 
   constructor(
     private readonly configService: ConfigService,
@@ -78,25 +88,32 @@ export class DeepAgentService implements OnModuleInit {
       });
     }
 
+    this.model = model;
+
     const contextPrompt = this.projectContext.getContextPrompt();
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
+    const skillKnowledge = this.skillRegistry.getAllSkillKnowledge();
     const subagents = this.agentRegistry.getSubagentDefinitions(contextPrompt);
-    const tools = this.toolsRegistry.getAllTools();
+    const allTools = this.toolsRegistry.getAllTools();
     const mcpTools = this.mcpRegistry.getAllMcpTools();
-    const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, tools, mcpTools);
+
+    const extraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
+
+    const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, skillKnowledge, subagents, allTools, mcpTools);
 
     this.agent = createDeepAgent({
       model,
       systemPrompt,
-      tools: [...tools, ...mcpTools],
+      tools: [...extraTools, ...mcpTools],
       subagents,
+      backend: () => new FilesystemBackend({ rootDir: process.cwd() }),
     });
 
     return {
       projectPath,
       hasContext: this.projectContext.hasContext(),
       agentCount: subagents.length,
-      toolCount: tools.length + mcpTools.length,
+      toolCount: extraTools.length + mcpTools.length,
     };
   }
 
@@ -133,6 +150,8 @@ export class DeepAgentService implements OnModuleInit {
   private buildSystemPrompt(
     contextPrompt: string,
     memoryPrompt: string,
+    skillKnowledge: string,
+    subagents: any[],
     tools: any[],
     mcpTools: any[],
   ): string {
@@ -145,8 +164,8 @@ export class DeepAgentService implements OnModuleInit {
     const parts: string[] = [];
 
     parts.push(
-      `You are Cast, an AI coding assistant running as a CLI tool.`,
-      `You help developers with software engineering tasks including writing code, debugging, refactoring, and answering questions about codebases.`,
+      `You are Cast, an autonomous AI coding assistant running as a CLI tool.`,
+      `You are a highly capable agent that can independently explore codebases, make decisions, execute multi-step plans, and delegate work to specialized sub-agents. You help developers with software engineering tasks including writing code, debugging, refactoring, and answering questions about codebases.`,
       ``,
     );
 
@@ -154,8 +173,8 @@ export class DeepAgentService implements OnModuleInit {
       `# CRITICAL RULES`,
       ``,
       `## NEVER Guess — ALWAYS Verify`,
-      `- NEVER say a file "doesn't exist" or "I can't find it" without FIRST using glob or read_file to check`,
-      `- NEVER guess file contents — ALWAYS read_file before answering questions about a file`,
+      `- NEVER say a file "doesn't exist" without FIRST using glob or read_file to check`,
+      `- NEVER guess file contents — ALWAYS read_file before answering about a file`,
       `- NEVER assume a directory structure — ALWAYS use ls or glob to discover it`,
       `- NEVER say "I don't have access" — you DO have access through your tools`,
       `- If a user mentions a file path, your FIRST action must be to read it or verify it exists`,
@@ -223,14 +242,6 @@ export class DeepAgentService implements OnModuleInit {
       `- Use **task_update** to mark tasks as in_progress or completed`,
       `- Use **task_list** to see all tasks and their status`,
       `- Use **ask_user_question** when you need clarification BEFORE acting`,
-      `  - Better to ask than to guess wrong!`,
-      `  - Use type="confirm" for yes/no, "choice" for options, "text" for open input`,
-      ``,
-      `## Planning (CRITICAL)`,
-      `- Use **enter_plan_mode** BEFORE executing complex tasks (3+ files, new features, refactoring)`,
-      `- In plan mode: explore the codebase thoroughly, then write a step-by-step plan`,
-      `- Use **exit_plan_mode** to present the plan for user approval before executing`,
-      `- ALWAYS plan before you act on complex requests. Never jump straight to editing.`,
       ``,
       `## Memory`,
       `- Use **memory_write** to save important learnings and project insights`,
@@ -240,42 +251,135 @@ export class DeepAgentService implements OnModuleInit {
     );
 
     parts.push(
+      `# Planning Protocol`,
+      ``,
+      `## When to Enter Plan Mode`,
+      `Use **enter_plan_mode** when:`,
+      `- Task touches 3+ files`,
+      `- Task involves new features or architecture changes`,
+      `- Task is ambiguous and needs scope definition`,
+      `- User explicitly asks for a plan`,
+      ``,
+      `Do NOT plan for: simple fixes, single-file edits, questions, explanations`,
+      ``,
+      `## Plan Mode Workflow`,
+      `1. **enter_plan_mode** — signals you are planning (no edits yet)`,
+      `2. **Explore**: glob, grep, read_file to understand the codebase`,
+      `3. **Design**: Write a structured plan with:`,
+      `   - Goal: what we're achieving`,
+      `   - Files to create/modify (with specific descriptions of each change)`,
+      `   - Order of operations (dependencies between changes)`,
+      `   - Risks and edge cases`,
+      `   - Verification strategy (tests, build, manual check)`,
+      `4. **exit_plan_mode** — present plan to user for approval`,
+      `5. After approval: create tasks with task_create and execute them`,
+      ``,
+      `## Plan Quality Rules`,
+      `- Every file change must specify WHAT changes and WHY`,
+      `- Order changes by dependency (foundations first, dependents second)`,
+      `- Always include a verification step at the end`,
+      `- If uncertain about approach, use ask_user_question to clarify BEFORE planning`,
+      ``,
+    );
+
+    if (subagents.length > 0) {
+      parts.push(
+        `# Sub-Agent Orchestration`,
+        ``,
+        `You have ${subagents.length} specialized sub-agents available. Each has domain-specific knowledge and tools.`,
+        ``,
+        `## Available Sub-Agents`,
+      );
+      for (const sa of subagents) {
+        parts.push(`- **${sa.name}**: ${sa.description}`);
+      }
+      parts.push(
+        ``,
+        `## When to Delegate to Sub-Agents`,
+        `- Task requires specialized domain knowledge (React, testing, API design, databases)`,
+        `- Multiple independent subtasks can be worked on in parallel`,
+        `- Task is well-defined and self-contained (a sub-agent can complete it without further guidance)`,
+        `- You want a focused review or analysis (e.g., code review, architecture review)`,
+        ``,
+        `## When NOT to Delegate`,
+        `- Simple tasks you can do yourself quickly`,
+        `- Tasks that require back-and-forth with the user`,
+        `- Tasks that depend heavily on earlier context in this conversation`,
+        ``,
+        `## Delegation Pattern`,
+        `1. Identify the task and which sub-agent is best suited`,
+        `2. Create a clear, specific task description with all necessary context`,
+        `3. Track the delegation with task_create`,
+        `4. When the sub-agent returns, verify the result and integrate it`,
+        `5. Mark the task as completed`,
+        ``,
+        `## Multi-Agent Coordination`,
+        `For large tasks, you can orchestrate multiple sub-agents:`,
+        `1. Break the work into independent pieces`,
+        `2. Assign each piece to the most qualified sub-agent`,
+        `3. Track progress with task_create/task_update`,
+        `4. Integrate results and verify the combined output`,
+        ``,
+      );
+    }
+
+    parts.push(
       `# Execution Protocol`,
       ``,
-      `## When the user asks you to "understand", "explore", or "analyze" the project:`,
-      `1. FIRST: ls the root directory to see the project structure`,
-      `2. SECOND: Read key config files (package.json, tsconfig.json, pyproject.toml, Cargo.toml, etc.)`,
-      `3. THIRD: Use glob to map the full directory tree: glob("**/*", with key patterns)`,
-      `4. FOURTH: Read the most important files (entry points, main modules, README)`,
-      `5. FIFTH: Present a structured summary with:`,
-      `   - Project type and framework`,
-      `   - Directory structure overview`,
-      `   - Key modules and their purpose`,
-      `   - Dependencies and patterns used`,
-      `   - Architecture diagram (if applicable)`,
-      `Do NOT stop after reading 1-2 files. Be EXHAUSTIVE. Read as many files as needed.`,
+      `## Exploring a Project`,
+      `1. ls the root directory`,
+      `2. Read key config files (package.json, tsconfig.json, etc.)`,
+      `3. glob to map directory tree with key patterns`,
+      `4. Read the most important files (entry points, main modules)`,
+      `5. Present a structured summary`,
+      `Be EXHAUSTIVE. Read as many files as needed.`,
       ``,
-      `## When the user asks you to implement something:`,
-      `1. FIRST: Understand the current codebase (read relevant files)`,
-      `2. SECOND: If the task touches 3+ files, use enter_plan_mode`,
-      `3. THIRD: Create a task list with task_create for each step`,
-      `4. FOURTH: Execute each step, marking tasks as completed`,
-      `5. FIFTH: Verify your changes (re-read edited files, run tests if available)`,
-      `6. SIXTH: Summarize what was done`,
+      `## Implementing Changes`,
+      `1. Understand the current codebase (read relevant files)`,
+      `2. If complex (3+ files): use enter_plan_mode`,
+      `3. Create a task list with task_create for each step`,
+      `4. Execute each step, marking tasks as completed`,
+      `5. Verify changes (re-read edited files, run tests)`,
+      `6. Summarize what was done`,
       ``,
-      `## Tool Chain Patterns (use these sequences):`,
+      `## Tool Chain Patterns`,
       `- **Find something**: glob → grep → read_file`,
       `- **Edit a file**: read_file → edit_file → read_file (verify)`,
-      `- **Explore a module**: ls → glob("module/**/*") → read_file (multiple key files)`,
-      `- **Debug an issue**: grep (error message) → read_file → edit_file → shell (test)`,
-      `- **New feature**: enter_plan_mode → task_create → [implement] → shell (test) → exit_plan_mode`,
+      `- **Explore a module**: ls → glob("module/**/*") → read_file (key files)`,
+      `- **Debug an issue**: grep (error) → read_file → edit_file → shell (test)`,
+      `- **New feature**: enter_plan_mode → task_create → [implement] → shell (test)`,
       ``,
-      `## Thoroughness Rules:`,
-      `- NEVER give up after one failed search. Try different patterns, directories, and approaches.`,
-      `- ALWAYS verify your changes by re-reading the file after editing.`,
-      `- If tests exist, run them after making changes: shell("npm test") or equivalent.`,
-      `- When you encounter an error, analyze it and try to fix it — don't just report it.`,
-      `- If a task is complex, break it into subtasks with task_create.`,
+      `## Thoroughness Rules`,
+      `- NEVER give up after one failed search. Try different patterns and approaches.`,
+      `- ALWAYS verify changes by re-reading the file after editing.`,
+      `- If tests exist, run them after changes: shell("npm test") or equivalent.`,
+      `- When you encounter an error, analyze and fix it — don't just report it.`,
+      `- If blocked, try a different approach. If still blocked, ask the user.`,
+      ``,
+    );
+
+    parts.push(
+      `# Autonomous Decision-Making`,
+      ``,
+      `You are an autonomous agent. Make decisions proactively:`,
+      ``,
+      `## Decision Framework`,
+      `| Situation | Action |`,
+      `|-----------|--------|`,
+      `| User asks to implement something | Explore first, then plan if complex |`,
+      `| You find a bug while working | Fix it AND mention it to the user |`,
+      `| Test fails after your change | Analyze the failure and fix it |`,
+      `| Build fails | Read the error, fix the cause |`,
+      `| File you need doesn't exist | Search broader, check for alternatives |`,
+      `| Task is ambiguous | ask_user_question BEFORE starting |`,
+      `| Task has multiple approaches | Briefly explain options, pick the best one |`,
+      `| Something could break | Use enter_plan_mode and verify |`,
+      ``,
+      `## Self-Correction`,
+      `- After editing, always re-read the file to verify the change is correct`,
+      `- If a tool call fails, understand why and adjust (don't retry the same thing)`,
+      `- If your approach isn't working after 3 attempts, step back and reconsider`,
+      `- Save important learnings with memory_write so you don't repeat mistakes`,
       ``,
     );
 
@@ -307,6 +411,17 @@ export class DeepAgentService implements OnModuleInit {
       `Do NOT re-read a file that was already provided via a mention tag unless you need a different section.`,
       ``,
     );
+
+    if (skillKnowledge) {
+      parts.push(
+        `# Domain Knowledge`,
+        ``,
+        `The following knowledge comes from your skill library. These are reference materials — study them to learn patterns, decision frameworks, and anti-patterns for each domain. Use this knowledge when making decisions about how to approach tasks.`,
+        ``,
+        skillKnowledge,
+        ``,
+      );
+    }
 
     parts.push(
       `# Environment`,
@@ -480,18 +595,63 @@ export class DeepAgentService implements OnModuleInit {
     }
   }
 
+  private async autoSummarize(): Promise<boolean> {
+    if (this.messages.length < SUMMARIZE_THRESHOLD || !this.model) {
+      return false;
+    }
+
+    const oldMessages = this.messages.slice(0, this.messages.length - KEEP_RECENT);
+    const recentMessages = this.messages.slice(this.messages.length - KEEP_RECENT);
+
+    const conversationText = oldMessages.map((m) => {
+      const role = m._getType() === 'human' ? 'User' : 'Assistant';
+      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const truncated = content.length > 500 ? content.slice(0, 500) + '...' : content;
+      return `${role}: ${truncated}`;
+    }).join('\n');
+
+    try {
+      const summaryResponse = await this.model.invoke([
+        new SystemMessage(
+          `You are a conversation summarizer. Produce a concise summary of the following conversation between a user and an AI assistant. Focus on:
+- Key decisions made
+- Files that were read or modified
+- Tasks completed or pending
+- Important context the assistant needs to remember
+Keep the summary under 500 words. Output ONLY the summary, no preamble.`
+        ),
+        new HumanMessage(conversationText),
+      ]);
+
+      const summaryText = typeof summaryResponse.content === 'string'
+        ? summaryResponse.content
+        : JSON.stringify(summaryResponse.content);
+
+      this.messages = [
+        new SystemMessage(`[Conversation Summary — ${oldMessages.length} messages compacted]\n\n${summaryText}`),
+        ...recentMessages,
+      ];
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async *chat(message: string): AsyncGenerator<string> {
+    const summarized = await this.autoSummarize();
+    if (summarized) {
+      yield `\n\x1b[2m  \u2500 conversation compacted (${this.messages.length} messages retained)\x1b[0m\n`;
+    }
+
     this.messages.push(new HumanMessage(message));
+    this.lastToolOutputs = [];
 
     let stream: any;
     try {
       stream = this.agent.streamEvents(
-        {
-          messages: this.messages,
-        },
-        {
-          version: 'v2',
-        }
+        { messages: this.messages },
+        { version: 'v2', recursionLimit: RECURSION_LIMIT },
       );
     } catch (error) {
       yield `\n\x1b[31m  Error starting agent: ${(error as Error).message}\x1b[0m\n`;
@@ -529,8 +689,19 @@ export class DeepAgentService implements OnModuleInit {
         }
 
         if (event.event === 'on_tool_end') {
-          const output = event.data?.output;
-          if (output && typeof output === 'string') {
+          const raw = event.data?.output;
+          let output = '';
+          if (typeof raw === 'string') {
+            output = raw;
+          } else if (raw?.content) {
+            output = typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content);
+          } else if (raw?.output) {
+            output = typeof raw.output === 'string' ? raw.output : JSON.stringify(raw.output);
+          } else if (raw) {
+            output = typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
+          }
+          if (output) {
+            this.lastToolOutputs.push({ tool: lastToolName, output });
             yield this.formatToolEnd(lastToolName, output);
           }
         }
@@ -553,10 +724,8 @@ export class DeepAgentService implements OnModuleInit {
 
     this.tokenCount += interactionInputTokens + interactionOutputTokens;
 
-    if (interactionInputTokens > 0 || interactionOutputTokens > 0) {
-      const fmt = (n: number) => n.toLocaleString();
-      yield `\n\x1b[2m  \u2500 tokens: ${fmt(interactionInputTokens)} in / ${fmt(interactionOutputTokens)} out (session: ${fmt(this.tokenCount)})\x1b[0m\n`;
-    }
+    const fmt = (n: number) => n.toLocaleString();
+    yield `\n\x1b[2m  \u2500 tokens: ${fmt(interactionInputTokens)} in / ${fmt(interactionOutputTokens)} out (session: ${fmt(this.tokenCount)})\x1b[0m\n`;
   }
 
   clearHistory() {
@@ -574,5 +743,9 @@ export class DeepAgentService implements OnModuleInit {
 
   getTokenCount(): number {
     return this.tokenCount;
+  }
+
+  getLastToolOutputs(): { tool: string; output: string }[] {
+    return this.lastToolOutputs;
   }
 }

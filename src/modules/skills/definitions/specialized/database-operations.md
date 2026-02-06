@@ -8,55 +8,71 @@ tools:
   - shell
 ---
 
-# Database Operations
+# Database Operations — Domain Knowledge
 
-Specialized knowledge for database design and operations.
+This skill teaches you database design, query optimization, and safe migration practices. Study this to make good data modeling decisions.
 
-## Schema Design
+## Schema Design Principles
 
-### Normalization
-- 1NF: Atomic values, no repeating groups
-- 2NF: No partial dependencies
-- 3NF: No transitive dependencies
+### Normalization Rules
+- **1NF**: Atomic values, no repeating groups
+- **2NF**: No partial dependencies on composite keys
+- **3NF**: No transitive dependencies
 
 ### When to Denormalize
-- Read-heavy workloads
-- Reporting queries
-- Performance requirements
+| Situation | Denormalize? | Technique |
+|-----------|-------------|-----------|
+| Read-heavy, write-rare | Yes | Materialized view / computed column |
+| Reporting/analytics | Yes | Star schema / denormalized table |
+| Real-time dashboard | Yes | Pre-aggregated cache |
+| OLTP with consistency needs | No | Keep normalized |
 
 ## Query Optimization
 
-### Indexing
-- Index columns used in WHERE
-- Index columns used in JOIN
-- Consider composite indexes
-- Don't over-index (write penalty)
+### Indexing Decision Framework
+| Query pattern | Index type |
+|---------------|------------|
+| `WHERE col = value` | B-tree index on col |
+| `WHERE col1 = X AND col2 = Y` | Composite index (col1, col2) |
+| `WHERE col LIKE 'prefix%'` | B-tree (prefix only) |
+| `ORDER BY col` | Index on col |
+| `WHERE col IN (...)` | B-tree index on col |
+| Full-text search | GIN / Full-text index |
 
-### Common Issues
-- N+1 queries: Use eager loading
-- Missing indexes: EXPLAIN ANALYZE
-- Large result sets: Pagination
-- Lock contention: Optimize transactions
+### Performance Diagnosis
+1. `EXPLAIN ANALYZE` the slow query
+2. Look for: Seq Scan (missing index), Nested Loop (N+1), Sort (missing index)
+3. Add index → re-explain → verify improvement
 
-## Migrations
+### Common Performance Issues
+| Problem | Symptom | Fix |
+|---------|---------|-----|
+| N+1 queries | Many identical queries | Eager loading / JOIN |
+| Missing index | Seq Scan on large table | Add appropriate index |
+| Over-fetching | SELECT * on wide table | Select specific columns |
+| Lock contention | Timeout errors | Shorter transactions |
 
-### Best Practices
-- One change per migration
-- Always have rollback
-- Test on production-like data
-- Handle long-running migrations
+## Migration Safety
 
-### Safe Operations
-- Add column (nullable)
-- Add index concurrently
+### Safe Operations (can run anytime)
+- Add nullable column
+- Add index CONCURRENTLY
 - Create new table
+- Add constraint with NOT VALID
 
-### Risky Operations
-- Drop column
-- Rename column
-- Change column type
+### Dangerous Operations (need careful planning)
+| Operation | Risk | Safe approach |
+|-----------|------|---------------|
+| Drop column | Data loss | Deploy code first, drop later |
+| Rename column | Breaks queries | Add new, migrate, drop old |
+| Change type | Data corruption | Add new column, backfill, swap |
+| Add NOT NULL | Fails on existing nulls | Backfill first, then constrain |
 
-## ORMs
-- Use query builders for complex queries
-- Prefer raw SQL for performance critical
-- Always log slow queries
+## ORM vs Raw SQL
+
+| Use ORM when... | Use Raw SQL when... |
+|-----------------|---------------------|
+| Standard CRUD | Complex aggregations |
+| Migrations | Performance-critical queries |
+| Type safety needed | Database-specific features |
+| Rapid prototyping | Bulk operations |

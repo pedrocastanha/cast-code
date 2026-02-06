@@ -8,58 +8,72 @@ tools:
   - shell
 ---
 
-# Testing Strategies
+# Testing Strategies — Domain Knowledge
 
-Specialized knowledge for test automation.
+This skill teaches you how to write effective tests. Study this to learn what to test, how to structure tests, and when to use different testing approaches.
 
-## Test Types
+## Testing Pyramid
 
-### Unit Tests
-- Test single functions/classes
-- Mock dependencies
-- Fast execution
-- High coverage
+| Level | Speed | Count | Coverage |
+|-------|-------|-------|----------|
+| Unit | Fast (ms) | Many | Functions, classes, utils |
+| Integration | Medium (s) | Moderate | API routes, DB queries, services |
+| E2E | Slow (s-min) | Few | Critical user flows only |
 
-### Integration Tests
-- Test component interactions
-- Use real dependencies when possible
-- Test API endpoints
-- Database operations
+## The AAA Pattern (ALWAYS follow this)
 
-### E2E Tests
-- Test user flows
-- Browser automation
-- Critical paths only
-- Slower but comprehensive
-
-## Testing Patterns
-
-### AAA Pattern
 ```typescript
-test('should add numbers', () => {
-  // Arrange
+test('should [behavior] when [condition]', () => {
+  // Arrange — set up the test
   const calculator = new Calculator();
 
-  // Act
+  // Act — perform the action
   const result = calculator.add(2, 3);
 
-  // Assert
+  // Assert — verify the result
   expect(result).toBe(5);
 });
 ```
 
-### Test Naming
+## What to Test (Decision Framework)
+
+| Code type | Test approach | Priority |
+|-----------|---------------|----------|
+| Pure functions | Unit test with edge cases | HIGH |
+| API endpoints | Integration test with real DB | HIGH |
+| UI components | Render + interaction tests | MEDIUM |
+| Config/setup | Smoke test (does it load?) | LOW |
+| External APIs | Mock + contract test | MEDIUM |
+| Error paths | Unit test thrown errors | HIGH |
+
+## Test Naming Convention
+
 - `should [expected behavior] when [condition]`
 - `[method] returns [result] for [input]`
+- `throws [error] when [invalid input]`
 
-## Mocking
-- Mock external services
-- Mock time-dependent functions
-- Use spies for verification
-- Reset mocks between tests
+## Mocking Rules
 
-## Coverage Goals
-- Statements: 80%+
-- Branches: 75%+
-- Functions: 90%+
-- Critical paths: 100%
+| Mock when... | Don't mock when... |
+|-------------|-------------------|
+| External API calls | Core business logic |
+| Database in unit tests | Database in integration tests |
+| Time (Date.now, timers) | Simple utility functions |
+| Random values | Data transformations |
+| File system in CI | File system in integration |
+
+## Running Tests
+
+- `npm test` or `npx jest` — run all tests
+- `npm test -- --watch` — watch mode
+- `npm test -- --coverage` — coverage report
+- `npm test -- path/to/file` — run specific file
+- `npx jest --testPathPattern="pattern"` — filter by pattern
+
+## Common Mistakes
+
+1. **Testing implementation, not behavior** — Test WHAT it does, not HOW
+2. **Shared mutable state between tests** — Reset in beforeEach
+3. **Not testing error cases** — Happy path + error paths
+4. **Brittle snapshot tests** — Only snapshot stable, small components
+5. **Skipping async cleanup** — Always await and clean up promises/timers

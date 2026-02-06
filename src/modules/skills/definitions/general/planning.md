@@ -4,49 +4,83 @@ description: Task planning and decomposition
 tools:
   - read_file
   - glob
+  - enter_plan_mode
+  - exit_plan_mode
+  - task_create
+  - task_update
 ---
 
-# Planning
+# Planning — Domain Knowledge
 
-Capability to plan and decompose complex tasks.
+This skill teaches you how to plan complex work before executing it. Study this to learn when to plan, how to decompose tasks, and how to create actionable plans.
+
+## Core Principle: Think Before You Act
+
+The time you spend planning saves 5x the time you'd waste fixing mistakes.
+
+## When to Plan (Decision Framework)
+
+| Situation | Plan needed? | Why |
+|-----------|-------------|-----|
+| Fix a typo | No | Single, obvious change |
+| Add a function to existing file | No | Clear scope |
+| Add a new feature (3+ files) | **YES** | Multiple touchpoints |
+| Refactor a module | **YES** | Ripple effects |
+| Change an API contract | **YES** | Breaking changes possible |
+| Debug a complex bug | Maybe | Investigate first, plan the fix |
+| User says "implement X" where X is vague | **YES** | Need to clarify scope |
 
 ## Planning Process
 
-### 1. Understand the Goal
-- What is the end result?
-- What are the constraints?
-- What are the success criteria?
+### Phase 1: Discovery (BEFORE plan_mode)
+1. `glob` to understand project structure
+2. `read_file` key files (entry points, configs, relevant modules)
+3. `grep` to find related code and patterns
+4. Identify ALL files that will be touched
 
-### 2. Gather Context
-- Read relevant existing code
-- Understand current architecture
-- Identify dependencies
+### Phase 2: Plan (IN plan_mode)
+1. `enter_plan_mode` — signals you're planning, not executing
+2. List every file to create/modify with specific changes
+3. Order by dependency (don't modify callers before callees)
+4. Identify risks and edge cases
+5. Define verification steps
+6. `exit_plan_mode` — present plan for user approval
 
-### 3. Decompose
-- Break into independent steps
-- Order by dependencies
-- Identify parallel work
+### Phase 3: Execute (AFTER approval)
+1. Create tasks with `task_create` for each step
+2. Execute sequentially, marking tasks complete
+3. Verify after each step
+4. Run tests at the end
 
-### 4. Estimate Complexity
-- Simple: single file, few lines
-- Medium: multiple files, clear pattern
-- Complex: architectural changes, new patterns
+## Plan Template
 
-## Task Breakdown Guidelines
+```markdown
+## Goal
+[What we're achieving]
 
-### Good Tasks
-- Specific and measurable
-- Independent when possible
-- Testable
-- Appropriately sized
+## Changes
+1. **file1.ts** — [what changes and why]
+2. **file2.ts** — [what changes and why]
 
-### Task Template
-1. What: Clear description
-2. Where: Files to modify
-3. How: Approach summary
-4. Verify: How to test
+## Order of Operations
+1. First: [foundation changes]
+2. Then: [dependent changes]
+3. Finally: [verification]
 
-## Risk Assessment
-- Identify what could go wrong
-- Plan for edge cases
-- Consider rollback strategy
+## Risks
+- [What could go wrong and mitigation]
+```
+
+## Task Decomposition Rules
+
+### Good tasks are:
+- **Specific**: "Add validateEmail function to utils/validation.ts"
+- **Independent**: Can be verified in isolation when possible
+- **Small**: 1-2 file changes per task
+- **Ordered**: Dependencies are explicit
+
+### Anti-patterns:
+- "Implement everything" (too vague)
+- "Fix the code" (what code? what fix?)
+- Tasks that can't be verified
+- Skipping the planning step for complex work

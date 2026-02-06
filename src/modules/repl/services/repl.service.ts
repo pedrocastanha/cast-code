@@ -10,7 +10,6 @@ import { AgentRegistryService } from '../../agents/services/agent-registry.servi
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { SmartInput, Suggestion } from './smart-input';
 
-// ─── ANSI Colors ───
 const C = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
@@ -26,7 +25,6 @@ const C = {
   white: '\x1b[37m',
 };
 
-// ─── Spinner ───
 const SPIN = ['\u28cb', '\u28d9', '\u28f9', '\u28f8', '\u28fc', '\u28f4', '\u28e6', '\u28e7', '\u28c7', '\u28cf'];
 
 @Injectable()
@@ -45,7 +43,6 @@ export class ReplService {
     private readonly skillRegistry: SkillRegistryService,
   ) {}
 
-  //  START
   async start() {
     this.printBanner();
 
@@ -69,6 +66,7 @@ export class ReplService {
       onSubmit: (line) => this.handleLine(line),
       onCancel: () => this.handleCancel(),
       onExit: () => this.handleExit(),
+      onExpandToolOutput: () => this.showToolOutputs(),
     });
 
     this.smartInput.start();
@@ -106,7 +104,6 @@ export class ReplService {
       ].filter(s => s.text.startsWith(input));
     }
 
-    // ─── Comandos principais ───
     const commands: Suggestion[] = [
       { text: '/help',     display: '/help',     description: 'Show help' },
       { text: '/clear',    display: '/clear',    description: 'Clear conversation' },
@@ -262,8 +259,6 @@ export class ReplService {
     }
   }
 
-  //  CALLBACKS
-
   private handleCancel() {
     if (this.isProcessing && this.abortController) {
       this.abortController.abort();
@@ -281,8 +276,6 @@ export class ReplService {
     process.exit(0);
   }
 
-  //  LINE HANDLER
-
   private async handleLine(input: string) {
     const trimmed = input.trim();
 
@@ -299,8 +292,6 @@ export class ReplService {
 
     this.smartInput?.showPrompt();
   }
-
-  //  SLASH COMMANDS
 
   private async handleCommand(command: string) {
     const parts = command.slice(1).split(/\s+/);
@@ -331,8 +322,6 @@ export class ReplService {
         process.stdout.write(`${C.red}  Unknown: /${cmd}${C.reset}  ${C.dim}Type /help${C.reset}\r\n`);
     }
   }
-
-  //  MESSAGE from AGENT
 
   private async handleMessage(message: string) {
     this.isProcessing = true;
@@ -384,7 +373,6 @@ export class ReplService {
     }
   }
 
-  //  SPINNER
   private startSpinner(label: string) {
     let i = 0;
     this.spinnerTimer = setInterval(() => {
@@ -398,6 +386,23 @@ export class ReplService {
       this.spinnerTimer = null;
       process.stdout.write('\r\x1b[K');
     }
+  }
+
+  private showToolOutputs() {
+    const outputs = this.deepAgent.getLastToolOutputs();
+    if (outputs.length === 0) {
+      process.stdout.write(`${C.dim}  No tool outputs from last interaction${C.reset}\r\n`);
+      return;
+    }
+    process.stdout.write(`${C.cyan}${C.bold}  Tool Outputs${C.reset}\r\n`);
+    for (const { tool, output } of outputs) {
+      process.stdout.write(`\r\n${C.cyan}  \u2500\u2500 ${tool} \u2500\u2500${C.reset}\r\n`);
+      const lines = output.split('\n');
+      for (const line of lines) {
+        process.stdout.write(`  ${line}\r\n`);
+      }
+    }
+    process.stdout.write('\r\n');
   }
 
   private cmdClear() {
@@ -460,7 +465,6 @@ export class ReplService {
     w('\r\n');
   }
 
-  // ─── /agents ───
   private async cmdAgents(args: string[]) {
     const sub = args[0];
     const w = (s: string) => process.stdout.write(s);
@@ -544,7 +548,6 @@ export class ReplService {
     w(`${C.dim}  Restart to load the new agent${C.reset}\r\n\r\n`);
   }
 
-  // ─── /skills ───
   private async cmdSkills(args: string[]) {
     const sub = args[0];
     const w = (s: string) => process.stdout.write(s);
@@ -615,7 +618,6 @@ export class ReplService {
     w(`${C.dim}  Restart to load the new skill${C.reset}\r\n\r\n`);
   }
 
-  // ─── /mcp ───
   private async cmdMcp(args: string[]) {
     const sub = args[0] || 'list';
     const w = (s: string) => process.stdout.write(s);

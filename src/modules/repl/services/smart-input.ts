@@ -26,6 +26,7 @@ export interface SmartInputOptions {
   onSubmit: (line: string) => void;
   onCancel: () => void;
   onExit: () => void;
+  onExpandToolOutput?: () => void;
 }
 
 export class SmartInput {
@@ -199,7 +200,6 @@ export class SmartInput {
       if (data[i] === '\x1b' && data[i + 1] === '[') {
         const rest = data.slice(i);
 
-        // Navigation keys: render but DON'T recompute suggestions
         if (rest.startsWith('\x1b[A'))  { this.keyUp();    i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[B'))  { this.keyDown();  i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[C'))  { this.keyRight(); i += 3; needsRender = true; continue; }
@@ -215,30 +215,30 @@ export class SmartInput {
       const code = data.charCodeAt(i);
 
       switch (code) {
-        case 0x0d: // Enter
+        case 0x0d:
         case 0x0a:
           this.keyEnter();
           i++;
-          continue; // Enter handles render internally
+          continue;
 
-        case 0x09: // Tab — navigate/accept, don't recompute
+        case 0x09:
           this.keyTab();
           needsRender = true;
           break;
 
-        case 0x7f: // Backspace
+        case 0x7f:
         case 0x08:
           this.keyBackspace();
           needsRender = true;
           bufferChanged = true;
           break;
 
-        case 0x03: // Ctrl+C
+        case 0x03:
           this.keyCtrlC();
           i++;
           continue;
 
-        case 0x04: // Ctrl+D
+        case 0x04:
           if (this.buffer.length === 0) {
             this.clearSuggestions();
             process.stdout.write('\r\n');
@@ -247,39 +247,48 @@ export class SmartInput {
           }
           break;
 
-        case 0x0c: // Ctrl+L (clear screen)
+        case 0x0c:
           this.clearSuggestions();
           process.stdout.write('\x1b[2J\x1b[H');
           needsRender = true;
           break;
 
-        case 0x15: // Ctrl+U (clear before cursor)
+        case 0x15:
           this.buffer = this.buffer.slice(this.cursor);
           this.cursor = 0;
           needsRender = true;
           bufferChanged = true;
           break;
 
-        case 0x0b: // Ctrl+K (clear after cursor)
+        case 0x0b:
           this.buffer = this.buffer.slice(0, this.cursor);
           needsRender = true;
           bufferChanged = true;
           break;
 
-        case 0x01: // Ctrl+A (home)
+        case 0x01:
           this.cursor = 0;
           needsRender = true;
           break;
 
-        case 0x05: // Ctrl+E (end)
+        case 0x05:
           this.cursor = this.buffer.length;
           needsRender = true;
           break;
 
-        case 0x17: // Ctrl+W (delete word back)
+        case 0x17:
           this.deleteWordBack();
           needsRender = true;
           bufferChanged = true;
+          break;
+
+        case 0x0f:
+          if (this.opts.onExpandToolOutput) {
+            this.clearSuggestions();
+            process.stdout.write('\r\n');
+            this.opts.onExpandToolOutput();
+            needsRender = true;
+          }
           break;
 
         default:
@@ -298,15 +307,12 @@ export class SmartInput {
     }
 
     if (needsRender) {
-      // Only recompute suggestions when buffer content changed
-      // Navigation keys (arrows, Tab) should NOT reset the selected index
       if (bufferChanged) {
         this.computeSuggestions();
       }
       this.render();
     }
   }
-
 
   private keyUp() {
     if (this.suggestions.length > 0) {
@@ -376,17 +382,17 @@ export class SmartInput {
   private keyTab() {
     if (this.suggestions.length > 0) {
       if (this.selectedIndex < 0) {
-        // First Tab: select first suggestion and accept it immediately
         this.selectedIndex = 0;
         this.acceptSuggestion();
         this.computeSuggestions();
       } else {
-        // Subsequent Tab: accept current selection
         this.acceptSuggestion();
         this.computeSuggestions();
       }
     }
   }
+
+  private lastCtrlCTime = 0;
 
   private keyCtrlC() {
     if (this.buffer.length > 0) {
@@ -394,13 +400,22 @@ export class SmartInput {
       this.cursor = 0;
       this.suggestions = [];
       this.selectedIndex = -1;
+      this.lastCtrlCTime = Date.now();
       this.clearSuggestions();
       process.stdout.write('\r\n');
       this.render();
     } else {
+      const now = Date.now();
+      if (now - this.lastCtrlCTime < 1500) {
+        this.clearSuggestions();
+        process.stdout.write('\r\n');
+        this.opts.onExit();
+        return;
+      }
+      this.lastCtrlCTime = now;
       this.clearSuggestions();
-      process.stdout.write('\r\n');
-      this.opts.onCancel();
+      process.stdout.write(`\r\n${C.dim}  Press Ctrl+C again to exit${C.reset}\r\n`);
+      this.render();
     }
   }
 
@@ -453,7 +468,6 @@ export class SmartInput {
 
     this.selectedIndex = -1;
 
-    // If accepted a directory (ends with /), keep showing suggestions for navigation
     if (s.text.endsWith('/')) {
       this.computeSuggestions();
     }
@@ -488,9 +502,24 @@ export class SmartInput {
     this.renderedLines = 0;
 
     if (this.suggestions.length > 0) {
-      const maxShow = Math.min(this.suggestions.length, 10);
+      const maxVisible = 10;
+      const total = this.suggestions.length;
 
-      for (let i = 0; i < maxShow; i++) {
+      let scrollStart = 0;
+      if (this.selectedIndex >= 0 && total > maxVisible) {
+        scrollStart = Math.max(0, Math.min(
+          this.selectedIndex - Math.floor(maxVisible / 2),
+          total - maxVisible,
+        ));
+      }
+      const scrollEnd = Math.min(scrollStart + maxVisible, total);
+
+      if (scrollStart > 0) {
+        write(`\r\n    ${C.dim}\u2191 ${scrollStart} above${C.reset}`);
+        this.renderedLines++;
+      }
+
+      for (let i = scrollStart; i < scrollEnd; i++) {
         const s = this.suggestions[i];
         const selected = i === this.selectedIndex;
 
@@ -507,8 +536,9 @@ export class SmartInput {
         this.renderedLines++;
       }
 
-      if (this.suggestions.length > maxShow) {
-        write(`\r\n    ${C.dim}\u2193 ${this.suggestions.length - maxShow} more${C.reset}`);
+      const remaining = total - scrollEnd;
+      if (remaining > 0) {
+        write(`\r\n    ${C.dim}\u2193 ${remaining} below${C.reset}`);
         this.renderedLines++;
       }
     }
