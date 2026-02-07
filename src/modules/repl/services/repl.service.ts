@@ -9,23 +9,8 @@ import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { SmartInput, Suggestion } from './smart-input';
-
-const C = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  italic: '\x1b[3m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  magenta: '\x1b[35m',
-  blue: '\x1b[34m',
-  gray: '\x1b[90m',
-  white: '\x1b[37m',
-};
-
-const SPIN = ['\u28cb', '\u28d9', '\u28f9', '\u28f8', '\u28fc', '\u28f4', '\u28e6', '\u28e7', '\u28c7', '\u28cf'];
+import { Colors, Icons } from '../utils/theme';
+import { WelcomeScreenService } from './welcome-screen.service';
 
 @Injectable()
 export class ReplService {
@@ -41,25 +26,25 @@ export class ReplService {
     private readonly mcpRegistry: McpRegistryService,
     private readonly agentRegistry: AgentRegistryService,
     private readonly skillRegistry: SkillRegistryService,
+    private readonly welcomeScreenService: WelcomeScreenService,
   ) {}
 
   async start() {
-    this.printBanner();
-
     const initResult = await this.deepAgent.initialize();
-
-    if (initResult.projectPath) {
-      console.log(`  ${C.green}Project${C.reset}  ${C.dim}${initResult.projectPath}${C.reset}`);
-    }
 
     const provider = this.configService.getProvider();
     const model = this.configService.getModel();
-    console.log(`  ${C.blue}Model${C.reset}    ${C.dim}${provider}/${model}${C.reset}`);
-    console.log(`  ${C.dim}${initResult.toolCount} tools loaded${C.reset}`);
-    console.log('');
+    const agentCount = this.agentRegistry.resolveAllAgents().length;
+
+    this.welcomeScreenService.printWelcomeScreen({
+      projectPath: initResult.projectPath || undefined,
+      model: `${provider}/${model}`,
+      toolCount: initResult.toolCount,
+      agentCount: agentCount,
+    });
 
     this.smartInput = new SmartInput({
-      prompt: `${C.cyan}${C.bold}>${C.reset} `,
+      prompt: `${Colors.cyan}${Colors.bold}>${Colors.reset} `,
       promptVisibleLen: 2,
       getCommandSuggestions: (input) => this.getCommandSuggestions(input),
       getMentionSuggestions: (partial) => this.getMentionSuggestions(partial),
@@ -70,17 +55,6 @@ export class ReplService {
     });
 
     this.smartInput.start();
-  }
-  
-  private printBanner() {
-    console.log('');
-    console.log(`${C.cyan}${C.bold}  \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e${C.reset}`);
-    console.log(`${C.cyan}${C.bold}  \u2502          CAST CODE               \u2502${C.reset}`);
-    console.log(`${C.cyan}${C.bold}  \u2502     Multi-Agent CLI Assistant    \u2502${C.reset}`);
-    console.log(`${C.cyan}${C.bold}  \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f${C.reset}`);
-    console.log('');
-    console.log(`  ${C.dim}/help for commands  |  @file for context  |  Tab to select${C.reset}`);
-    console.log('');
   }
 
   private getCommandSuggestions(input: string): Suggestion[] {
@@ -263,16 +237,16 @@ export class ReplService {
     if (this.isProcessing && this.abortController) {
       this.abortController.abort();
       this.stopSpinner();
-      process.stdout.write(`\r\n${C.yellow}  Cancelled${C.reset}\r\n\r\n`);
+      process.stdout.write(`\r\n${Colors.yellow}  Cancelled${Colors.reset}\r\n\r\n`);
       this.isProcessing = false;
     } else {
-      process.stdout.write(`${C.dim}  (Use /exit to quit)${C.reset}\r\n`);
+      process.stdout.write(`${Colors.dim}  (Use /exit to quit)${Colors.reset}\r\n`);
       this.smartInput?.showPrompt();
     }
   }
 
   private handleExit() {
-    process.stdout.write(`${C.dim}  Goodbye!${C.reset}\r\n`);
+    process.stdout.write(`${Colors.dim}  Goodbye!${Colors.reset}\r\n`);
     process.exit(0);
   }
 
@@ -303,7 +277,7 @@ export class ReplService {
       case 'clear':      this.cmdClear(); break;
       case 'exit':
       case 'quit':       process.exit(0);
-      case 'compact':    this.deepAgent.clearHistory(); process.stdout.write(`${C.green}  History compacted${C.reset}\r\n`); break;
+      case 'compact':    this.deepAgent.clearHistory(); process.stdout.write(`${Colors.green}  History compacted${Colors.reset}\r\n`); break;
       case 'status':     this.runGit('git status'); break;
       case 'diff':       this.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
       case 'log':        this.runGit('git log --oneline -15'); break;
@@ -319,7 +293,7 @@ export class ReplService {
       case 'mcp':        await this.cmdMcp(args); break;
 
       default:
-        process.stdout.write(`${C.red}  Unknown: /${cmd}${C.reset}  ${C.dim}Type /help${C.reset}\r\n`);
+        process.stdout.write(`${Colors.red}  Unknown: /${cmd}${Colors.reset}  ${Colors.dim}Type /help${Colors.reset}\r\n`);
     }
   }
 
@@ -334,7 +308,7 @@ export class ReplService {
       if (mentionResult.mentions.length > 0) {
         const summary = this.mentionsService.getMentionsSummary(mentionResult.mentions);
         for (const line of summary) {
-          process.stdout.write(`${C.dim}${line}${C.reset}\r\n`);
+          process.stdout.write(`${Colors.dim}${line}${Colors.reset}\r\n`);
         }
         process.stdout.write('\r\n');
       }
@@ -348,7 +322,7 @@ export class ReplService {
 
         if (firstChunk) {
           this.stopSpinner();
-          process.stdout.write(`\r\n${C.magenta}${C.bold}Cast${C.reset} `);
+          process.stdout.write(`\r\n${Colors.magenta}${Colors.bold}Cast${Colors.reset} `);
           firstChunk = false;
         }
 
@@ -364,7 +338,7 @@ export class ReplService {
       this.stopSpinner();
       const msg = (error as Error).message;
       if (!msg.includes('abort')) {
-        process.stdout.write(`\r\n${C.red}  Error: ${msg}${C.reset}\r\n\r\n`);
+        process.stdout.write(`\r\n${Colors.red}  Error: ${msg}${Colors.reset}\r\n\r\n`);
       }
     } finally {
       this.isProcessing = false;
@@ -376,7 +350,7 @@ export class ReplService {
   private startSpinner(label: string) {
     let i = 0;
     this.spinnerTimer = setInterval(() => {
-      process.stdout.write(`\r${C.cyan}${SPIN[i++ % SPIN.length]}${C.reset} ${C.dim}${label}...${C.reset}`);
+      process.stdout.write(`\r${Colors.cyan}${Icons.spinner[i++ % Icons.spinner.length]}${Colors.reset} ${Colors.dim}${label}...${Colors.reset}`);
     }, 80);
   }
 
@@ -391,12 +365,12 @@ export class ReplService {
   private showToolOutputs() {
     const outputs = this.deepAgent.getLastToolOutputs();
     if (outputs.length === 0) {
-      process.stdout.write(`${C.dim}  No tool outputs from last interaction${C.reset}\r\n`);
+      process.stdout.write(`${Colors.dim}  No tool outputs from last interaction${Colors.reset}\r\n`);
       return;
     }
-    process.stdout.write(`${C.cyan}${C.bold}  Tool Outputs${C.reset}\r\n`);
+    process.stdout.write(`${Colors.cyan}${Colors.bold}  Tool Outputs${Colors.reset}\r\n`);
     for (const { tool, output } of outputs) {
-      process.stdout.write(`\r\n${C.cyan}  \u2500\u2500 ${tool} \u2500\u2500${C.reset}\r\n`);
+      process.stdout.write(`\r\n${Colors.cyan}  \u2500\u2500 ${tool} \u2500\u2500${Colors.reset}\r\n`);
       const lines = output.split('\n');
       for (const line of lines) {
         process.stdout.write(`  ${line}\r\n`);
@@ -408,8 +382,8 @@ export class ReplService {
   private cmdClear() {
     this.deepAgent.clearHistory();
     process.stdout.write('\x1b[2J\x1b[H');
-    this.printBanner();
-    process.stdout.write(`${C.green}  Conversation cleared${C.reset}\r\n`);
+    this.welcomeScreenService.printBanner();
+    process.stdout.write(`${Colors.green}  Conversation cleared${Colors.reset}\r\n`);
   }
 
   private async cmdCommit(args: string[]) {
@@ -450,16 +424,16 @@ export class ReplService {
     const max = Math.max(...builtIn.map(([n]) => n.length));
     const w = (s: string) => process.stdout.write(s);
 
-    w(`\r\n${C.bold}Built-in Tools (${builtIn.length}):${C.reset}\r\n`);
+    w(`\r\n${Colors.bold}Built-in Tools (${builtIn.length}):${Colors.reset}\r\n`);
     for (const [name, desc] of builtIn) {
-      w(`  ${C.cyan}${name}${C.reset}${' '.repeat(max - name.length + 2)}${C.dim}${desc}${C.reset}\r\n`);
+      w(`  ${Colors.cyan}${name}${Colors.reset}${' '.repeat(max - name.length + 2)}${Colors.dim}${desc}${Colors.reset}\r\n`);
     }
 
     const mcpTools = this.mcpRegistry.getAllMcpTools();
     if (mcpTools.length > 0) {
-      w(`\r\n${C.bold}MCP Tools (${mcpTools.length}):${C.reset}\r\n`);
+      w(`\r\n${Colors.bold}MCP Tools (${mcpTools.length}):${Colors.reset}\r\n`);
       for (const t of mcpTools) {
-        w(`  ${C.cyan}${t.name}${C.reset}  ${C.dim}${t.description}${C.reset}\r\n`);
+        w(`  ${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${t.description}${Colors.reset}\r\n`);
       }
     }
     w('\r\n');
@@ -471,20 +445,20 @@ export class ReplService {
 
     if (!sub || sub === 'list') {
       const agents = this.agentRegistry.resolveAllAgents();
-      w(`\r\n${C.bold}Agents (${agents.length}):${C.reset}\r\n`);
+      w(`\r\n${Colors.bold}Agents (${agents.length}):${Colors.reset}\r\n`);
 
       if (agents.length === 0) {
-        w(`  ${C.dim}No agents loaded.${C.reset}\r\n`);
-        w(`  ${C.dim}Create one with /agents create or add .md files to .cast/definitions/agents/${C.reset}\r\n`);
+        w(`  ${Colors.dim}No agents loaded.${Colors.reset}\r\n`);
+        w(`  ${Colors.dim}Create one with /agents create or add .md files to .cast/definitions/agents/${Colors.reset}\r\n`);
       } else {
         const maxName = Math.max(...agents.map(a => a.name.length));
         for (const a of agents) {
           const toolNames = (a.tools as any[]).map((t: any) => t.name).join(', ');
-          const toolsInfo = toolNames ? ` ${C.dim}[${toolNames}]${C.reset}` : '';
-          w(`  ${C.cyan}${a.name}${C.reset}${' '.repeat(maxName - a.name.length + 2)}${C.dim}${a.description}${C.reset}${toolsInfo}\r\n`);
+          const toolsInfo = toolNames ? ` ${Colors.dim}[${toolNames}]${Colors.reset}` : '';
+          w(`  ${Colors.cyan}${a.name}${Colors.reset}${' '.repeat(maxName - a.name.length + 2)}${Colors.dim}${a.description}${Colors.reset}${toolsInfo}\r\n`);
         }
       }
-      w(`\r\n  ${C.dim}/agents <name> - agent details  |  /agents create - new agent${C.reset}\r\n\r\n`);
+      w(`\r\n  ${Colors.dim}/agents <name> - agent details  |  /agents create - new agent${Colors.reset}\r\n\r\n`);
       return;
     }
 
@@ -496,13 +470,13 @@ export class ReplService {
     const agent = this.agentRegistry.resolveAgent(sub);
     if (agent) {
       const toolNames = (agent.tools as any[]).map((t: any) => t.name);
-      w(`\r\n${C.bold}Agent: ${C.cyan}${agent.name}${C.reset}\r\n`);
-      w(`  ${C.dim}Description:${C.reset} ${agent.description}\r\n`);
-      w(`  ${C.dim}Model:${C.reset}       ${agent.model}\r\n`);
-      w(`  ${C.dim}Tools (${toolNames.length}):${C.reset}  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}\r\n`);
-      w(`  ${C.dim}MCP:${C.reset}         ${agent.mcp.length > 0 ? agent.mcp.join(', ') : 'none'}\r\n\r\n`);
+      w(`\r\n${Colors.bold}Agent: ${Colors.cyan}${agent.name}${Colors.reset}\r\n`);
+      w(`  ${Colors.dim}Description:${Colors.reset} ${agent.description}\r\n`);
+      w(`  ${Colors.dim}Model:${Colors.reset}       ${agent.model}\r\n`);
+      w(`  ${Colors.dim}Tools (${toolNames.length}):${Colors.reset}  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}\r\n`);
+      w(`  ${Colors.dim}MCP:${Colors.reset}         ${agent.mcp.length > 0 ? agent.mcp.join(', ') : 'none'}\r\n\r\n`);
     } else {
-      w(`${C.red}  Agent "${sub}" not found${C.reset}\r\n`);
+      w(`${Colors.red}  Agent "${sub}" not found${Colors.reset}\r\n`);
     }
   }
 
@@ -511,13 +485,13 @@ export class ReplService {
     if (!fs.existsSync(castDir)) fs.mkdirSync(castDir, { recursive: true });
 
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${C.bold}  Create New Agent${C.reset}\r\n\r\n`);
+    w(`\r\n${Colors.bold}  Create New Agent${Colors.reset}\r\n\r\n`);
 
-    const name = await this.smartInput!.question(`${C.cyan}  Name:${C.reset}`);
-    if (!name.trim()) { w(`${C.red}  Cancelled${C.reset}\r\n`); return; }
+    const name = await this.smartInput!.question(`${Colors.cyan}  Name:${Colors.reset}`);
+    if (!name.trim()) { w(`${Colors.red}  Cancelled${Colors.reset}\r\n`); return; }
 
-    const description = await this.smartInput!.question(`${C.cyan}  Description:${C.reset}`);
-    const skillsInput = await this.smartInput!.question(`${C.cyan}  Skills (comma-separated, or empty):${C.reset}`);
+    const description = await this.smartInput!.question(`${Colors.cyan}  Description:${Colors.reset}`);
+    const skillsInput = await this.smartInput!.question(`${Colors.cyan}  Skills (comma-separated, or empty):${Colors.reset}`);
     const skills = skillsInput.trim()
       ? skillsInput.split(',').map(s => s.trim()).filter(Boolean)
       : [];
@@ -543,9 +517,9 @@ export class ReplService {
     const filePath = path.join(castDir, filename);
     fs.writeFileSync(filePath, content);
 
-    w(`\r\n${C.green}  Agent created: ${filePath}${C.reset}\r\n`);
-    w(`${C.dim}  Edit the file to customize the system prompt${C.reset}\r\n`);
-    w(`${C.dim}  Restart to load the new agent${C.reset}\r\n\r\n`);
+    w(`\r\n${Colors.green}  Agent created: ${filePath}${Colors.reset}\r\n`);
+    w(`${Colors.dim}  Edit the file to customize the system prompt${Colors.reset}\r\n`);
+    w(`${Colors.dim}  Restart to load the new agent${Colors.reset}\r\n\r\n`);
   }
 
   private async cmdSkills(args: string[]) {
@@ -554,17 +528,17 @@ export class ReplService {
 
     if (!sub || sub === 'list') {
       const skills = this.skillRegistry.getAllSkills();
-      w(`\r\n${C.bold}Skills (${skills.length}):${C.reset}\r\n`);
+      w(`\r\n${Colors.bold}Skills (${skills.length}):${Colors.reset}\r\n`);
 
       if (skills.length === 0) {
-        w(`  ${C.dim}No skills loaded.${C.reset}\r\n`);
-        w(`  ${C.dim}Create one with /skills create or add .md files to .cast/definitions/skills/${C.reset}\r\n`);
+        w(`  ${Colors.dim}No skills loaded.${Colors.reset}\r\n`);
+        w(`  ${Colors.dim}Create one with /skills create or add .md files to .cast/definitions/skills/${Colors.reset}\r\n`);
       } else {
         for (const s of skills) {
-          w(`  ${C.cyan}${s.name}${C.reset}  ${C.dim}${s.description}${C.reset}  ${C.dim}[${s.tools.join(', ')}]${C.reset}\r\n`);
+          w(`  ${Colors.cyan}${s.name}${Colors.reset}  ${Colors.dim}${s.description}${Colors.reset}  ${Colors.dim}[${s.tools.join(', ')}]${Colors.reset}\r\n`);
         }
       }
-      w(`\r\n  ${C.dim}/skills create - create a new skill${C.reset}\r\n\r\n`);
+      w(`\r\n  ${Colors.dim}/skills create - create a new skill${Colors.reset}\r\n\r\n`);
       return;
     }
 
@@ -573,7 +547,7 @@ export class ReplService {
       return;
     }
 
-    w(`${C.red}  Unknown: /skills ${sub}${C.reset}\r\n`);
+    w(`${Colors.red}  Unknown: /skills ${sub}${Colors.reset}\r\n`);
   }
 
   private async createSkillWizard() {
@@ -581,15 +555,15 @@ export class ReplService {
     if (!fs.existsSync(castDir)) fs.mkdirSync(castDir, { recursive: true });
 
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${C.bold}  Create New Skill${C.reset}\r\n\r\n`);
+    w(`\r\n${Colors.bold}  Create New Skill${Colors.reset}\r\n\r\n`);
 
-    const name = await this.smartInput!.question(`${C.cyan}  Name:${C.reset}`);
-    if (!name.trim()) { w(`${C.red}  Cancelled${C.reset}\r\n`); return; }
+    const name = await this.smartInput!.question(`${Colors.cyan}  Name:${Colors.reset}`);
+    if (!name.trim()) { w(`${Colors.red}  Cancelled${Colors.reset}\r\n`); return; }
 
-    const description = await this.smartInput!.question(`${C.cyan}  Description:${C.reset}`);
+    const description = await this.smartInput!.question(`${Colors.cyan}  Description:${Colors.reset}`);
 
-    w(`\r\n  ${C.dim}Available tools: read_file, write_file, edit_file, glob, grep, ls, shell, web_fetch${C.reset}\r\n`);
-    const toolsInput = await this.smartInput!.question(`${C.cyan}  Tools (comma-separated):${C.reset}`);
+    w(`\r\n  ${Colors.dim}Available tools: read_file, write_file, edit_file, glob, grep, ls, shell, web_fetch${Colors.reset}\r\n`);
+    const toolsInput = await this.smartInput!.question(`${Colors.cyan}  Tools (comma-separated):${Colors.reset}`);
     const tools = toolsInput.trim()
       ? toolsInput.split(',').map(t => t.trim()).filter(Boolean)
       : ['read_file', 'write_file', 'edit_file', 'glob', 'grep'];
@@ -613,9 +587,9 @@ export class ReplService {
     const filePath = path.join(castDir, filename);
     fs.writeFileSync(filePath, content);
 
-    w(`\r\n${C.green}  Skill created: ${filePath}${C.reset}\r\n`);
-    w(`${C.dim}  Edit the file to add guidelines${C.reset}\r\n`);
-    w(`${C.dim}  Restart to load the new skill${C.reset}\r\n\r\n`);
+    w(`\r\n${Colors.green}  Skill created: ${filePath}${Colors.reset}\r\n`);
+    w(`${Colors.dim}  Edit the file to add guidelines${Colors.reset}\r\n`);
+    w(`${Colors.dim}  Restart to load the new skill${Colors.reset}\r\n\r\n`);
   }
 
   private async cmdMcp(args: string[]) {
@@ -624,15 +598,15 @@ export class ReplService {
 
     switch (sub) {
       case 'list': {
-        w(`\r\n${C.bold}MCP Servers:${C.reset}\r\n`);
+        w(`\r\n${Colors.bold}MCP Servers:${Colors.reset}\r\n`);
         const results = await this.mcpRegistry.connectAll();
         if (results.size === 0) {
-          w(`  ${C.dim}No MCP servers configured${C.reset}\r\n`);
-          w(`  ${C.dim}Use /mcp add to connect one${C.reset}\r\n`);
+          w(`  ${Colors.dim}No MCP servers configured${Colors.reset}\r\n`);
+          w(`  ${Colors.dim}Use /mcp add to connect one${Colors.reset}\r\n`);
         } else {
           for (const [name, connected] of results) {
-            const st = connected ? `${C.green}connected${C.reset}` : `${C.red}disconnected${C.reset}`;
-            w(`  ${C.cyan}${name}${C.reset}: ${st}\r\n`);
+            const st = connected ? `${Colors.green}connected${Colors.reset}` : `${Colors.red}disconnected${Colors.reset}`;
+            w(`  ${Colors.cyan}${name}${Colors.reset}: ${st}\r\n`);
           }
         }
         w('\r\n');
@@ -642,11 +616,11 @@ export class ReplService {
       case 'tools': {
         const tools = this.mcpRegistry.getAllMcpTools();
         if (tools.length === 0) {
-          w(`  ${C.dim}No MCP tools available. Connect a server first with /mcp add${C.reset}\r\n`);
+          w(`  ${Colors.dim}No MCP tools available. Connect a server first with /mcp add${Colors.reset}\r\n`);
         } else {
-          w(`\r\n${C.bold}MCP Tools (${tools.length}):${C.reset}\r\n`);
+          w(`\r\n${Colors.bold}MCP Tools (${tools.length}):${Colors.reset}\r\n`);
           for (const t of tools) {
-            w(`  ${C.cyan}${t.name}${C.reset}  ${C.dim}${t.description}${C.reset}\r\n`);
+            w(`  ${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${t.description}${Colors.reset}\r\n`);
           }
           w('\r\n');
         }
@@ -659,7 +633,7 @@ export class ReplService {
       }
 
       default:
-        w(`  ${C.dim}Usage: /mcp list | /mcp tools | /mcp add${C.reset}\r\n`);
+        w(`  ${Colors.dim}Usage: /mcp list | /mcp tools | /mcp add${Colors.reset}\r\n`);
     }
   }
 
@@ -668,10 +642,10 @@ export class ReplService {
     if (!fs.existsSync(mcpDir)) fs.mkdirSync(mcpDir, { recursive: true });
 
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${C.bold}  Add MCP Server${C.reset}\r\n\r\n`);
+    w(`\r\n${Colors.bold}  Add MCP Server${Colors.reset}\r\n\r\n`);
 
-    const name = await this.smartInput!.question(`${C.cyan}  Server name:${C.reset}`);
-    if (!name.trim()) { w(`${C.red}  Cancelled${C.reset}\r\n`); return; }
+    const name = await this.smartInput!.question(`${Colors.cyan}  Server name:${Colors.reset}`);
+    if (!name.trim()) { w(`${Colors.red}  Cancelled${Colors.reset}\r\n`); return; }
 
     const typeChoice = await this.smartInput!.askChoice('  Transport type:', [
       { key: 'stdio', label: 'stdio', description: 'Local process (most common)' },
@@ -682,46 +656,46 @@ export class ReplService {
     const config: Record<string, any> = { type: typeChoice };
 
     if (typeChoice === 'stdio') {
-      const command = await this.smartInput!.question(`${C.cyan}  Command (e.g., npx -y @modelcontextprotocol/server-filesystem):${C.reset}`);
-      const argsInput = await this.smartInput!.question(`${C.cyan}  Arguments (comma-separated, or empty):${C.reset}`);
+      const command = await this.smartInput!.question(`${Colors.cyan}  Command (e.g., npx -y @modelcontextprotocol/server-filesystem):${Colors.reset}`);
+      const argsInput = await this.smartInput!.question(`${Colors.cyan}  Arguments (comma-separated, or empty):${Colors.reset}`);
       config.command = command.trim();
       config.args = argsInput.trim() ? argsInput.split(',').map(a => a.trim()) : [];
     } else {
-      const endpoint = await this.smartInput!.question(`${C.cyan}  Endpoint URL:${C.reset}`);
+      const endpoint = await this.smartInput!.question(`${Colors.cyan}  Endpoint URL:${Colors.reset}`);
       config.endpoint = endpoint.trim();
     }
 
     const filePath = path.join(mcpDir, `${name.trim().toLowerCase()}.json`);
     fs.writeFileSync(filePath, JSON.stringify({ [name.trim()]: config }, null, 2));
 
-    w(`\r\n${C.green}  MCP config saved: ${filePath}${C.reset}\r\n`);
-    w(`${C.dim}  Restart to connect the server${C.reset}\r\n\r\n`);
+    w(`\r\n${Colors.green}  MCP config saved: ${filePath}${Colors.reset}\r\n`);
+    w(`${Colors.dim}  Restart to connect the server${Colors.reset}\r\n\r\n`);
   }
 
   private cmdModel(args: string[]) {
     const w = (s: string) => process.stdout.write(s);
     if (args.length === 0) {
-      w(`\r\n${C.bold}Current Model:${C.reset}\r\n`);
-      w(`  Provider: ${C.cyan}${this.configService.getProvider()}${C.reset}\r\n`);
-      w(`  Model:    ${C.cyan}${this.configService.getModel()}${C.reset}\r\n\r\n`);
-      w(`  ${C.dim}Set model via: LLM_PROVIDER=openai OPENAI_API_KEY=sk-... cast-code${C.reset}\r\n`);
-      w(`  ${C.dim}Or edit: .cast/config.md frontmatter${C.reset}\r\n\r\n`);
+      w(`\r\n${Colors.bold}Current Model:${Colors.reset}\r\n`);
+      w(`  Provider: ${Colors.cyan}${this.configService.getProvider()}${Colors.reset}\r\n`);
+      w(`  Model:    ${Colors.cyan}${this.configService.getModel()}${Colors.reset}\r\n\r\n`);
+      w(`  ${Colors.dim}Set model via: LLM_PROVIDER=openai OPENAI_API_KEY=sk-... cast-code${Colors.reset}\r\n`);
+      w(`  ${Colors.dim}Or edit: .cast/config.md frontmatter${Colors.reset}\r\n\r\n`);
       return;
     }
-    w(`${C.yellow}  Model change requires restart. Update .env or .cast/config.md${C.reset}\r\n`);
+    w(`${Colors.yellow}  Model change requires restart. Update .env or .cast/config.md${Colors.reset}\r\n`);
   }
 
   private cmdConfig() {
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${C.bold}Configuration:${C.reset}\r\n`);
-    w(`  Provider:    ${C.cyan}${this.configService.getProvider()}${C.reset}\r\n`);
-    w(`  Model:       ${C.cyan}${this.configService.getModel()}${C.reset}\r\n`);
-    w(`  Temperature: ${C.cyan}${this.configService.getTemperature()}${C.reset}\r\n`);
-    w(`  CWD:         ${C.dim}${process.cwd()}${C.reset}\r\n`);
+    w(`\r\n${Colors.bold}Configuration:${Colors.reset}\r\n`);
+    w(`  Provider:    ${Colors.cyan}${this.configService.getProvider()}${Colors.reset}\r\n`);
+    w(`  Model:       ${Colors.cyan}${this.configService.getModel()}${Colors.reset}\r\n`);
+    w(`  Temperature: ${Colors.cyan}${this.configService.getTemperature()}${Colors.reset}\r\n`);
+    w(`  CWD:         ${Colors.dim}${process.cwd()}${Colors.reset}\r\n`);
     w(`  Messages:    ${this.deepAgent.getMessageCount()}\r\n`);
 
     const castDir = path.join(process.cwd(), '.cast');
-    w(`  .cast/:      ${fs.existsSync(castDir) ? `${C.green}found${C.reset}` : `${C.dim}not found (use /init)${C.reset}`}\r\n\r\n`);
+    w(`  .cast/:      ${fs.existsSync(castDir) ? `${Colors.green}found${Colors.reset}` : `${Colors.dim}not found (use /init)${Colors.reset}`}\r\n\r\n`);
   }
 
   private cmdInit() {
@@ -729,7 +703,7 @@ export class ReplService {
     const w = (s: string) => process.stdout.write(s);
 
     if (fs.existsSync(castDir)) {
-      w(`  ${C.dim}.cast/ already exists${C.reset}\r\n`);
+      w(`  ${Colors.dim}.cast/ already exists${Colors.reset}\r\n`);
       return;
     }
 
@@ -753,91 +727,91 @@ export class ReplService {
       ].join('\n'),
     );
 
-    w(`${C.green}  Initialized .cast/ directory${C.reset}\r\n`);
-    w(`  ${C.dim}Created: config.md, definitions/agents/, definitions/skills/, mcp/${C.reset}\r\n`);
-    w(`  ${C.dim}Edit .cast/config.md to configure your project${C.reset}\r\n\r\n`);
+    w(`${Colors.green}  Initialized .cast/ directory${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}Created: config.md, definitions/agents/, definitions/skills/, mcp/${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}Edit .cast/config.md to configure your project${Colors.reset}\r\n\r\n`);
   }
 
   private cmdContext() {
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${C.bold}Session:${C.reset}\r\n`);
+    w(`\r\n${Colors.bold}Session:${Colors.reset}\r\n`);
     w(`  Messages:  ${this.deepAgent.getMessageCount()}\r\n`);
-    w(`  Tokens:    ${C.cyan}${this.deepAgent.getTokenCount().toLocaleString()}${C.reset}\r\n`);
+    w(`  Tokens:    ${Colors.cyan}${this.deepAgent.getTokenCount().toLocaleString()}${Colors.reset}\r\n`);
     w(`  CWD:       ${process.cwd()}\r\n`);
     w(`  Provider:  ${this.configService.getProvider()}/${this.configService.getModel()}\r\n\r\n`);
   }
 
   private cmdMentionsHelp() {
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${C.bold}Mentions \u2014 inject context with @${C.reset}\r\n\r\n`);
-    w(`  ${C.cyan}@path/to/file.ts${C.reset}   Read file content\r\n`);
-    w(`  ${C.cyan}@path/to/dir/${C.reset}      List directory\r\n`);
-    w(`  ${C.cyan}@https://url.com${C.reset}   Fetch URL\r\n`);
-    w(`  ${C.cyan}@git:status${C.reset}        Git status\r\n`);
-    w(`  ${C.cyan}@git:diff${C.reset}          Git diff\r\n`);
-    w(`  ${C.cyan}@git:log${C.reset}           Git log\r\n`);
-    w(`  ${C.cyan}@git:branch${C.reset}        List branches\r\n\r\n`);
-    w(`  ${C.dim}Example: "Explain this @src/main.ts"${C.reset}\r\n`);
-    w(`  ${C.dim}Tip: Type @ and suggestions will appear${C.reset}\r\n\r\n`);
+    w(`\r\n${Colors.bold}Mentions \u2014 inject context with @${Colors.reset}\r\n\r\n`);
+    w(`  ${Colors.cyan}@path/to/file.ts${Colors.reset}   Read file content\r\n`);
+    w(`  ${Colors.cyan}@path/to/dir/${Colors.reset}      List directory\r\n`);
+    w(`  ${Colors.cyan}@https://url.com${Colors.reset}   Fetch URL\r\n`);
+    w(`  ${Colors.cyan}@git:status${Colors.reset}        Git status\r\n`);
+    w(`  ${Colors.cyan}@git:diff${Colors.reset}          Git diff\r\n`);
+    w(`  ${Colors.cyan}@git:log${Colors.reset}           Git log\r\n`);
+    w(`  ${Colors.cyan}@git:branch${Colors.reset}        List branches\r\n\r\n`);
+    w(`  ${Colors.dim}Example: "Explain this @src/main.ts"${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}Tip: Type @ and suggestions will appear${Colors.reset}\r\n\r\n`);
   }
 
   private printHelp() {
     const w = (s: string) => process.stdout.write(s);
     w('\r\n');
-    w(`${C.bold}Commands${C.reset}\r\n`);
-    w(`  ${C.cyan}/help${C.reset}           Show this help\r\n`);
-    w(`  ${C.cyan}/clear${C.reset}          Clear conversation\r\n`);
-    w(`  ${C.cyan}/compact${C.reset}        Compact history\r\n`);
-    w(`  ${C.cyan}/exit${C.reset}           Exit\r\n`);
+    w(`${Colors.bold}Commands${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/help${Colors.reset}           Show this help\r\n`);
+    w(`  ${Colors.cyan}/clear${Colors.reset}          Clear conversation\r\n`);
+    w(`  ${Colors.cyan}/compact${Colors.reset}        Compact history\r\n`);
+    w(`  ${Colors.cyan}/exit${Colors.reset}           Exit\r\n`);
     w('\r\n');
-    w(`${C.bold}Git${C.reset}\r\n`);
-    w(`  ${C.cyan}/status${C.reset}         Git status\r\n`);
-    w(`  ${C.cyan}/diff${C.reset}           Git diff\r\n`);
-    w(`  ${C.cyan}/log${C.reset}            Git log (recent 15)\r\n`);
-    w(`  ${C.cyan}/commit [msg]${C.reset}   Commit (agent-assisted or with message)\r\n`);
+    w(`${Colors.bold}Git${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/status${Colors.reset}         Git status\r\n`);
+    w(`  ${Colors.cyan}/diff${Colors.reset}           Git diff\r\n`);
+    w(`  ${Colors.cyan}/log${Colors.reset}            Git log (recent 15)\r\n`);
+    w(`  ${Colors.cyan}/commit [msg]${Colors.reset}   Commit (agent-assisted or with message)\r\n`);
     w('\r\n');
-    w(`${C.bold}Agents & Skills${C.reset}\r\n`);
-    w(`  ${C.cyan}/agents${C.reset}         List agents\r\n`);
-    w(`  ${C.cyan}/agents create${C.reset}  Create a new agent\r\n`);
-    w(`  ${C.cyan}/skills${C.reset}         List skills\r\n`);
-    w(`  ${C.cyan}/skills create${C.reset}  Create a new skill\r\n`);
+    w(`${Colors.bold}Agents & Skills${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/agents${Colors.reset}         List agents\r\n`);
+    w(`  ${Colors.cyan}/agents create${Colors.reset}  Create a new agent\r\n`);
+    w(`  ${Colors.cyan}/skills${Colors.reset}         List skills\r\n`);
+    w(`  ${Colors.cyan}/skills create${Colors.reset}  Create a new skill\r\n`);
     w('\r\n');
-    w(`${C.bold}Info${C.reset}\r\n`);
-    w(`  ${C.cyan}/tools${C.reset}          List available tools\r\n`);
-    w(`  ${C.cyan}/context${C.reset}        Session info\r\n`);
-    w(`  ${C.cyan}/mentions${C.reset}       Mentions help (@)\r\n`);
+    w(`${Colors.bold}Info${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/tools${Colors.reset}          List available tools\r\n`);
+    w(`  ${Colors.cyan}/context${Colors.reset}        Session info\r\n`);
+    w(`  ${Colors.cyan}/mentions${Colors.reset}       Mentions help (@)\r\n`);
     w('\r\n');
-    w(`${C.bold}Config${C.reset}\r\n`);
-    w(`  ${C.cyan}/model${C.reset}          Show/change model\r\n`);
-    w(`  ${C.cyan}/config${C.reset}         Show configuration\r\n`);
-    w(`  ${C.cyan}/init${C.reset}           Initialize .cast/ directory\r\n`);
+    w(`${Colors.bold}Config${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/model${Colors.reset}          Show/change model\r\n`);
+    w(`  ${Colors.cyan}/config${Colors.reset}         Show configuration\r\n`);
+    w(`  ${Colors.cyan}/init${Colors.reset}           Initialize .cast/ directory\r\n`);
     w('\r\n');
-    w(`${C.bold}MCP${C.reset}\r\n`);
-    w(`  ${C.cyan}/mcp list${C.reset}       List MCP servers\r\n`);
-    w(`  ${C.cyan}/mcp tools${C.reset}      List MCP tools\r\n`);
-    w(`  ${C.cyan}/mcp add${C.reset}        Add new MCP server\r\n`);
+    w(`${Colors.bold}MCP${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/mcp list${Colors.reset}       List MCP servers\r\n`);
+    w(`  ${Colors.cyan}/mcp tools${Colors.reset}      List MCP tools\r\n`);
+    w(`  ${Colors.cyan}/mcp add${Colors.reset}        Add new MCP server\r\n`);
     w('\r\n');
-    w(`${C.bold}Mentions${C.reset}\r\n`);
-    w(`  ${C.cyan}@file.ts${C.reset}        Inject file content\r\n`);
-    w(`  ${C.cyan}@dir/${C.reset}           Inject directory listing\r\n`);
-    w(`  ${C.cyan}@git:status${C.reset}     Inject git status\r\n`);
+    w(`${Colors.bold}Mentions${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}@file.ts${Colors.reset}        Inject file content\r\n`);
+    w(`  ${Colors.cyan}@dir/${Colors.reset}           Inject directory listing\r\n`);
+    w(`  ${Colors.cyan}@git:status${Colors.reset}     Inject git status\r\n`);
     w('\r\n');
-    w(`${C.bold}Tips${C.reset}\r\n`);
-    w(`  ${C.dim}Type /${C.reset}          Commands appear as you type\r\n`);
-    w(`  ${C.dim}Type @${C.reset}          File suggestions appear as you type\r\n`);
-    w(`  ${C.dim}Tab${C.reset}             Select suggestion\r\n`);
-    w(`  ${C.dim}Arrow keys${C.reset}      Navigate suggestions\r\n`);
-    w(`  ${C.dim}Ctrl+C${C.reset}          Cancel running operation\r\n`);
-    w(`  ${C.dim}Ctrl+D${C.reset}          Exit\r\n`);
+    w(`${Colors.bold}Tips${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}Type /${Colors.reset}          Commands appear as you type\r\n`);
+    w(`  ${Colors.dim}Type @${Colors.reset}          File suggestions appear as you type\r\n`);
+    w(`  ${Colors.dim}Tab${Colors.reset}             Select suggestion\r\n`);
+    w(`  ${Colors.dim}Arrow keys${Colors.reset}      Navigate suggestions\r\n`);
+    w(`  ${Colors.dim}Ctrl+C${Colors.reset}          Cancel running operation\r\n`);
+    w(`  ${Colors.dim}Ctrl+D${Colors.reset}          Exit\r\n`);
     w('\r\n');
   }
 
   private runGit(cmd: string) {
     try {
       const output = execSync(cmd, { encoding: 'utf-8', cwd: process.cwd() }).trim();
-      process.stdout.write(output ? `\r\n${output}\r\n\r\n` : `  ${C.dim}(no output)${C.reset}\r\n`);
+      process.stdout.write(output ? `\r\n${output}\r\n\r\n` : `  ${Colors.dim}(no output)${Colors.reset}\r\n`);
     } catch (e) {
-      process.stdout.write(`${C.red}  ${(e as Error).message}${C.reset}\r\n`);
+      process.stdout.write(`${Colors.red}  ${(e as Error).message}${Colors.reset}\r\n`);
     }
   }
 

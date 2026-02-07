@@ -46,3 +46,16 @@ export interface UpdateTaskOptions {
   removeDependencies?: string[];
   metadata?: Record<string, any>;
 }
+
+export interface PlanApprovalOptions {
+  approved: boolean;
+  autoApprove: boolean;
+  modificationRequested?: string;
+}
+
+export interface PlanExecutionContext {
+  planId: string;
+  autoApprove: boolean;
+  currentTaskIndex: number;
+  startedAt: number;
+}

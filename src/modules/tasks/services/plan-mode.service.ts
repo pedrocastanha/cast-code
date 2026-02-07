@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, forwardRef, Inject } from '@nestjs/common';
 import { TaskManagementService } from './task-management.service';
+import { PlanExecutorService } from './plan-executor.service';
 import { PromptService } from '../../permissions/services/prompt.service';
 import { CreateTaskOptions, TaskPlan } from '../types/task.types';
 
@@ -11,6 +12,8 @@ export class PlanModeService {
 
   constructor(
     private taskService: TaskManagementService,
+    @Inject(forwardRef(() => PlanExecutorService))
+    private planExecutor: PlanExecutorService,
     private promptService: PromptService,
   ) {}
 
@@ -34,31 +37,45 @@ export class PlanModeService {
     console.log('');
   }
 
-  async exitPlanMode(tasks: CreateTaskOptions[]): Promise<boolean> {
+  async exitPlanMode(tasks: CreateTaskOptions[]): Promise<{ approved: boolean; autoApprove: boolean; modification?: string }> {
     if (!this.inPlanMode) {
       throw new Error('Not in plan mode');
     }
 
     console.log('');
     console.log('━'.repeat(60));
-    this.promptService.info('📋 Exiting PLAN MODE - Presenting Plan');
+    this.promptService.info('📋 Saindo do MODO PLANEJAMENTO - Apresentando Plano');
     console.log('━'.repeat(60));
     console.log('');
 
-    const planTitle = this.planContext.get('title') || 'Execution Plan';
+    const planTitle = this.planContext.get('title') || 'Plano de Execução';
     const planDescription = this.planContext.get('description') || '';
 
     const plan = this.taskService.createPlan(planTitle, planDescription, tasks);
     this.currentPlan = plan;
 
-    const approved = await this.taskService.approvePlan(plan.id);
+    const result = await this.taskService.approvePlan(plan.id);
 
-    if (approved) {
-      await this.taskService.executePlan(plan.id);
+    if (result.approved) {
+      // Configurar contexto de execução
+      this.taskService.setExecutionContext({
+        planId: plan.id,
+        autoApprove: result.autoApprove,
+        currentTaskIndex: 0,
+        startedAt: Date.now(),
+      });
+
+      // Executar plano usando PlanExecutorService
+      await this.planExecutor.executePlan(plan.id, result.autoApprove);
     }
 
     this.inPlanMode = false;
-    return approved;
+
+    return {
+      approved: result.approved,
+      autoApprove: result.autoApprove,
+      modification: result.modificationRequested,
+    };
   }
 
   isInPlanMode(): boolean {

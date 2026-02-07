@@ -14,6 +14,7 @@ import { ProjectContextService } from '../../project/services/project-context.se
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { MemoryService } from '../../memory/services/memory.service';
 import { ProjectInitResult } from '../../project/types';
+import { Task } from '../../tasks/types/task.types';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -263,22 +264,25 @@ export class DeepAgentService implements OnModuleInit {
       `Do NOT plan for: simple fixes, single-file edits, questions, explanations`,
       ``,
       `## Plan Mode Workflow`,
-      `1. **enter_plan_mode** — signals you are planning (no edits yet)`,
-      `2. **Explore**: glob, grep, read_file to understand the codebase`,
-      `3. **Design**: Write a structured plan with:`,
-      `   - Goal: what we're achieving`,
-      `   - Files to create/modify (with specific descriptions of each change)`,
-      `   - Order of operations (dependencies between changes)`,
-      `   - Risks and edge cases`,
-      `   - Verification strategy (tests, build, manual check)`,
-      `4. **exit_plan_mode** — present plan to user for approval`,
-      `5. After approval: create tasks with task_create and execute them`,
+      `1. **enter_plan_mode** — signals you are planning`,
+      `2. **Explore rapidly**: Use glob and grep efficiently to understand codebase`,
+      `3. **Design**: Create structured plan with specific file changes and order`,
+      `4. **exit_plan_mode** — present plan for approval`,
+      `5. **Execute immediately** after approval without asking for further confirmation`,
+      ``,
+      `## Critical: Autonomous Execution`,
+      `AFTER the user approves your plan, you MUST:`,
+      `- Start implementing immediately`,
+      `- Create tasks and execute them sequentially`,
+      `- Do NOT ask "should I proceed?" or "ready to start?"`,
+      `- Do NOT wait for additional confirmation`,
+      `- Just execute the approved plan autonomously`,
       ``,
       `## Plan Quality Rules`,
-      `- Every file change must specify WHAT changes and WHY`,
-      `- Order changes by dependency (foundations first, dependents second)`,
-      `- Always include a verification step at the end`,
-      `- If uncertain about approach, use ask_user_question to clarify BEFORE planning`,
+      `- Specify WHAT changes and WHY for each file`,
+      `- Order by dependency (foundations first)`,
+      `- Include verification at the end`,
+      `- Use ask_user_question ONLY to clarify requirements, not to ask for permission to execute`,
       ``,
     );
 
@@ -747,5 +751,21 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
   getLastToolOutputs(): { tool: string; output: string }[] {
     return this.lastToolOutputs;
+  }
+
+  async executeTask(task: Task): Promise<{ success: boolean; error?: string }> {
+    try {
+      const message = `Execute a seguinte tarefa:\n\n**${task.subject}**\n\n${task.description}\n\nCertifique-se de completar a tarefa totalmente e verificar o resultado.`;
+
+      let fullResponse = '';
+      for await (const chunk of this.chat(message)) {
+        fullResponse += chunk;
+        process.stdout.write(chunk);
+      }
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
   }
 }

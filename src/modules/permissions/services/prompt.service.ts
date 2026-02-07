@@ -1,18 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as readline from 'readline';
-
-const C = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  blue: '\x1b[34m',
-  gray: '\x1b[90m',
-  white: '\x1b[37m',
-};
+import { Colors } from '../../repl/utils/theme';
 
 @Injectable()
 export class PromptService {
@@ -33,7 +21,7 @@ export class PromptService {
 
   async confirm(message: string, defaultValue = false): Promise<boolean> {
     const suffix = defaultValue ? ' [Y/n]' : ' [y/N]';
-    const answer = await this.question(`${C.yellow}${message}${suffix}${C.reset}`);
+    const answer = await this.question(`${Colors.yellow}${message}${suffix}${Colors.reset}`);
 
     if (!answer.trim()) return defaultValue;
 
@@ -44,19 +32,19 @@ export class PromptService {
     message: string,
     choices: { key: T; label: string; description?: string }[],
   ): Promise<T> {
-    console.log(`\n${C.cyan}${message}${C.reset}`);
+    console.log(`\n${Colors.cyan}${message}${Colors.reset}`);
     console.log('');
 
     choices.forEach((choice, index) => {
-      const desc = choice.description ? `${C.dim} - ${choice.description}${C.reset}` : '';
-      console.log(`  ${C.white}${index + 1}.${C.reset} ${C.bold}${choice.label}${C.reset}${desc}`);
+      const desc = choice.description ? `${Colors.dim} - ${choice.description}${Colors.reset}` : '';
+      console.log(`  ${Colors.white}${index + 1}.${Colors.reset} ${Colors.bold}${choice.label}${Colors.reset}${desc}`);
     });
 
     console.log('');
 
     while (true) {
       const answer = await this.question(
-        `${C.yellow}Choose (1-${choices.length}):${C.reset}`,
+        `${Colors.yellow}Choose (1-${choices.length}):${Colors.reset}`,
       );
       const index = parseInt(answer) - 1;
 
@@ -64,24 +52,24 @@ export class PromptService {
         return choices[index].key;
       }
 
-      console.log(`${C.red}Invalid choice. Please try again.${C.reset}`);
+      console.log(`${Colors.red}Invalid choice. Please try again.${Colors.reset}`);
     }
   }
 
   warn(message: string): void {
-    console.log(`${C.yellow}  ${message}${C.reset}`);
+    console.log(`${Colors.yellow}  ${message}${Colors.reset}`);
   }
 
   error(message: string): void {
-    console.log(`${C.red}  ${message}${C.reset}`);
+    console.log(`${Colors.red}  ${message}${Colors.reset}`);
   }
 
   success(message: string): void {
-    console.log(`${C.green}  ${message}${C.reset}`);
+    console.log(`${Colors.green}  ${message}${Colors.reset}`);
   }
 
   info(message: string): void {
-    console.log(`${C.blue}  ${message}${C.reset}`);
+    console.log(`${Colors.blue}  ${message}${Colors.reset}`);
   }
 
   close(): void {

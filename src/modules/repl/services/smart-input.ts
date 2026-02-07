@@ -1,16 +1,4 @@
-const C = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  magenta: '\x1b[35m',
-  blue: '\x1b[34m',
-  gray: '\x1b[90m',
-  white: '\x1b[37m',
-};
+import { Colors } from '../utils/theme';
 
 export interface Suggestion {
   text: string;
@@ -50,6 +38,7 @@ export class SmartInput {
   private opts: SmartInputOptions;
 
   private dataHandler: ((data: string) => void) | null = null;
+  private terminalWidth = 80; // default
 
   constructor(opts: SmartInputOptions) {
     this.opts = opts;
@@ -63,6 +52,13 @@ export class SmartInput {
     }
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
+
+    this.terminalWidth = process.stdout.columns || 80;
+
+    // Listener para redimensionamento
+    process.stdout.on('resize', () => {
+      this.terminalWidth = process.stdout.columns || 80;
+    });
 
     this.dataHandler = (data: string) => this.handleData(data);
     process.stdin.on('data', this.dataHandler);
@@ -103,20 +99,20 @@ export class SmartInput {
     message: string,
     choices: { key: string; label: string; description?: string }[],
   ): Promise<string> {
-    process.stdout.write(`\r\n${C.cyan}${message}${C.reset}\r\n\r\n`);
+    process.stdout.write(`\r\n${Colors.cyan}${message}${Colors.reset}\r\n\r\n`);
     choices.forEach((ch, i) => {
-      const desc = ch.description ? `${C.dim} - ${ch.description}${C.reset}` : '';
-      process.stdout.write(`  ${C.white}${i + 1}.${C.reset} ${C.bold}${ch.label}${C.reset}${desc}\r\n`);
+      const desc = ch.description ? `${Colors.dim} - ${ch.description}${Colors.reset}` : '';
+      process.stdout.write(`  ${Colors.white}${i + 1}.${Colors.reset} ${Colors.bold}${ch.label}${Colors.reset}${desc}\r\n`);
     });
     process.stdout.write('\r\n');
 
     while (true) {
-      const answer = await this.question(`${C.yellow}Choose (1-${choices.length}):${C.reset}`);
+      const answer = await this.question(`${Colors.yellow}Choose (1-${choices.length}):${Colors.reset}`);
       const idx = parseInt(answer) - 1;
       if (idx >= 0 && idx < choices.length) {
         return choices[idx].key;
       }
-      process.stdout.write(`${C.red}  Invalid choice, try again.${C.reset}\r\n`);
+      process.stdout.write(`${Colors.red}  Invalid choice, try again.${Colors.reset}\r\n`);
     }
   }
 
@@ -414,7 +410,7 @@ export class SmartInput {
       }
       this.lastCtrlCTime = now;
       this.clearSuggestions();
-      process.stdout.write(`\r\n${C.dim}  Press Ctrl+C again to exit${C.reset}\r\n`);
+      process.stdout.write(`\r\n${Colors.dim}  Press Ctrl+C again to exit${Colors.reset}\r\n`);
       this.render();
     }
   }
@@ -490,17 +486,47 @@ export class SmartInput {
     this.suggestions = [];
   }
 
+  private calculateCursorPosition(): { row: number; col: number } {
+    const totalLength = this.promptLen + this.cursor;
+    const row = Math.floor(totalLength / this.terminalWidth);
+    const col = (totalLength % this.terminalWidth) + 1;
+    return { row, col };
+  }
+
   private render() {
     const write = (s: string) => process.stdout.write(s);
 
-    write(`\r\x1b[K`);
+    // Calcular quantas linhas o buffer atual ocupa
+    const totalLength = this.promptLen + this.buffer.length;
+    const linesUsed = Math.ceil(totalLength / this.terminalWidth);
 
+    // Ir para o início do input (primeira linha do input)
+    if (linesUsed > 1) {
+      write(`\x1b[${linesUsed - 1}A`); // Sobe para primeira linha do input
+    }
+    write('\r'); // Volta para início da linha
+
+    // Limpar todas as linhas usadas pelo input
+    for (let i = 0; i < linesUsed; i++) {
+      write('\x1b[K'); // Limpa linha atual
+      if (i < linesUsed - 1) write('\n'); // Desce se não for última linha
+    }
+
+    // Voltar para primeira linha
+    if (linesUsed > 1) {
+      write(`\x1b[${linesUsed - 1}A`);
+    }
+    write('\r');
+
+    // Escrever prompt + buffer
     write(this.prompt + this.buffer);
 
+    // Limpar resto da tela (para sugestões antigas)
     write('\x1b[J');
 
     this.renderedLines = 0;
 
+    // Renderizar sugestões
     if (this.suggestions.length > 0) {
       const maxVisible = 10;
       const total = this.suggestions.length;
@@ -515,7 +541,7 @@ export class SmartInput {
       const scrollEnd = Math.min(scrollStart + maxVisible, total);
 
       if (scrollStart > 0) {
-        write(`\r\n    ${C.dim}\u2191 ${scrollStart} above${C.reset}`);
+        write(`\r\n    ${Colors.dim}\u2191 ${scrollStart} above${Colors.reset}`);
         this.renderedLines++;
       }
 
@@ -524,13 +550,13 @@ export class SmartInput {
         const selected = i === this.selectedIndex;
 
         if (selected) {
-          write(`\r\n  ${C.cyan}\u276f${C.reset} ${C.bold}${C.cyan}${s.display}${C.reset}`);
+          write(`\r\n  ${Colors.primary}\u276f${Colors.reset} ${Colors.bold}${Colors.primary}${s.display}${Colors.reset}`);
         } else {
-          write(`\r\n    ${C.dim}${s.display}${C.reset}`);
+          write(`\r\n    ${Colors.dim}${s.display}${Colors.reset}`);
         }
 
         if (s.description) {
-          write(`  ${C.gray}${s.description}${C.reset}`);
+          write(`  ${Colors.muted}${s.description}${Colors.reset}`);
         }
 
         this.renderedLines++;
@@ -538,23 +564,35 @@ export class SmartInput {
 
       const remaining = total - scrollEnd;
       if (remaining > 0) {
-        write(`\r\n    ${C.dim}\u2193 ${remaining} below${C.reset}`);
+        write(`\r\n    ${Colors.dim}\u2193 ${remaining} below${Colors.reset}`);
         this.renderedLines++;
       }
     }
 
+    // Voltar para linha do input se renderizou sugestões
     if (this.renderedLines > 0) {
       write(`\x1b[${this.renderedLines}A`);
     }
 
-    const col = this.promptLen + this.cursor + 1;
-    write(`\x1b[${col}G`);
+    // Posicionar cursor corretamente considerando wrapping
+    const { row, col } = this.calculateCursorPosition();
+
+    if (row > 0) {
+      write(`\x1b[${row}B`); // Desce 'row' linhas
+    }
+    write(`\x1b[${col}G`); // Move para coluna
   }
 
   private clearSuggestions() {
     if (this.renderedLines > 0) {
-      const endCol = this.promptLen + this.buffer.length + 1;
-      process.stdout.write(`\x1b[${endCol}G\x1b[J`);
+      const { row, col } = this.calculateCursorPosition();
+
+      // Posiciona no fim do buffer
+      if (row > 0) {
+        process.stdout.write(`\x1b[${row}B`);
+      }
+      process.stdout.write(`\x1b[${col}G\x1b[J`);
+
       this.renderedLines = 0;
     }
   }

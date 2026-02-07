@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigService } from './services/config.service';
 import { DeepAgentService } from './services/deep-agent.service';
 import { AgentsModule } from '../agents/agents.module';
@@ -10,7 +10,7 @@ import { MemoryModule } from '../memory/memory.module';
 import { MentionsModule } from '../mentions/mentions.module';
 
 @Module({
-  imports: [AgentsModule, SkillsModule, ToolsModule, McpModule, ProjectModule, MemoryModule, MentionsModule],
+  imports: [AgentsModule, SkillsModule, forwardRef(() => ToolsModule), McpModule, ProjectModule, forwardRef(() => MemoryModule), MentionsModule],
   providers: [ConfigService, DeepAgentService],
   exports: [ConfigService, DeepAgentService, MentionsModule, McpModule, AgentsModule, SkillsModule],
 })
