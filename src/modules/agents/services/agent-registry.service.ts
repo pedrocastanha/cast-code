@@ -82,6 +82,7 @@ export class AgentRegistryService {
       description: agent.description,
       systemPrompt: agent.systemPrompt,
       tools: agent.tools,
+      mcp: agent.mcp,
     }));
   }
 

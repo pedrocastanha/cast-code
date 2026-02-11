@@ -15,6 +15,7 @@ import { SkillRegistryService } from '../../skills/services/skill-registry.servi
 import { MemoryService } from '../../memory/services/memory.service';
 import { ProjectInitResult } from '../../project/types';
 import { Task } from '../../tasks/types/task.types';
+import { McpServerSummary } from '../../mcp/types';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -99,13 +100,15 @@ export class DeepAgentService implements OnModuleInit {
     const mcpTools = this.mcpRegistry.getAllMcpTools();
 
     const extraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
+    const mcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
+    const mcpServerSummaries = this.mcpRegistry.getServerSummaries();
 
-    const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, skillKnowledge, subagents, allTools, mcpTools);
+    const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, skillKnowledge, subagents, allTools, mcpTools, mcpServerSummaries);
 
     this.agent = createDeepAgent({
       model,
       systemPrompt,
-      tools: [...extraTools, ...mcpTools],
+      tools: [...extraTools, ...mcpTools, ...mcpDiscoveryTools],
       subagents,
       backend: () => new FilesystemBackend({ rootDir: process.cwd() }),
     });
@@ -155,6 +158,7 @@ export class DeepAgentService implements OnModuleInit {
     subagents: any[],
     tools: any[],
     mcpTools: any[],
+    mcpServerSummaries: McpServerSummary[] = [],
   ): string {
     const gitInfo = this.getGitStatus();
     const allToolNames = [
@@ -209,9 +213,21 @@ export class DeepAgentService implements OnModuleInit {
 
     if (mcpTools.length > 0) {
       parts.push(`## MCP Tools (External Services)`);
-      for (const t of mcpTools) {
-        parts.push(`- **${t.name}**: ${t.description}`);
+      if (mcpServerSummaries.length > 0) {
+        for (const server of mcpServerSummaries) {
+          parts.push(`### ${server.name} (${server.transport}, ${server.status}) — ${server.toolCount} tools`);
+          for (const td of server.toolDescriptions) {
+            parts.push(`- **${td.name}**: ${td.description}`);
+          }
+        }
+      } else {
+        for (const t of mcpTools) {
+          parts.push(`- **${t.name}**: ${t.description}`);
+        }
       }
+      parts.push(`## MCP Discovery Tools`);
+      parts.push(`- **mcp_list_servers**: List all connected MCP servers with status and tool counts`);
+      parts.push(`- **mcp_list_tools**: List tools from a specific server or all servers`);
       parts.push(``);
     }
 
@@ -250,6 +266,47 @@ export class DeepAgentService implements OnModuleInit {
       `- Memory persists across sessions — use it to avoid repeating mistakes`,
       ``,
     );
+
+    if (mcpTools.length > 0) {
+      parts.push(
+        `# MCP Integration Protocol`,
+        ``,
+        `MCP (Model Context Protocol) tools connect you to external services. They work exactly like built-in tools but reach outside the local filesystem.`,
+        ``,
+        `## Connected Servers`,
+      );
+      if (mcpServerSummaries.length > 0) {
+        for (const s of mcpServerSummaries) {
+          parts.push(`- **${s.name}** (${s.transport}, ${s.status}) — ${s.toolCount} tools`);
+        }
+      }
+      parts.push(
+        ``,
+        `## When to Use MCP vs Built-in`,
+        `| Need | Use |`,
+        `|------|-----|`,
+        `| Read/write local files | Built-in (read_file, write_file, edit_file) |`,
+        `| Search local codebase | Built-in (glob, grep) |`,
+        `| Run commands | Built-in (shell) |`,
+        `| Interact with external APIs/services | MCP tools |`,
+        `| Discover available MCP capabilities | mcp_list_servers, mcp_list_tools |`,
+        ``,
+        `## MCP Tool Naming Convention`,
+        `MCP tools follow the pattern \`{server}_{tool}\` (e.g., \`figma_get_file\`, \`github_create_issue\`).`,
+        `The prefix tells you which server provides the tool.`,
+        ``,
+        `## Discovery`,
+        `- Use **mcp_list_servers** to see which servers are connected and their status`,
+        `- Use **mcp_list_tools** to explore what tools a server provides (with descriptions)`,
+        `- When you're unsure which MCP tool to use, call mcp_list_tools first`,
+        ``,
+        `## Error Handling`,
+        `- If an MCP tool returns an error, check the server status with mcp_list_servers`,
+        `- MCP servers can disconnect — if a tool fails, the server may need reconnection`,
+        `- Report MCP errors to the user and suggest they check /mcp list in the REPL`,
+        ``,
+      );
+    }
 
     parts.push(
       `# Planning Protocol`,
@@ -295,7 +352,8 @@ export class DeepAgentService implements OnModuleInit {
         `## Available Sub-Agents`,
       );
       for (const sa of subagents) {
-        parts.push(`- **${sa.name}**: ${sa.description}`);
+        const mcpAnnotation = sa.mcp && sa.mcp.length > 0 ? ` [MCP: ${sa.mcp.join(', ')}]` : '';
+        parts.push(`- **${sa.name}**: ${sa.description}${mcpAnnotation}`);
       }
       parts.push(
         ``,
@@ -323,6 +381,13 @@ export class DeepAgentService implements OnModuleInit {
         `2. Assign each piece to the most qualified sub-agent`,
         `3. Track progress with task_create/task_update`,
         `4. Integrate results and verify the combined output`,
+        ``,
+        `## MCP-Aware Delegation`,
+        `When a task involves heavy interaction with an external service (e.g., fetching Figma designs, managing GitHub issues):`,
+        `- Check which sub-agents have MCP access (annotated with [MCP: name] above)`,
+        `- Delegate MCP-heavy work to the sub-agent with the right MCP connection`,
+        `- If no sub-agent has the needed MCP, handle it yourself using the MCP tools directly`,
+        `- Include the MCP server name in the task description so the sub-agent knows which tools to use`,
         ``,
       );
     }
@@ -530,6 +595,12 @@ export class DeepAgentService implements OnModuleInit {
         break;
       case 'memory_search':
         detail = input?.query ? ` "${input.query}"` : '';
+        break;
+      case 'mcp_list_servers':
+        detail = ' Listing MCP servers';
+        break;
+      case 'mcp_list_tools':
+        detail = input?.server ? ` server=${input.server}` : ' (all servers)';
         break;
       default:
         if (input) {

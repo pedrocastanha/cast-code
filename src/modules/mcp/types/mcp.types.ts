@@ -16,6 +16,15 @@ export interface McpTool {
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+export interface McpServerSummary {
+  name: string;
+  transport: McpTransportType;
+  status: string;
+  toolCount: number;
+  toolNames: string[];
+  toolDescriptions: { name: string; description: string }[];
+}
+
 export interface McpConnection {
   config: McpConfig;
   process?: unknown;

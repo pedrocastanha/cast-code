@@ -63,6 +63,7 @@ export class ReplService {
         { text: '/mcp list',  display: '/mcp list',  description: 'List servers' },
         { text: '/mcp tools', display: '/mcp tools', description: 'List MCP tools' },
         { text: '/mcp add',   display: '/mcp add',   description: 'Add new server' },
+        { text: '/mcp help',  display: '/mcp help',  description: 'Setup guide' },
       ].filter(s => s.text.startsWith(input));
     }
 
@@ -598,15 +599,17 @@ export class ReplService {
 
     switch (sub) {
       case 'list': {
+        const summaries = this.mcpRegistry.getServerSummaries();
         w(`\r\n${Colors.bold}MCP Servers:${Colors.reset}\r\n`);
-        const results = await this.mcpRegistry.connectAll();
-        if (results.size === 0) {
+        if (summaries.length === 0) {
           w(`  ${Colors.dim}No MCP servers configured${Colors.reset}\r\n`);
-          w(`  ${Colors.dim}Use /mcp add to connect one${Colors.reset}\r\n`);
+          w(`  ${Colors.dim}Use /mcp add to connect one, or /mcp help for setup guide${Colors.reset}\r\n`);
         } else {
-          for (const [name, connected] of results) {
-            const st = connected ? `${Colors.green}connected${Colors.reset}` : `${Colors.red}disconnected${Colors.reset}`;
-            w(`  ${Colors.cyan}${name}${Colors.reset}: ${st}\r\n`);
+          for (const s of summaries) {
+            const st = s.status === 'connected'
+              ? `${Colors.green}connected${Colors.reset}`
+              : `${Colors.red}${s.status}${Colors.reset}`;
+            w(`  ${Colors.cyan}${s.name}${Colors.reset}: ${st} (${s.toolCount} tools)\r\n`);
           }
         }
         w('\r\n');
@@ -614,13 +617,18 @@ export class ReplService {
       }
 
       case 'tools': {
-        const tools = this.mcpRegistry.getAllMcpTools();
-        if (tools.length === 0) {
+        const summaries = this.mcpRegistry.getServerSummaries();
+        const totalTools = summaries.reduce((sum, s) => sum + s.toolCount, 0);
+        if (totalTools === 0) {
           w(`  ${Colors.dim}No MCP tools available. Connect a server first with /mcp add${Colors.reset}\r\n`);
         } else {
-          w(`\r\n${Colors.bold}MCP Tools (${tools.length}):${Colors.reset}\r\n`);
-          for (const t of tools) {
-            w(`  ${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${t.description}${Colors.reset}\r\n`);
+          w(`\r\n${Colors.bold}MCP Tools (${totalTools}):${Colors.reset}\r\n`);
+          for (const server of summaries) {
+            if (server.toolCount === 0) continue;
+            w(`\r\n  ${Colors.bold}${server.name}${Colors.reset} ${Colors.dim}(${server.transport}, ${server.status})${Colors.reset}\r\n`);
+            for (const td of server.toolDescriptions) {
+              w(`    ${Colors.cyan}${td.name}${Colors.reset}  ${Colors.dim}${td.description}${Colors.reset}\r\n`);
+            }
           }
           w('\r\n');
         }
@@ -632,9 +640,56 @@ export class ReplService {
         break;
       }
 
+      case 'help': {
+        this.printMcpHelp();
+        break;
+      }
+
       default:
-        w(`  ${Colors.dim}Usage: /mcp list | /mcp tools | /mcp add${Colors.reset}\r\n`);
+        w(`  ${Colors.dim}Usage: /mcp list | /mcp tools | /mcp add | /mcp help${Colors.reset}\r\n`);
     }
+  }
+
+  private printMcpHelp() {
+    const w = (s: string) => process.stdout.write(s);
+    w(`\r\n${Colors.bold}MCP Setup Guide${Colors.reset}\r\n`);
+    w(`${Colors.dim}${'─'.repeat(50)}${Colors.reset}\r\n\r\n`);
+
+    w(`${Colors.bold}Step 1: Initialize project${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/init${Colors.reset}  ${Colors.dim}Creates .cast/ directory${Colors.reset}\r\n\r\n`);
+
+    w(`${Colors.bold}Step 2: Add MCP server${Colors.reset}\r\n\r\n`);
+    w(`  ${Colors.bold}Via wizard:${Colors.reset}\r\n`);
+    w(`    ${Colors.cyan}/mcp add${Colors.reset}  ${Colors.dim}Interactive setup${Colors.reset}\r\n\r\n`);
+
+    w(`  ${Colors.bold}Via JSON (stdio):${Colors.reset} ${Colors.dim}.cast/mcp/github.json${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}{${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}  "type": "stdio",${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}  "command": "npx",${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}  "args": ["-y", "@modelcontextprotocol/server-github"],${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}  "env": { "GITHUB_TOKEN": "ghp_xxx" }${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}}${Colors.reset}\r\n\r\n`);
+
+    w(`  ${Colors.bold}Via JSON (http):${Colors.reset} ${Colors.dim}.cast/mcp/api.json${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}{${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}  "type": "http",${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}  "endpoint": "https://mcp.example.com/api",${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}  "env": { "AUTH_TOKEN": "bearer-token" }${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}}${Colors.reset}\r\n\r\n`);
+
+    w(`${Colors.bold}Step 3: Link MCP to agents (optional)${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}In .cast/definitions/agents/frontend.md frontmatter:${Colors.reset}\r\n`);
+    w(`    ${Colors.dim}mcp: [figma]${Colors.reset}\r\n\r\n`);
+
+    w(`${Colors.bold}Step 4: Verify${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/mcp list${Colors.reset}   ${Colors.dim}See servers and status${Colors.reset}\r\n`);
+    w(`  ${Colors.cyan}/mcp tools${Colors.reset}  ${Colors.dim}See available tools${Colors.reset}\r\n\r\n`);
+
+    w(`${Colors.bold}Popular MCP Servers${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}@modelcontextprotocol/server-filesystem${Colors.reset}  ${Colors.dim}Local files${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}@modelcontextprotocol/server-github${Colors.reset}      ${Colors.dim}GitHub API${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}@anthropics/claude-code-mcp${Colors.reset}              ${Colors.dim}Claude Code${Colors.reset}\r\n`);
+    w(`  ${Colors.dim}@modelcontextprotocol/server-postgres${Colors.reset}    ${Colors.dim}PostgreSQL${Colors.reset}\r\n\r\n`);
   }
 
   private async addMcpWizard() {
@@ -790,6 +845,7 @@ export class ReplService {
     w(`  ${Colors.cyan}/mcp list${Colors.reset}       List MCP servers\r\n`);
     w(`  ${Colors.cyan}/mcp tools${Colors.reset}      List MCP tools\r\n`);
     w(`  ${Colors.cyan}/mcp add${Colors.reset}        Add new MCP server\r\n`);
+    w(`  ${Colors.cyan}/mcp help${Colors.reset}       MCP setup guide\r\n`);
     w('\r\n');
     w(`${Colors.bold}Mentions${Colors.reset}\r\n`);
     w(`  ${Colors.cyan}@file.ts${Colors.reset}        Inject file content\r\n`);

@@ -67,9 +67,16 @@ export class ProjectLoaderService {
 
         const filePath = path.join(mcpPath, file);
         const content = await fs.readFile(filePath, 'utf-8');
-        const mcpConfig = JSON.parse(content) as McpConfig;
+        const parsed = JSON.parse(content);
         const name = file.replace('.json', '');
-        configs[name] = mcpConfig;
+
+        if (parsed.type) {
+          configs[name] = parsed as McpConfig;
+        } else {
+          for (const [serverName, serverConfig] of Object.entries(parsed)) {
+            configs[serverName] = serverConfig as McpConfig;
+          }
+        }
       }
     } catch {
       throw new NotFoundException(`MCP configuration directory not found: ${mcpPath}`);

@@ -11,8 +11,6 @@ interface GlobalConfigFrontmatter {
   ollamaBaseUrl?: string;
 }
 
-//claude --resume 58524211-8ad1-4a73-a595-515e533e3c99
-
 export interface GlobalConfig {
   model: string;
   temperature: number;

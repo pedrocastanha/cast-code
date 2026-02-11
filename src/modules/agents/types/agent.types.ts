@@ -34,4 +34,5 @@ export interface SubagentDefinition {
   description: string;
   systemPrompt: string;
   tools: StructuredTool[];
+  mcp?: string[];
 }
