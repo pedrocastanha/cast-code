@@ -1,7 +1,7 @@
 ---
 name: frontend
 description: Frontend specialist for UI/UX implementation
-model: gpt-4o
+model: gpt-5.1-codex-mini
 temperature: 0.1
 skills:
   - general/file-operations

@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Code reviewer for quality assurance and best practices
-model: gpt-4o
+model: gpt-5.1-codex-mini
 temperature: 0.1
 skills:
   - general/file-operations

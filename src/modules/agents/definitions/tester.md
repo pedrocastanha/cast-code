@@ -1,7 +1,7 @@
 ---
 name: tester
 description: Testing specialist for quality assurance and test automation
-model: gpt-4o
+model: gpt-5.1-codex-mini
 temperature: 0.1
 skills:
   - general/file-operations

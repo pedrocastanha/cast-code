@@ -1,7 +1,7 @@
 ---
 name: devops
 description: DevOps specialist for infrastructure and deployment
-model: gpt-4o
+model: gpt-5.1-codex-mini
 temperature: 0.1
 skills:
   - general/file-operations

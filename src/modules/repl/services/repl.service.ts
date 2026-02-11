@@ -716,7 +716,7 @@ export class ReplService {
       path.join(castDir, 'config.md'),
       [
         '---',
-        'model: gpt-4o',
+        'model: gpt-5.1-codex-mini',
         'temperature: 0',
         '---',
         '',

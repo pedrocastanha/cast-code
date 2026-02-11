@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Software architect for designing systems and making architectural decisions
-model: gpt-4o
+model: gpt-5.1-codex-mini
 temperature: 0.2
 skills:
   - general/file-operations

@@ -1,7 +1,7 @@
 ---
 name: backend
 description: Backend specialist for API and server-side development
-model: gpt-4o
+model: gpt-5.1-codex-mini
 temperature: 0.1
 skills:
   - general/file-operations
