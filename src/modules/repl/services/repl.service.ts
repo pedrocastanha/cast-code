@@ -3,11 +3,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
-import { ConfigService } from '../../core/services/config.service';
+import { ConfigService } from '../../../common/services/config.service';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
+import { CommitGeneratorService } from '../../git/services/commit-generator.service';
+import { MonorepoDetectorService } from '../../git/services/monorepo-detector.service';
+import { PrGeneratorService } from '../../git/services/pr-generator.service';
 import { SmartInput, Suggestion } from './smart-input';
 import { Colors, Icons } from '../utils/theme';
 import { WelcomeScreenService } from './welcome-screen.service';
@@ -27,6 +30,9 @@ export class ReplService {
     private readonly agentRegistry: AgentRegistryService,
     private readonly skillRegistry: SkillRegistryService,
     private readonly welcomeScreenService: WelcomeScreenService,
+    private readonly commitGenerator: CommitGeneratorService,
+    private readonly monorepoDetector: MonorepoDetectorService,
+    private readonly prGenerator: PrGeneratorService,
   ) {}
 
   async start() {
@@ -88,6 +94,9 @@ export class ReplService {
       { text: '/diff',     display: '/diff',     description: 'Git diff' },
       { text: '/log',      display: '/log',      description: 'Git log' },
       { text: '/commit',   display: '/commit',   description: 'Commit changes' },
+      { text: '/up',       display: '/up',       description: 'Smart commit & push' },
+      { text: '/split-up', display: '/split-up', description: 'Split into multiple commits' },
+      { text: '/pr',       display: '/pr',       description: 'Create Pull Request' },
       { text: '/tools',    display: '/tools',    description: 'List tools' },
       { text: '/agents',   display: '/agents',   description: 'List/manage agents' },
       { text: '/skills',   display: '/skills',   description: 'List/manage skills' },
@@ -283,6 +292,9 @@ export class ReplService {
       case 'diff':       this.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
       case 'log':        this.runGit('git log --oneline -15'); break;
       case 'commit':     await this.cmdCommit(args); break;
+      case 'up':         await this.cmdUp(); break;
+      case 'split-up':   await this.cmdSplitUp(); break;
+      case 'pr':         await this.cmdPr(); break;
       case 'tools':      this.cmdTools(); break;
       case 'agents':     await this.cmdAgents(args); break;
       case 'skills':     await this.cmdSkills(args); break;
@@ -395,6 +407,351 @@ export class ReplService {
       );
     } else {
       this.runGit(`git add -A && git commit -m "${msg.replace(/"/g, '\\"')}"`);
+    }
+  }
+
+  private async cmdUp() {
+    const w = (s: string) => process.stdout.write(s);
+    
+    if (!this.commitGenerator.hasChanges()) {
+      w(`${Colors.yellow}  No changes to commit${Colors.reset}\r\n\r\n`);
+      return;
+    }
+
+    const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
+    if (monorepoInfo.isMonorepo) {
+      w(`\r\n${Colors.dim}Monorepo detected: ${monorepoInfo.modules.join(', ')}${Colors.reset}\r\n`);
+    }
+
+    w(`\r\n${Colors.cyan}🤖 Analyzing changes...${Colors.reset}\r\n`);
+    this.startSpinner('Generating commit message');
+
+    try {
+      const message = await this.commitGenerator.generateCommitMessage();
+      this.stopSpinner();
+
+      if (!message) {
+        w(`${Colors.red}  Failed to generate commit message${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`\r\n${Colors.green}✓ Generated commit message:${Colors.reset}\r\n`);
+      w(`  ${Colors.cyan}${message}${Colors.reset}\r\n\r\n`);
+
+      const confirm = await this.smartInput!.askChoice('Confirm and push?', [
+        { key: 'y', label: 'yes', description: 'Commit and push' },
+        { key: 'n', label: 'no', description: 'Cancel' },
+        { key: 'e', label: 'edit', description: 'Edit message' },
+      ]);
+
+      if (confirm === 'n') {
+        w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      let finalMessage = message;
+
+      if (confirm === 'e') {
+        const userInstruction = await this.smartInput!.question(`${Colors.cyan}  Instructions for the LLM (e.g., "mention the git module changes"):${Colors.reset}`);
+        if (!userInstruction.trim()) {
+          w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+          return;
+        }
+        
+        w(`\r\n${Colors.cyan}🤖 Regenerating with your instructions...${Colors.reset}\r\n`);
+        this.startSpinner('Refining commit message');
+        
+        const refinedMessage = await this.commitGenerator.refineCommitMessage(
+          message,
+          userInstruction.trim(),
+          this.commitGenerator.getDiffInfo()!,
+        );
+        
+        this.stopSpinner();
+        
+        w(`\r\n${Colors.green}✓ Refined commit message:${Colors.reset}\r\n`);
+        w(`  ${Colors.cyan}${refinedMessage}${Colors.reset}\r\n\r\n`);
+        
+        // Ask for confirmation on the refined message
+        const confirmRefined = await this.smartInput!.askChoice('Use this message?', [
+          { key: 'y', label: 'yes', description: 'Commit and push' },
+          { key: 'n', label: 'no', description: 'Cancel' },
+        ]);
+        
+        if (confirmRefined === 'n') {
+          w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+          return;
+        }
+        
+        finalMessage = refinedMessage;
+      }
+
+      w(`\r\n${Colors.dim}  Committing...${Colors.reset}\r\n`);
+      const success = this.commitGenerator.executeCommit(finalMessage, true);
+
+      if (!success) {
+        w(`${Colors.red}  ✗ Commit failed${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`${Colors.green}  ✓ Committed:${Colors.reset} ${finalMessage}\r\n`);
+
+      w(`\r\n${Colors.dim}  Pushing...${Colors.reset}\r\n`);
+      const pushResult = this.commitGenerator.executePush();
+
+      if (pushResult.success) {
+        w(`${Colors.green}  ✓ Pushed successfully${Colors.reset}\r\n\r\n`);
+      } else {
+        w(`${Colors.red}  ✗ Push failed:${Colors.reset} ${pushResult.error}\r\n\r\n`);
+      }
+
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
+  private async cmdSplitUp() {
+    const w = (s: string) => process.stdout.write(s);
+    
+    if (!this.commitGenerator.hasChanges()) {
+      w(`${Colors.yellow}  No changes to commit${Colors.reset}\r\n\r\n`);
+      return;
+    }
+
+    const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
+    if (monorepoInfo.isMonorepo) {
+      w(`\r\n${Colors.dim}Monorepo detected: ${monorepoInfo.modules.join(', ')}${Colors.reset}\r\n`);
+    }
+
+    w(`\r\n${Colors.cyan}🤖 Analyzing changes for split...${Colors.reset}\r\n`);
+    this.startSpinner('Splitting into logical commits');
+
+    try {
+      const commits = await this.commitGenerator.splitCommits();
+      this.stopSpinner();
+
+      if (!commits || commits.length === 0) {
+        w(`${Colors.red}  Failed to split commits${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`\r\n${Colors.green}✓ Proposed ${commits.length} commits:${Colors.reset}\r\n\r\n`);
+
+      for (let i = 0; i < commits.length; i++) {
+        const commit = commits[i];
+        w(`  ${Colors.cyan}${i + 1}.${Colors.reset} ${commit.message}\r\n`);
+        w(`     ${Colors.dim}Files: ${commit.files.join(', ')}${Colors.reset}\r\n`);
+      }
+
+      w(`\r\n`);
+
+      const confirm = await this.smartInput!.askChoice('Execute these commits?', [
+        { key: 'y', label: 'yes', description: `Commit all ${commits.length} changes` },
+        { key: 'n', label: 'no', description: 'Cancel' },
+      ]);
+
+      if (confirm !== 'y') {
+        w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`\r\n${Colors.dim}  Executing commits...${Colors.reset}\r\n`);
+      const result = this.commitGenerator.executeSplitCommits(commits);
+
+      if (result.success) {
+        w(`${Colors.green}  ✓ ${result.committed} commits executed${Colors.reset}\r\n`);
+
+        w(`\r\n${Colors.dim}  Pushing...${Colors.reset}\r\n`);
+        const pushResult = this.commitGenerator.executePush();
+
+        if (pushResult.success) {
+          w(`${Colors.green}  ✓ Pushed successfully${Colors.reset}\r\n\r\n`);
+        } else {
+          w(`${Colors.red}  ✗ Push failed:${Colors.reset} ${pushResult.error}\r\n\r\n`);
+        }
+      } else {
+        w(`${Colors.red}  ✗ Failed:${Colors.reset} ${result.error}\r\n\r\n`);
+      }
+
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
+  private async cmdPr() {
+    const w = (s: string) => process.stdout.write(s);
+    
+    const branch = this.prGenerator.getCurrentBranch();
+    if (branch === 'main' || branch === 'master' || branch === 'develop') {
+      w(`${Colors.yellow}  Cannot create PR from ${branch} branch${Colors.reset}\r\n\r\n`);
+      return;
+    }
+
+    // Detect and ask for base branch
+    const detectedBase = this.prGenerator.detectDefaultBaseBranch();
+    const baseBranchInput = await this.smartInput!.question(
+      `${Colors.cyan}  Base branch (default: ${detectedBase}):${Colors.reset}`
+    );
+    const baseBranch = baseBranchInput.trim() || detectedBase;
+
+    w(`\r\n${Colors.cyan}🔍 Analyzing commits in ${branch}...${Colors.reset}\r\n`);
+    this.startSpinner('Fetching commit history');
+
+    const commits = this.prGenerator.getCommitsNotInBase(baseBranch);
+    this.stopSpinner();
+
+    if (commits.length === 0) {
+      w(`${Colors.yellow}  No commits found between ${branch} and ${baseBranch}${Colors.reset}\r\n\r\n`);
+      return;
+    }
+
+    w(`\r\n${Colors.green}✓ Found ${commits.length} commit(s) to analyze:${Colors.reset}\r\n`);
+    for (const commit of commits) {
+      w(`  ${Colors.dim}${commit.hash}${Colors.reset} ${commit.message.slice(0, 50)}${commit.message.length > 50 ? '...' : ''}\r\n`);
+    }
+    w(`\r\n`);
+
+    w(`${Colors.cyan}🤖 Generating PR description with AI agents...${Colors.reset}\r\n`);
+    this.startSpinner('Analyzing commits in parallel');
+
+    try {
+      const prDescription = await this.prGenerator.generatePRDescription(branch, commits, baseBranch);
+      this.stopSpinner();
+
+      w(`\r\n${Colors.bold}${'─'.repeat(60)}${Colors.reset}\r\n`);
+      w(`${Colors.bold}Pull Request Preview:${Colors.reset}\r\n`);
+      w(`${Colors.bold}${'─'.repeat(60)}${Colors.reset}\r\n\r\n`);
+      
+      w(`${Colors.bold}Title:${Colors.reset}\r\n`);
+      w(`  ${Colors.cyan}${prDescription.title}${Colors.reset}\r\n\r\n`);
+      
+      w(`${Colors.bold}Description:${Colors.reset}\r\n`);
+      const descLines = prDescription.description.split('\n');
+      for (const line of descLines.slice(0, 30)) {
+        w(`  ${line}\r\n`);
+      }
+      if (descLines.length > 30) {
+        w(`  ${Colors.dim}... (${descLines.length - 30} more lines)${Colors.reset}\r\n`);
+      }
+      
+      w(`\r\n${Colors.bold}Commits Analysis:${Colors.reset}\r\n`);
+      for (const commit of prDescription.commits) {
+        w(`  ${Colors.dim}${commit.hash}${Colors.reset} ${Colors.cyan}${commit.summary.slice(0, 60)}${commit.summary.length > 60 ? '...' : ''}${Colors.reset}\r\n`);
+      }
+      
+      w(`\r\n${Colors.bold}${'─'.repeat(60)}${Colors.reset}\r\n\r\n`);
+
+      const confirm = await this.smartInput!.askChoice('Create this PR?', [
+        { key: 'y', label: 'yes', description: 'Create PR on GitHub' },
+        { key: 'n', label: 'no', description: 'Cancel' },
+        { key: 'e', label: 'edit', description: 'Edit title/description' },
+      ]);
+
+      if (confirm === 'n') {
+        w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      let finalTitle = prDescription.title;
+      let finalDescription = prDescription.description;
+
+      if (confirm === 'e') {
+        const newTitle = await this.smartInput!.question(
+          `${Colors.cyan}  Title (leave empty to keep current):${Colors.reset}`
+        );
+        if (newTitle.trim()) {
+          finalTitle = newTitle.trim();
+        }
+
+        w(`${Colors.dim}  Current description saved. Use 'e' to edit in your editor${Colors.reset}\r\n`);
+        const editDesc = await this.smartInput!.askChoice('Edit description?', [
+          { key: 'y', label: 'yes', description: 'Edit in default editor' },
+          { key: 'n', label: 'no', description: 'Keep as is' },
+        ]);
+
+        if (editDesc === 'y') {
+          const tempFile = `/tmp/pr-desc-${Date.now()}.md`;
+          require('fs').writeFileSync(tempFile, finalDescription);
+          
+          const editor = process.env.EDITOR || 'nano';
+          try {
+            execSync(`${editor} "${tempFile}"`, { stdio: 'inherit' });
+            finalDescription = require('fs').readFileSync(tempFile, 'utf-8');
+          } catch {
+            w(`${Colors.yellow}  Could not open editor. Keeping original description.${Colors.reset}\r\n`);
+          } finally {
+            try {
+              require('fs').unlinkSync(tempFile);
+            } catch {}
+          }
+        }
+      }
+
+      const { platform } = this.prGenerator.detectPlatform();
+      if (platform !== 'github') {
+        w(`\r\n${Colors.yellow}  ⚠️  Platform detected: ${platform}${Colors.reset}\r\n`);
+        w(`${Colors.dim}  Automatic PR creation only supported for GitHub.${Colors.reset}\r\n`);
+        w(`${Colors.dim}  Generating description for manual copy...${Colors.reset}\r\n\r\n`);
+      }
+
+      w(`${Colors.dim}  ${platform === 'github' ? 'Creating PR on GitHub...' : 'Preparing description...'}${Colors.reset}\r\n`);
+      this.startSpinner(platform === 'github' ? 'Pushing branch and creating PR' : 'Formatting description');
+
+      if (platform === 'github') {
+        try {
+          execSync(`git push origin ${branch}`, { cwd: process.cwd(), encoding: 'utf-8' });
+        } catch {
+        }
+      }
+
+      const result = await this.prGenerator.createPR(finalTitle, finalDescription, baseBranch);
+      this.stopSpinner();
+
+      if (result.success && result.url) {
+        w(`\r\n${Colors.green}  ✓ Pull Request created!${Colors.reset}\r\n`);
+        w(`  ${Colors.cyan}${result.url}${Colors.reset}\r\n`);
+        w(`\r\n`);
+      } else {
+        if (result.error) {
+          w(`\r\n${Colors.yellow}  ${result.error}${Colors.reset}\r\n`);
+        }
+        
+        if (result.description) {
+          const copied = this.prGenerator.copyToClipboard(result.description);
+          
+          w(`\r\n${Colors.bold}${'─'.repeat(60)}${Colors.reset}\r\n`);
+          w(`${Colors.bold}PR Description (copy manually if needed):${Colors.reset}\r\n`);
+          w(`${Colors.bold}${'─'.repeat(60)}${Colors.reset}\r\n\r\n`);
+          
+          const descLines = result.description.split('\n');
+          for (const line of descLines) {
+            w(`${line}\r\n`);
+          }
+          
+          w(`\r\n${Colors.bold}${'─'.repeat(60)}${Colors.reset}\r\n`);
+          
+          if (copied) {
+            w(`${Colors.green}  ✓ Description copied to clipboard!${Colors.reset}\r\n`);
+          } else {
+            w(`${Colors.yellow}  ⚠️  Could not copy to clipboard automatically${Colors.reset}\r\n`);
+            w(`${Colors.dim}  Please copy the description above manually${Colors.reset}\r\n`);
+          }
+          
+          const createUrl = this.prGenerator.getPRCreateUrl(platform, baseBranch);
+          if (createUrl) {
+            w(`\r\n${Colors.dim}  Open this URL to create the PR:${Colors.reset}\r\n`);
+            w(`  ${Colors.cyan}${createUrl}${Colors.reset}\r\n`);
+          }
+          
+          w(`\r\n`);
+        }
+      }
+
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`\r\n${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
     }
   }
 
@@ -824,6 +1181,9 @@ export class ReplService {
     w(`  ${Colors.cyan}/diff${Colors.reset}           Git diff\r\n`);
     w(`  ${Colors.cyan}/log${Colors.reset}            Git log (recent 15)\r\n`);
     w(`  ${Colors.cyan}/commit [msg]${Colors.reset}   Commit (agent-assisted or with message)\r\n`);
+    w(`  ${Colors.cyan}/up${Colors.reset}             Smart commit & push (conventional commits)\r\n`);
+    w(`  ${Colors.cyan}/split-up${Colors.reset}       Split diff into multiple logical commits\r\n`);
+    w(`  ${Colors.cyan}/pr${Colors.reset}             Create Pull Request with AI-generated description\r\n`);
     w('\r\n');
     w(`${Colors.bold}Agents & Skills${Colors.reset}\r\n`);
     w(`  ${Colors.cyan}/agents${Colors.reset}         List agents\r\n`);

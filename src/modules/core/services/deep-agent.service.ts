@@ -1,11 +1,10 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { ChatOpenAI } from '@langchain/openai';
-import { ChatOllama } from '@langchain/ollama';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { execSync } from 'child_process';
 import { createDeepAgent, FilesystemBackend } from 'deepagents';
-import { ConfigService } from './config.service';
+import { ConfigService } from '../../../common/services/config.service';
+import { LlmService } from '../../../common/services/llm.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
@@ -35,6 +34,7 @@ export class DeepAgentService implements OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly llmService: LlmService,
     private readonly agentRegistry: AgentRegistryService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly mcpRegistry: McpRegistryService,
@@ -72,25 +72,7 @@ export class DeepAgentService implements OnModuleInit {
       await this.memoryService.initialize(projectPath);
     }
 
-    const provider = this.configService.getProvider();
-    let model: BaseChatModel;
-
-    if (provider === 'ollama') {
-      model = new ChatOllama({
-        model: this.configService.getModel(),
-        temperature: this.configService.getTemperature(),
-        baseUrl: this.configService.getOllamaBaseUrl(),
-      });
-    } else {
-      model = new ChatOpenAI({
-        modelName: this.configService.getModel(),
-        temperature: this.configService.getTemperature(),
-        openAIApiKey: this.configService.getApiKey(),
-        streaming: true,
-      });
-    }
-
-    this.model = model;
+    this.model = this.llmService.createStreamingModel();
 
     const contextPrompt = this.projectContext.getContextPrompt();
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
@@ -106,7 +88,7 @@ export class DeepAgentService implements OnModuleInit {
     const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, skillKnowledge, subagents, allTools, mcpTools, mcpServerSummaries);
 
     this.agent = createDeepAgent({
-      model,
+      model: this.model,
       systemPrompt,
       tools: [...extraTools, ...mcpTools, ...mcpDiscoveryTools],
       subagents,

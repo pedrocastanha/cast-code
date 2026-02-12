@@ -109,6 +109,16 @@ export class McpClientService extends EventEmitter {
       headers['Authorization'] = `Bearer ${connection.config.env.AUTH_TOKEN}`;
     }
 
+    // Validate URL
+    try {
+      new URL(endpoint);
+    } catch {
+      throw new Error(`Invalid MCP HTTP endpoint: ${endpoint}`);
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
     const initResponse = await fetch(endpoint, {
       method: 'POST',
       headers,
@@ -122,11 +132,17 @@ export class McpClientService extends EventEmitter {
           clientInfo: { name: 'cast-code', version: '1.0.0' },
         },
       }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     if (!initResponse.ok) {
       throw new Error(`HTTP MCP init failed: ${initResponse.status} ${initResponse.statusText}`);
     }
+
+    const toolsController = new AbortController();
+    const toolsTimeout = setTimeout(() => toolsController.abort(), 10000);
 
     const toolsResponse = await fetch(endpoint, {
       method: 'POST',
@@ -137,7 +153,10 @@ export class McpClientService extends EventEmitter {
         method: 'tools/list',
         params: {},
       }),
+      signal: toolsController.signal,
     });
+
+    clearTimeout(toolsTimeout);
 
     if (toolsResponse.ok) {
       const data = await toolsResponse.json();
