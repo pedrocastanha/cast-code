@@ -589,10 +589,12 @@ export class ReplService {
       return;
     }
 
+    // Detect and ask for base branch
+    const detectedBase = this.prGenerator.detectDefaultBaseBranch();
     const baseBranchInput = await this.smartInput!.question(
-      `${Colors.cyan}  Base branch (default: develop):${Colors.reset}`
+      `${Colors.cyan}  Base branch (default: ${detectedBase}):${Colors.reset}`
     );
-    const baseBranch = baseBranchInput.trim() || 'develop';
+    const baseBranch = baseBranchInput.trim() || detectedBase;
 
     w(`\r\n${Colors.cyan}🔍 Analyzing commits in ${branch}...${Colors.reset}\r\n`);
     this.startSpinner('Fetching commit history');

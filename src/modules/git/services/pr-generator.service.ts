@@ -45,6 +45,31 @@ export class PrGeneratorService {
     }
   }
 
+  detectDefaultBaseBranch(): string {
+    try {
+      const cwd = process.cwd();
+      // Check common base branch names in order of preference
+      const candidates = ['main', 'master', 'develop'];
+      
+      for (const branch of candidates) {
+        try {
+          // Check if branch exists locally or remotely
+          execSync(`git rev-parse --verify ${branch} 2>/dev/null || git rev-parse --verify origin/${branch} 2>/dev/null`, { 
+            cwd, 
+            stdio: 'ignore' 
+          });
+          return branch;
+        } catch {
+          // Branch doesn't exist, try next
+        }
+      }
+      
+      return 'main'; // fallback
+    } catch {
+      return 'main';
+    }
+  }
+
   detectPlatform(): { platform: 'github' | 'azure' | 'gitlab' | 'bitbucket' | 'unknown'; url: string } {
     try {
       const remoteUrl = execSync('git remote get-url origin', { 
@@ -140,7 +165,7 @@ export class PrGeneratorService {
 
     const response = await llm.invoke([
       new SystemMessage(this.getCommitAnalysisSystemPrompt()),
-      new HumanMessage(prompt),
+      new new HumanMessage(prompt),
     ]);
 
     const content = this.extractContent(response.content);
