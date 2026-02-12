@@ -16,7 +16,7 @@ import { CodeReviewService } from '../../git/services/code-review.service';
 import { ReleaseNotesService } from '../../git/services/release-notes.service';
 import { PlanModeService } from '../../core/services/plan-mode.service';
 import { SmartInput, Suggestion } from './smart-input';
-import { Colors, Icons } from '../utils/theme';
+import { Colors, Icons, UI, colorize, Box } from '../utils/theme';
 import { WelcomeScreenService } from './welcome-screen.service';
 
 @Injectable()
@@ -1092,16 +1092,23 @@ export class ReplService {
     const max = Math.max(...builtIn.map(([n]) => n.length));
     const w = (s: string) => process.stdout.write(s);
 
-    w(`\r\n${Colors.bold}Built-in Tools (${builtIn.length}):${Colors.reset}\r\n`);
+    w('\r\n');
+    w(colorize(Icons.tool + ' ', 'accent') + colorize(`Built-in Tools (${builtIn.length})`, 'bold') + '\r\n');
+    w(colorize(Box.horizontal.repeat(25), 'subtle') + '\r\n');
+    
     for (const [name, desc] of builtIn) {
-      w(`  ${Colors.cyan}${name}${Colors.reset}${' '.repeat(max - name.length + 2)}${Colors.dim}${desc}${Colors.reset}\r\n`);
+      const paddedName = name.padEnd(max);
+      w(`  ${colorize(paddedName, 'cyan')}  ${colorize(desc, 'muted')}\r\n`);
     }
 
     const mcpTools = this.mcpRegistry.getAllMcpTools();
     if (mcpTools.length > 0) {
-      w(`\r\n${Colors.bold}MCP Tools (${mcpTools.length}):${Colors.reset}\r\n`);
+      w('\r\n');
+      w(colorize(Icons.cloud + ' ', 'accent') + colorize(`MCP Tools (${mcpTools.length})`, 'bold') + '\r\n');
+      w(colorize(Box.horizontal.repeat(20), 'subtle') + '\r\n');
+      
       for (const t of mcpTools) {
-        w(`  ${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${t.description}${Colors.reset}\r\n`);
+        w(`  ${colorize(t.name, 'cyan')}  ${colorize(t.description, 'muted')}\r\n`);
       }
     }
     w('\r\n');
@@ -1409,15 +1416,20 @@ export class ReplService {
 
   private cmdConfig() {
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${Colors.bold}Configuration:${Colors.reset}\r\n`);
-    w(`  Provider:    ${Colors.cyan}${this.configService.getProvider()}${Colors.reset}\r\n`);
-    w(`  Model:       ${Colors.cyan}${this.configService.getModel()}${Colors.reset}\r\n`);
-    w(`  Temperature: ${Colors.cyan}${this.configService.getTemperature()}${Colors.reset}\r\n`);
-    w(`  CWD:         ${Colors.dim}${process.cwd()}${Colors.reset}\r\n`);
-    w(`  Messages:    ${this.deepAgent.getMessageCount()}\r\n`);
-
+    
     const castDir = path.join(process.cwd(), '.cast');
-    w(`  .cast/:      ${fs.existsSync(castDir) ? `${Colors.green}found${Colors.reset}` : `${Colors.dim}not found (use /init)${Colors.reset}`}\r\n\r\n`);
+    const hasCastDir = fs.existsSync(castDir);
+    
+    w('\r\n');
+    w(colorize(Icons.gear + ' ', 'accent') + colorize('Configuration', 'bold') + '\r\n');
+    w(colorize(Box.horizontal.repeat(25), 'subtle') + '\r\n');
+    w(`  ${colorize('Provider:', 'muted')}    ${colorize(this.configService.getProvider(), 'cyan')}\r\n`);
+    w(`  ${colorize('Model:', 'muted')}       ${colorize(this.configService.getModel(), 'cyan')}\r\n`);
+    w(`  ${colorize('Temp:', 'muted')}        ${colorize(this.configService.getTemperature().toString(), 'cyan')}\r\n`);
+    w(`  ${colorize('CWD:', 'muted')}         ${colorize(process.cwd(), 'accent')}\r\n`);
+    w(`  ${colorize('Messages:', 'muted')}   ${this.deepAgent.getMessageCount()}\r\n`);
+    w(`  ${colorize('.cast/:', 'muted')}     ${hasCastDir ? colorize('✓ found', 'success') : colorize('not found (use /init)', 'warning')}\r\n`);
+    w('\r\n');
   }
 
   private cmdInit() {
@@ -1456,83 +1468,113 @@ export class ReplService {
 
   private cmdContext() {
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${Colors.bold}Session:${Colors.reset}\r\n`);
-    w(`  Messages:  ${this.deepAgent.getMessageCount()}\r\n`);
-    w(`  Tokens:    ${Colors.cyan}${this.deepAgent.getTokenCount().toLocaleString()}${Colors.reset}\r\n`);
-    w(`  CWD:       ${process.cwd()}\r\n`);
-    w(`  Provider:  ${this.configService.getProvider()}/${this.configService.getModel()}\r\n\r\n`);
+    
+    w('\r\n');
+    w(colorize(Icons.circle + ' ', 'accent') + colorize('Session', 'bold') + '\r\n');
+    w(colorize(Box.horizontal.repeat(20), 'subtle') + '\r\n');
+    w(`  ${colorize('Messages:', 'muted')} ${this.deepAgent.getMessageCount()}\r\n`);
+    w(`  ${colorize('Tokens:', 'muted')}   ${colorize(this.deepAgent.getTokenCount().toLocaleString(), 'cyan')}\r\n`);
+    w(`  ${colorize('CWD:', 'muted')}      ${colorize(process.cwd(), 'accent')}\r\n`);
+    w(`  ${colorize('Model:', 'muted')}    ${colorize(this.configService.getProvider() + '/' + this.configService.getModel(), 'cyan')}\r\n`);
+    w('\r\n');
   }
 
   private cmdMentionsHelp() {
     const w = (s: string) => process.stdout.write(s);
-    w(`\r\n${Colors.bold}Mentions \u2014 inject context with @${Colors.reset}\r\n\r\n`);
-    w(`  ${Colors.cyan}@path/to/file.ts${Colors.reset}   Read file content\r\n`);
-    w(`  ${Colors.cyan}@path/to/dir/${Colors.reset}      List directory\r\n`);
-    w(`  ${Colors.cyan}@https://url.com${Colors.reset}   Fetch URL\r\n`);
-    w(`  ${Colors.cyan}@git:status${Colors.reset}        Git status\r\n`);
-    w(`  ${Colors.cyan}@git:diff${Colors.reset}          Git diff\r\n`);
-    w(`  ${Colors.cyan}@git:log${Colors.reset}           Git log\r\n`);
-    w(`  ${Colors.cyan}@git:branch${Colors.reset}        List branches\r\n\r\n`);
-    w(`  ${Colors.dim}Example: "Explain this @src/main.ts"${Colors.reset}\r\n`);
-    w(`  ${Colors.dim}Tip: Type @ and suggestions will appear${Colors.reset}\r\n\r\n`);
+    
+    w('\r\n');
+    w(colorize(Icons.file + ' ', 'accent') + colorize('Mentions — inject context with @', 'bold') + '\r\n');
+    w(colorize(Box.horizontal.repeat(35), 'subtle') + '\r\n');
+    w(`  ${colorize('@path/to/file.ts', 'cyan')}   Read file content\r\n`);
+    w(`  ${colorize('@path/to/dir/', 'cyan')}      List directory\r\n`);
+    w(`  ${colorize('@https://url.com', 'cyan')}   Fetch URL\r\n`);
+    w(`  ${colorize('@git:status', 'cyan')}        Git status\r\n`);
+    w(`  ${colorize('@git:diff', 'cyan')}          Git diff\r\n`);
+    w(`  ${colorize('@git:log', 'cyan')}           Git log\r\n`);
+    w(`  ${colorize('@git:branch', 'cyan')}        List branches\r\n`);
+    w('\r\n');
+    w(`  ${colorize('Example:', 'muted')} "Explain this @src/main.ts"\r\n`);
+    w(`  ${colorize('Tip:', 'muted')} Type @ and suggestions will appear\r\n`);
+    w('\r\n');
   }
 
   private printHelp() {
     const w = (s: string) => process.stdout.write(s);
+    
+    const header = (text: string, icon?: string) => {
+      const iconStr = icon ? colorize(icon + ' ', 'accent') : '';
+      return '\n' + iconStr + colorize(text, 'bold') + '\n' + colorize(Box.horizontal.repeat(text.length + (icon ? 2 : 0)), 'subtle') + '\n';
+    };
+
+    const cmd = (name: string, desc: string, nameWidth = 16) => {
+      const paddedName = name.padEnd(nameWidth);
+      return `  ${colorize(paddedName, 'cyan')} ${colorize(desc, 'muted')}\r\n`;
+    };
+
     w('\r\n');
-    w(`${Colors.bold}Commands${Colors.reset}\r\n`);
-    w(`  ${Colors.cyan}/help${Colors.reset}           Show this help\r\n`);
-    w(`  ${Colors.cyan}/clear${Colors.reset}          Clear conversation\r\n`);
-    w(`  ${Colors.cyan}/compact${Colors.reset}        Compact history\r\n`);
-    w(`  ${Colors.cyan}/exit${Colors.reset}           Exit\r\n`);
-    w('\r\n');
-    w(`${Colors.bold}Git${Colors.reset}\r\n`);
-    w(`  ${Colors.cyan}/status${Colors.reset}         Git status\r\n`);
-    w(`  ${Colors.cyan}/diff${Colors.reset}           Git diff\r\n`);
-    w(`  ${Colors.cyan}/log${Colors.reset}            Git log (recent 15)\r\n`);
-    w(`  ${Colors.cyan}/commit [msg]${Colors.reset}   Commit (agent-assisted or with message)\r\n`);
-    w(`  ${Colors.cyan}/up${Colors.reset}             Smart commit & push (conventional commits)\r\n`);
-    w(`  ${Colors.cyan}/split-up${Colors.reset}       Split diff into multiple logical commits\r\n`);
-    w(`  ${Colors.cyan}/pr${Colors.reset}             Create Pull Request with AI-generated description\r\n`);
-    w(`  ${Colors.cyan}/review [files]${Colors.reset} Code review (staged or specified files)\r\n`);
-    w(`  ${Colors.cyan}/fix <file>${Colors.reset}     Auto-fix code issues\r\n`);
-    w(`  ${Colors.cyan}/ident${Colors.reset}          Indent/format all code files\r\n`);
-    w(`  ${Colors.cyan}/release [since-tag]${Colors.reset} Generate release notes\r\n`);
-    w('\r\n');
-    w(`${Colors.bold}Agents & Skills${Colors.reset}\r\n`);
-    w(`  ${Colors.cyan}/agents${Colors.reset}         List agents\r\n`);
-    w(`  ${Colors.cyan}/agents create${Colors.reset}  Create a new agent\r\n`);
-    w(`  ${Colors.cyan}/skills${Colors.reset}         List skills\r\n`);
-    w(`  ${Colors.cyan}/skills create${Colors.reset}  Create a new skill\r\n`);
-    w('\r\n');
-    w(`${Colors.bold}Info${Colors.reset}\r\n`);
-    w(`  ${Colors.cyan}/tools${Colors.reset}          List available tools\r\n`);
-    w(`  ${Colors.cyan}/context${Colors.reset}        Session info\r\n`);
-    w(`  ${Colors.cyan}/mentions${Colors.reset}       Mentions help (@)\r\n`);
-    w('\r\n');
-    w(`${Colors.bold}Config${Colors.reset}\r\n`);
-    w(`  ${Colors.cyan}/model${Colors.reset}          Show/change model\r\n`);
-    w(`  ${Colors.cyan}/config${Colors.reset}         Show configuration\r\n`);
-    w(`  ${Colors.cyan}/init${Colors.reset}           Initialize .cast/ directory\r\n`);
-    w('\r\n');
-    w(`${Colors.bold}MCP${Colors.reset}\r\n`);
-    w(`  ${Colors.cyan}/mcp list${Colors.reset}       List MCP servers\r\n`);
-    w(`  ${Colors.cyan}/mcp tools${Colors.reset}      List MCP tools\r\n`);
-    w(`  ${Colors.cyan}/mcp add${Colors.reset}        Add new MCP server\r\n`);
-    w(`  ${Colors.cyan}/mcp help${Colors.reset}       MCP setup guide\r\n`);
-    w('\r\n');
-    w(`${Colors.bold}Mentions${Colors.reset}\r\n`);
-    w(`  ${Colors.cyan}@file.ts${Colors.reset}        Inject file content\r\n`);
-    w(`  ${Colors.cyan}@dir/${Colors.reset}           Inject directory listing\r\n`);
-    w(`  ${Colors.cyan}@git:status${Colors.reset}     Inject git status\r\n`);
-    w('\r\n');
-    w(`${Colors.bold}Tips${Colors.reset}\r\n`);
-    w(`  ${Colors.dim}Type /${Colors.reset}          Commands appear as you type\r\n`);
-    w(`  ${Colors.dim}Type @${Colors.reset}          File suggestions appear as you type\r\n`);
-    w(`  ${Colors.dim}Tab${Colors.reset}             Select suggestion\r\n`);
-    w(`  ${Colors.dim}Arrow keys${Colors.reset}      Navigate suggestions\r\n`);
-    w(`  ${Colors.dim}Ctrl+C${Colors.reset}          Cancel running operation\r\n`);
-    w(`  ${Colors.dim}Ctrl+D${Colors.reset}          Exit\r\n`);
+    
+    // Commands section
+    w(header('Commands', Icons.diamond));
+    w(cmd('/help', 'Show this help'));
+    w(cmd('/clear', 'Clear conversation'));
+    w(cmd('/compact', 'Compact history'));
+    w(cmd('/exit', 'Exit'));
+
+    // Git section
+    w(header('Git', Icons.branch));
+    w(cmd('/status', 'Git status'));
+    w(cmd('/diff', 'Git diff'));
+    w(cmd('/log', 'Git log (recent 15)'));
+    w(cmd('/commit [msg]', 'Commit (AI-assisted or manual)'));
+    w(cmd('/up', 'Smart commit & push'));
+    w(cmd('/split-up', 'Split into multiple commits'));
+    w(cmd('/pr', 'Create PR with AI description'));
+    w(cmd('/review [files]', 'Code review'));
+    w(cmd('/fix <file>', 'Auto-fix code issues'));
+    w(cmd('/ident', 'Format all code files'));
+    w(cmd('/release [tag]', 'Generate release notes'));
+
+    // Agents & Skills section
+    w(header('Agents & Skills', Icons.robot));
+    w(cmd('/agents', 'List agents'));
+    w(cmd('/agents create', 'Create new agent'));
+    w(cmd('/skills', 'List skills'));
+    w(cmd('/skills create', 'Create new skill'));
+
+    // Info section
+    w(header('Info', Icons.search));
+    w(cmd('/tools', 'List available tools'));
+    w(cmd('/context', 'Session info'));
+    w(cmd('/mentions', 'Mentions help (@)'));
+
+    // Config section
+    w(header('Config', Icons.gear));
+    w(cmd('/model', 'Show/change model'));
+    w(cmd('/config', 'Show configuration'));
+    w(cmd('/init', 'Initialize .cast/ directory'));
+
+    // MCP section
+    w(header('MCP', Icons.cloud));
+    w(cmd('/mcp list', 'List MCP servers'));
+    w(cmd('/mcp tools', 'List MCP tools'));
+    w(cmd('/mcp add', 'Add new MCP server'));
+    w(cmd('/mcp help', 'MCP setup guide'));
+
+    // Mentions section
+    w(header('Mentions', Icons.file));
+    w(cmd('@file.ts', 'Inject file content'));
+    w(cmd('@dir/', 'Inject directory listing'));
+    w(cmd('@git:status', 'Inject git status'));
+
+    // Tips section
+    w(header('Tips', Icons.lightbulb));
+    w(`  ${colorize('Type /', 'dim')}     Commands appear as you type\r\n`);
+    w(`  ${colorize('Type @', 'dim')}     File suggestions appear\r\n`);
+    w(`  ${colorize('Tab', 'dim')}        Accept suggestion\r\n`);
+    w(`  ${colorize('↑↓', 'dim')}         Navigate suggestions\r\n`);
+    w(`  ${colorize('Ctrl+C', 'dim')}     Cancel operation\r\n`);
+    w(`  ${colorize('Ctrl+D', 'dim')}     Exit\r\n`);
+    
     w('\r\n');
   }
 
