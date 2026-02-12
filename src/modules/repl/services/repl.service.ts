@@ -8,6 +8,8 @@ import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
+import { CommitGeneratorService } from '../../git/services/commit-generator.service';
+import { MonorepoDetectorService } from '../../git/services/monorepo-detector.service';
 import { SmartInput, Suggestion } from './smart-input';
 import { Colors, Icons } from '../utils/theme';
 import { WelcomeScreenService } from './welcome-screen.service';
@@ -27,6 +29,8 @@ export class ReplService {
     private readonly agentRegistry: AgentRegistryService,
     private readonly skillRegistry: SkillRegistryService,
     private readonly welcomeScreenService: WelcomeScreenService,
+    private readonly commitGenerator: CommitGeneratorService,
+    private readonly monorepoDetector: MonorepoDetectorService,
   ) {}
 
   async start() {
@@ -88,6 +92,8 @@ export class ReplService {
       { text: '/diff',     display: '/diff',     description: 'Git diff' },
       { text: '/log',      display: '/log',      description: 'Git log' },
       { text: '/commit',   display: '/commit',   description: 'Commit changes' },
+      { text: '/up',       display: '/up',       description: 'Smart commit & push' },
+      { text: '/split-up', display: '/split-up', description: 'Split into multiple commits' },
       { text: '/tools',    display: '/tools',    description: 'List tools' },
       { text: '/agents',   display: '/agents',   description: 'List/manage agents' },
       { text: '/skills',   display: '/skills',   description: 'List/manage skills' },
@@ -283,6 +289,8 @@ export class ReplService {
       case 'diff':       this.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
       case 'log':        this.runGit('git log --oneline -15'); break;
       case 'commit':     await this.cmdCommit(args); break;
+      case 'up':         await this.cmdUp(); break;
+      case 'split-up':   await this.cmdSplitUp(); break;
       case 'tools':      this.cmdTools(); break;
       case 'agents':     await this.cmdAgents(args); break;
       case 'skills':     await this.cmdSkills(args); break;
@@ -395,6 +403,150 @@ export class ReplService {
       );
     } else {
       this.runGit(`git add -A && git commit -m "${msg.replace(/"/g, '\\"')}"`);
+    }
+  }
+
+  private async cmdUp() {
+    const w = (s: string) => process.stdout.write(s);
+    
+    if (!this.commitGenerator.hasChanges()) {
+      w(`${Colors.yellow}  No changes to commit${Colors.reset}\r\n\r\n`);
+      return;
+    }
+
+    const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
+    if (monorepoInfo.isMonorepo) {
+      w(`\r\n${Colors.dim}Monorepo detected: ${monorepoInfo.modules.join(', ')}${Colors.reset}\r\n`);
+    }
+
+    w(`\r\n${Colors.cyan}🤖 Analyzing changes...${Colors.reset}\r\n`);
+    this.startSpinner('Generating commit message');
+
+    try {
+      const message = await this.commitGenerator.generateCommitMessage();
+      this.stopSpinner();
+
+      if (!message) {
+        w(`${Colors.red}  Failed to generate commit message${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`\r\n${Colors.green}✓ Generated commit message:${Colors.reset}\r\n`);
+      w(`  ${Colors.cyan}${message}${Colors.reset}\r\n\r\n`);
+
+      const confirm = await this.smartInput!.askChoice('Confirm and push?', [
+        { key: 'y', label: 'yes', description: 'Commit and push' },
+        { key: 'n', label: 'no', description: 'Cancel' },
+        { key: 'e', label: 'edit', description: 'Edit message' },
+      ]);
+
+      if (confirm === 'n') {
+        w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      let finalMessage = message;
+
+      if (confirm === 'e') {
+        const edited = await this.smartInput!.question(`${Colors.cyan}  Edit message:${Colors.reset}`);
+        if (!edited.trim()) {
+          w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+          return;
+        }
+        finalMessage = edited.trim();
+      }
+
+      w(`\r\n${Colors.dim}  Committing...${Colors.reset}\r\n`);
+      const success = this.commitGenerator.executeCommit(finalMessage, true);
+
+      if (!success) {
+        w(`${Colors.red}  ✗ Commit failed${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`${Colors.green}  ✓ Committed:${Colors.reset} ${finalMessage}\r\n`);
+
+      w(`\r\n${Colors.dim}  Pushing...${Colors.reset}\r\n`);
+      const pushResult = this.commitGenerator.executePush();
+
+      if (pushResult.success) {
+        w(`${Colors.green}  ✓ Pushed successfully${Colors.reset}\r\n\r\n`);
+      } else {
+        w(`${Colors.red}  ✗ Push failed:${Colors.reset} ${pushResult.error}\r\n\r\n`);
+      }
+
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
+  private async cmdSplitUp() {
+    const w = (s: string) => process.stdout.write(s);
+    
+    if (!this.commitGenerator.hasChanges()) {
+      w(`${Colors.yellow}  No changes to commit${Colors.reset}\r\n\r\n`);
+      return;
+    }
+
+    const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
+    if (monorepoInfo.isMonorepo) {
+      w(`\r\n${Colors.dim}Monorepo detected: ${monorepoInfo.modules.join(', ')}${Colors.reset}\r\n`);
+    }
+
+    w(`\r\n${Colors.cyan}🤖 Analyzing changes for split...${Colors.reset}\r\n`);
+    this.startSpinner('Splitting into logical commits');
+
+    try {
+      const commits = await this.commitGenerator.splitCommits();
+      this.stopSpinner();
+
+      if (!commits || commits.length === 0) {
+        w(`${Colors.red}  Failed to split commits${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`\r\n${Colors.green}✓ Proposed ${commits.length} commits:${Colors.reset}\r\n\r\n`);
+
+      for (let i = 0; i < commits.length; i++) {
+        const commit = commits[i];
+        w(`  ${Colors.cyan}${i + 1}.${Colors.reset} ${commit.message}\r\n`);
+        w(`     ${Colors.dim}Files: ${commit.files.join(', ')}${Colors.reset}\r\n`);
+      }
+
+      w(`\r\n`);
+
+      const confirm = await this.smartInput!.askChoice('Execute these commits?', [
+        { key: 'y', label: 'yes', description: `Commit all ${commits.length} changes` },
+        { key: 'n', label: 'no', description: 'Cancel' },
+      ]);
+
+      if (confirm !== 'y') {
+        w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+        return;
+      }
+
+      w(`\r\n${Colors.dim}  Executing commits...${Colors.reset}\r\n`);
+      const result = this.commitGenerator.executeSplitCommits(commits);
+
+      if (result.success) {
+        w(`${Colors.green}  ✓ ${result.committed} commits executed${Colors.reset}\r\n`);
+
+        w(`\r\n${Colors.dim}  Pushing...${Colors.reset}\r\n`);
+        const pushResult = this.commitGenerator.executePush();
+
+        if (pushResult.success) {
+          w(`${Colors.green}  ✓ Pushed successfully${Colors.reset}\r\n\r\n`);
+        } else {
+          w(`${Colors.red}  ✗ Push failed:${Colors.reset} ${pushResult.error}\r\n\r\n`);
+        }
+      } else {
+        w(`${Colors.red}  ✗ Failed:${Colors.reset} ${result.error}\r\n\r\n`);
+      }
+
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
     }
   }
 
@@ -824,6 +976,8 @@ export class ReplService {
     w(`  ${Colors.cyan}/diff${Colors.reset}           Git diff\r\n`);
     w(`  ${Colors.cyan}/log${Colors.reset}            Git log (recent 15)\r\n`);
     w(`  ${Colors.cyan}/commit [msg]${Colors.reset}   Commit (agent-assisted or with message)\r\n`);
+    w(`  ${Colors.cyan}/up${Colors.reset}             Smart commit & push (conventional commits)\r\n`);
+    w(`  ${Colors.cyan}/split-up${Colors.reset}       Split diff into multiple logical commits\r\n`);
     w('\r\n');
     w(`${Colors.bold}Agents & Skills${Colors.reset}\r\n`);
     w(`  ${Colors.cyan}/agents${Colors.reset}         List agents\r\n`);
