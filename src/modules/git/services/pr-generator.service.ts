@@ -165,7 +165,7 @@ export class PrGeneratorService {
 
     const response = await llm.invoke([
       new SystemMessage(this.getCommitAnalysisSystemPrompt()),
-      new new HumanMessage(prompt),
+      new HumanMessage(prompt),
     ]);
 
     const content = this.extractContent(response.content);
