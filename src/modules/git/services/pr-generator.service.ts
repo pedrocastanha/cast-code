@@ -177,38 +177,22 @@ export class PrGeneratorService {
     commits: CommitInfo[],
     baseBranch: string = 'develop',
   ): Promise<PRDescription> {
-    // Analyze each commit in parallel
-    const commitAnalyses = await Promise.all(
-      commits.map(async (commit) => {
-        const analysis = await this.analyzeCommit(commit);
-        return {
-          hash: commit.hash,
-          message: commit.message,
-          ...analysis,
-        };
-      }),
-    );
-
-    // Generate overall PR description
+    // Use single agent to analyze all commits at once
     const llm = this.llmService.createModel();
-    const prompt = this.buildPRDescriptionPrompt(branchName, commitAnalyses, baseBranch);
+    const prompt = this.buildSinglePrompt(branchName, commits, baseBranch);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getPRDescriptionSystemPrompt()),
-      HumanMessage(prompt),
+      new SystemMessage(this.getSingleAgentSystemPrompt()),
+      new HumanMessage(prompt),
     ]);
 
     const content = this.extractContent(response.content);
-    const { title, description } = this.parsePRDescription(content);
+    const { title, description, commitSummaries } = this.parseSingleResponse(content, commits);
 
     return {
       title: title || this.generateDefaultTitle(branchName),
       description,
-      commits: commitAnalyses.map(ca => ({
-        hash: ca.hash,
-        summary: ca.summary,
-        details: ca.details,
-      })),
+      commits: commitSummaries,
     };
   }
 
@@ -400,6 +384,105 @@ export class PrGeneratorService {
       : lines.slice(1).join('\n').trim();
 
     return { title, description };
+  }
+
+  // Single agent approach - analyze all commits at once
+  private buildSinglePrompt(branchName: string, commits: CommitInfo[], baseBranch: string): string {
+    const commitsInfo = commits.map((c, i) => 
+      `${i + 1}. **${c.hash}** - ${c.message}\n   Files: ${c.files.slice(0, 5).join(', ')}${c.files.length > 5 ? '...' : ''}\n   Stats: ${c.diff.split('\n').slice(-3, -1).join(' ')}`
+    ).join('\n\n');
+
+    return `Branch: ${branchName}\nBase: ${baseBranch}\nCommits: ${commits.length}\n\n${commitsInfo}`;
+  }
+
+  private getSingleAgentSystemPrompt(): string {
+    return `You are a senior developer creating a Pull Request description. Analyze ALL commits and generate a comprehensive PR description.
+
+**OUTPUT FORMAT:**
+TITLE: <PR title based on branch name and overall changes>
+
+OVERVIEW: <2-3 sentences explaining what this PR accomplishes>
+
+CHANGES:
+- <key change 1>
+- <key change 2>
+- ...
+
+TECHNICAL_DETAILS: <important implementation details, architecture decisions>
+
+COMMITS:
+<hash>: <one-line summary of what this commit does>
+(repeat for each commit)
+
+TESTING: <how to test these changes>`;
+  }
+
+  private parseSingleResponse(content: string, commits: CommitInfo[]): { 
+    title: string; 
+    description: string; 
+    commitSummaries: { hash: string; summary: string; details: string }[] 
+  } {
+    const titleMatch = content.match(/TITLE:\s*(.+?)(?=\n\n|\n[A-Z]|$)/i);
+    const overviewMatch = content.match(/OVERVIEW:\s*([\s\S]+?)(?=\n\nCHANGES:|CHANGES:)/i);
+    const changesMatch = content.match(/CHANGES:\s*([\s\S]+?)(?=\n\nTECHNICAL_DETAILS:|TECHNICAL_DETAILS:)/i);
+    const technicalMatch = content.match(/TECHNICAL_DETAILS:\s*([\s\S]+?)(?=\n\nCOMMITS:|COMMITS:)/i);
+    const commitsMatch = content.match(/COMMITS:\s*([\s\S]+?)(?=\n\nTESTING:|TESTING:|$)/i);
+    const testingMatch = content.match(/TESTING:\s*([\s\S]+)$/i);
+
+    const title = titleMatch ? titleMatch[1].trim() : '';
+    
+    // Build markdown description
+    const parts: string[] = [];
+    
+    if (overviewMatch) {
+      parts.push('## Overview\n' + overviewMatch[1].trim());
+    }
+    
+    if (changesMatch) {
+      parts.push('## Changes\n' + changesMatch[1].trim());
+    }
+    
+    if (technicalMatch) {
+      parts.push('## Technical Details\n' + technicalMatch[1].trim());
+    }
+    
+    if (testingMatch) {
+      parts.push('## Testing\n' + testingMatch[1].trim());
+    }
+
+    const description = parts.join('\n\n');
+
+    // Parse commit summaries
+    const commitSummaries: { hash: string; summary: string; details: string }[] = [];
+    
+    if (commitsMatch) {
+      const commitsText = commitsMatch[1].trim();
+      const lines = commitsText.split('\n');
+      
+      for (const line of lines) {
+        const match = line.match(/^([a-f0-9]+):\s*(.+)$/i);
+        if (match) {
+          commitSummaries.push({
+            hash: match[1].slice(0, 7),
+            summary: match[2].trim(),
+            details: '',
+          });
+        }
+      }
+    }
+
+    // Fallback: if no commit summaries parsed, create simple ones from commits
+    if (commitSummaries.length === 0) {
+      for (const commit of commits) {
+        commitSummaries.push({
+          hash: commit.hash,
+          summary: commit.message.slice(0, 60),
+          details: '',
+        });
+      }
+    }
+
+    return { title, description, commitSummaries };
   }
 
   private generateDefaultTitle(branchName: string): string {
