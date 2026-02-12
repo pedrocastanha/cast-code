@@ -4,6 +4,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
+import { MarkdownRendererService } from '../../../common/services/markdown-renderer.service';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -33,6 +34,7 @@ export class ReplService {
     private readonly commitGenerator: CommitGeneratorService,
     private readonly monorepoDetector: MonorepoDetectorService,
     private readonly prGenerator: PrGeneratorService,
+    private readonly markdownRenderer: MarkdownRendererService,
   ) {}
 
   async start() {
@@ -329,21 +331,53 @@ export class ReplService {
       this.startSpinner('Thinking');
 
       let firstChunk = true;
+      let fullResponse = '';
+      let isMarkdownRendered = false;
 
       for await (const chunk of this.deepAgent.chat(mentionResult.expandedMessage)) {
         if (this.abortController?.signal.aborted) break;
 
-        if (firstChunk) {
+        // Check if this is a tool output (contains ANSI codes) or actual content
+        const isToolOutput = chunk.includes('\x1b[') && (
+          chunk.includes('\u23bf') || // tool icon
+          chunk.includes('tokens:') || // token count
+          chunk.includes('conversation compacted')
+        );
+
+        if (firstChunk && !isToolOutput) {
           this.stopSpinner();
-          process.stdout.write(`\r\n${Colors.magenta}${Colors.bold}Cast${Colors.reset} `);
+          process.stdout.write(`\r\n${Colors.magenta}${Colors.bold}Cast${Colors.reset}\r\n`);
           firstChunk = false;
+          isMarkdownRendered = true;
         }
 
-        process.stdout.write(chunk);
+        if (isToolOutput) {
+          // Tool outputs and meta info go directly
+          process.stdout.write(chunk);
+        } else if (chunk.includes('\n') && isMarkdownRendered) {
+          // Accumulate response for markdown rendering
+          fullResponse += chunk;
+        } else if (isMarkdownRendered) {
+          // Still accumulating
+          fullResponse += chunk;
+        } else {
+          // Fallback: write directly
+          process.stdout.write(chunk);
+        }
+      }
+
+      // Render accumulated response as markdown
+      if (fullResponse.trim() && isMarkdownRendered) {
+        const rendered = this.markdownRenderer.render(fullResponse);
+        // Clear the accumulated raw text and write rendered
+        const lines = rendered.split('\n');
+        for (const line of lines) {
+          process.stdout.write(`  ${line}\r\n`);
+        }
       }
 
       if (!firstChunk) {
-        process.stdout.write('\r\n\r\n');
+        process.stdout.write('\r\n');
       } else {
         this.stopSpinner();
       }
