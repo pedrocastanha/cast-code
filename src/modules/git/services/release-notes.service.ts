@@ -32,27 +32,20 @@ export class ReleaseNotesService {
     try {
       const cwd = process.cwd();
       
-      // Get version
       const releaseVersion = version || this.detectVersion();
       
-      // Get date
       const today = new Date();
       const dateStr = today.toLocaleDateString('pt-BR');
       const fileName = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}.md`;
       
-      // Get commits since last tag
       const commits = this.getCommitsSince(sinceTag);
       
-      // Get changed files
       const changedFiles = this.getChangedFiles(sinceTag);
       
-      // Get package.json changes
       const dependencies = this.getDependencyChanges();
       
-      // Generate AI summary
       const aiData = await this.generateAIAnalysis(commits, changedFiles);
       
-      // Build release notes
       const notes = this.buildReleaseNotes({
         version: releaseVersion,
         date: dateStr,
@@ -69,13 +62,11 @@ export class ReleaseNotesService {
         contributors: this.getContributors(sinceTag),
       });
       
-      // Ensure release directory exists
       const releaseDir = path.join(cwd, 'release');
       if (!fs.existsSync(releaseDir)) {
         fs.mkdirSync(releaseDir, { recursive: true });
       }
       
-      // Write file
       const filePath = path.join(releaseDir, fileName);
       fs.writeFileSync(filePath, notes);
       
@@ -87,12 +78,10 @@ export class ReleaseNotesService {
 
   private detectVersion(): string {
     try {
-      // Try package.json
       const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
       if (pkg.version) return pkg.version;
     } catch {}
     
-    // Try git tag
     try {
       const tag = execSync('git describe --tags --abbrev=0', { cwd: process.cwd(), encoding: 'utf-8' }).trim();
       return tag.replace(/^v/, '');
@@ -109,7 +98,6 @@ export class ReleaseNotesService {
       if (sinceTag) {
         cmd = `git log ${sinceTag}..HEAD --pretty=format:"%H|%s|%an|%ad" --date=short`;
       } else {
-        // Get last 30 commits
         cmd = `git log -30 --pretty=format:"%H|%s|%an|%ad" --date=short`;
       }
       
@@ -139,7 +127,6 @@ export class ReleaseNotesService {
       const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
       const changes: string[] = [];
       
-      // Check if package-lock.json or yarn.lock changed
       const diff = execSync('git diff HEAD~5 package.json', { cwd: process.cwd(), encoding: 'utf-8' }).trim();
       
       if (diff.includes('"dependencies"') || diff.includes('"devDependencies"')) {
@@ -238,7 +225,6 @@ Categorize into these sections (return empty array if none):
         };
       }
     } catch {
-      // Fallback to default empty arrays
     }
 
     return {
@@ -258,7 +244,6 @@ Categorize into these sections (return empty array if none):
   private buildReleaseNotes(data: ReleaseNotesData): string {
     const sections: string[] = [];
     
-    // Header
     sections.push(`# Notas de Versão - Versão ${data.version}`);
     sections.push('');
     sections.push(`**Data de Lançamento:** ${data.date}`);
@@ -266,7 +251,6 @@ Categorize into these sections (return empty array if none):
     sections.push('---');
     sections.push('');
     
-    // Features
     if (data.features.length > 0) {
       sections.push('## 📖 Recursos de Leitura');
       sections.push('');
@@ -278,7 +262,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Accessibility
     if (data.accessibility.length > 0) {
       sections.push('## ♿ Acessibilidade');
       sections.push('');
@@ -290,7 +273,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Notes
     if (data.notes.length > 0) {
       sections.push('## 📝 Anotações');
       sections.push('');
@@ -302,7 +284,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Library
     if (data.library.length > 0) {
       sections.push('## 📚 Biblioteca');
       sections.push('');
@@ -314,7 +295,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Search
     if (data.search.length > 0) {
       sections.push('## 🔍 Busca');
       sections.push('');
@@ -326,7 +306,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Bugfixes
     if (data.bugfixes.length > 0) {
       sections.push('## 🐛 Correções de Bugs');
       sections.push('');
@@ -338,7 +317,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Performance
     if (data.performance.length > 0) {
       sections.push('## 🚀 Performance');
       sections.push('');
@@ -350,7 +328,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // UI/UX
     if (data.uiux.length > 0) {
       sections.push('## 🎨 UI/UX');
       sections.push('');
@@ -362,7 +339,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Breaking Changes
     if (data.breaking.length > 0) {
       sections.push('## ⚠️ Mudanças Incompatíveis (Breaking Changes)');
       sections.push('');
@@ -374,7 +350,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Dependencies
     if (data.dependencies.length > 0) {
       sections.push('## 📦 Dependências');
       sections.push('');
@@ -386,7 +361,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Contributors
     if (data.contributors.length > 0) {
       sections.push('## 🙏 Colaboradores');
       sections.push('');
@@ -400,7 +374,6 @@ Categorize into these sections (return empty array if none):
       sections.push('');
     }
     
-    // Changelog link
     sections.push('## 📄 Changelog Completo');
     sections.push('');
     sections.push(`[Link para o changelog completo](https://github.com/sua-org/seu-repo/compare/v${data.version}...v${data.version})`);

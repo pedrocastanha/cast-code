@@ -24,15 +24,10 @@ export class PlanModeService {
 
   async shouldEnterPlanMode(userMessage: string): Promise<{ shouldPlan: boolean; reason?: string }> {
     const indicators = [
-      // Multiple files mentioned
       userMessage.match(/\b\w+\.(ts|tsx|js|jsx|py|java|go|rs)\b/g)?.length > 1,
-      // Multiple actions
       /\b(and|then|also|additionally)\b.*\b(create|add|modify|update|delete|refactor|implement)\b/i.test(userMessage),
-      // Complex keywords
       /\b(refactor|architecture|restructure|redesign|migration|implement.*feature|create.*module)\b/i.test(userMessage),
-      // Numbered lists or multiple steps implied
       /\b(first|second|third|then|after|before|finally)\b/i.test(userMessage),
-      // Large scope
       /\b(all|every|entire|whole|complete|full)\b/i.test(userMessage) && /\b(project|app|application|system|module)\b/i.test(userMessage),
     ];
 
@@ -42,7 +37,6 @@ export class PlanModeService {
       return { shouldPlan: true, reason: 'Multiple files or complex changes detected' };
     }
     
-    // Use LLM for more nuanced detection
     if (userMessage.length > 100) {
       const llm = this.llmService.createModel();
       const prompt = `Should this request use a structured plan mode?
@@ -67,7 +61,6 @@ Reply ONLY with: YES or NO`;
           return { shouldPlan: true, reason: 'AI analysis suggests planning is beneficial' };
         }
       } catch {
-        // Ignore errors, fall through
       }
     }
 
@@ -190,7 +183,6 @@ Update the plan accordingly. Use the same output format.`;
       }
     }
 
-    // Fallback: create simple single-step plan if parsing failed
     if (steps.length === 0) {
       steps.push({
         id: 1,

@@ -332,7 +332,6 @@ export class ReplService {
     this.smartInput?.enterPassiveMode();
 
     try {
-      // Check if we should enter plan mode
       const planCheck = await this.planModeService.shouldEnterPlanMode(message);
       if (planCheck.shouldPlan) {
         const usePlan = await this.smartInput!.askChoice(
@@ -368,7 +367,6 @@ export class ReplService {
       for await (const chunk of this.deepAgent.chat(mentionResult.expandedMessage)) {
         if (this.abortController?.signal.aborted) break;
 
-        // Check if this is a tool output (contains ANSI codes) or actual content
         const isToolOutput = chunk.includes('\x1b[') && (
           chunk.includes('\u23bf') || // tool icon
           chunk.includes('tokens:') || // token count
@@ -383,24 +381,18 @@ export class ReplService {
         }
 
         if (isToolOutput) {
-          // Tool outputs and meta info go directly
           process.stdout.write(chunk);
         } else if (chunk.includes('\n') && isMarkdownRendered) {
-          // Accumulate response for markdown rendering
           fullResponse += chunk;
         } else if (isMarkdownRendered) {
-          // Still accumulating
           fullResponse += chunk;
         } else {
-          // Fallback: write directly
           process.stdout.write(chunk);
         }
       }
 
-      // Render accumulated response as markdown
       if (fullResponse.trim() && isMarkdownRendered) {
         const rendered = this.markdownRenderer.render(fullResponse);
-        // Clear the accumulated raw text and write rendered
         const lines = rendered.split('\n');
         for (const line of lines) {
           process.stdout.write(`  ${line}\r\n`);
@@ -537,7 +529,6 @@ export class ReplService {
         w(`\r\n${Colors.green}✓ Refined commit message:${Colors.reset}\r\n`);
         w(`  ${Colors.cyan}${refinedMessage}${Colors.reset}\r\n\r\n`);
         
-        // Ask for confirmation on the refined message
         const confirmRefined = await this.smartInput!.askChoice('Use this message?', [
           { key: 'y', label: 'yes', description: 'Commit and push' },
           { key: 'n', label: 'no', description: 'Cancel' },
@@ -654,7 +645,6 @@ export class ReplService {
       return;
     }
 
-    // Detect and ask for base branch
     const detectedBase = this.prGenerator.detectDefaultBaseBranch();
     const baseBranchInput = await this.smartInput!.question(
       `${Colors.cyan}  Base branch (default: ${detectedBase}):${Colors.reset}`
@@ -826,10 +816,8 @@ export class ReplService {
     let files: string[] = [];
     
     if (args.length > 0) {
-      // Review specific files
       files = args.filter(a => !a.startsWith('/'));
     } else {
-      // Review staged files
       w(`\r\n${Colors.cyan}🔍 Analyzing staged files...${Colors.reset}\r\n`);
       const diffFiles = this.codeReviewService['getChangedFiles'](true);
       files = diffFiles;
@@ -868,7 +856,6 @@ export class ReplService {
         if (suggestions > 0) w(`${Colors.dim}💡 ${suggestions} suggestions${Colors.reset}`);
         if (errors > 0 || warnings > 0 || suggestions > 0) w('\r\n');
         
-        // Show top issues
         const topIssues = result.issues.filter(i => i.severity !== 'praise').slice(0, 3);
         for (const issue of topIssues) {
           const icon = issue.severity === 'error' ? '✗' : issue.severity === 'warning' ? '⚠' : '💡';
@@ -988,11 +975,9 @@ export class ReplService {
       const plan = await this.planModeService.generatePlan(message);
       this.stopSpinner();
       
-      // Display plan
       const formattedPlan = this.planModeService.formatPlanForDisplay(plan);
       w(formattedPlan);
       
-      // Ask for approval
       const action = await this.smartInput!.askChoice('Proceed with this plan?', [
         { key: 'y', label: 'yes', description: 'Execute plan step by step' },
         { key: 'e', label: 'edit', description: 'Modify plan' },
@@ -1027,7 +1012,6 @@ export class ReplService {
         }
       }
       
-      // Execute plan step by step
       w(`\r\n${Colors.green}🚀 Executing plan...${Colors.reset}\r\n\r\n`);
       
       for (const step of plan.steps) {
@@ -1052,10 +1036,8 @@ export class ReplService {
           continue;
         }
         
-        // Execute the step through the AI
         const stepPrompt = `Execute this plan step:\n\n${step.description}\n\nFiles involved: ${step.files.join(', ')}\n\nMake the necessary changes.`;
         
-        // Reset state for new AI interaction
         this.isProcessing = true;
         let firstChunk = true;
         let fullResponse = '';

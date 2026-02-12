@@ -15,7 +15,7 @@ export interface ReviewResult {
   file: string;
   issues: ReviewIssue[];
   summary: string;
-  score: number; // 0-100
+  score: number;
 }
 
 @Injectable()
@@ -91,12 +91,10 @@ export class CodeReviewService {
         return { success: false, error: 'Could not read file' };
       }
 
-      // Try to use prettier first
       try {
         execSync(`npx prettier --write "${filePath}"`, { cwd: process.cwd() });
         return { success: true };
       } catch {
-        // Fall back to LLM-based indentation
         const llm = this.llmService.createModel();
         const prompt = `Format and indent this code properly. Maintain all functionality, only fix indentation and formatting:
 
@@ -163,7 +161,6 @@ Return ONLY the formatted code in a code block.`;
       const fs = require('fs');
       fs.writeFileSync(filePath, content);
     } catch {
-      // Ignore
     }
   }
 
@@ -245,15 +242,12 @@ Return ONLY the fixed code in a markdown code block. Preserve all functionality 
   private parseReviewResponse(filePath: string, content: string, originalCode: string): ReviewResult {
     const issues: ReviewIssue[] = [];
     
-    // Parse score
     const scoreMatch = content.match(/SCORE:\s*(\d+)/i);
     const score = scoreMatch ? parseInt(scoreMatch[1]) : 50;
 
-    // Parse summary
     const summaryMatch = content.match(/SUMMARY:\s*(.+?)(?=\n\n|ISSUES:|PRAISES:|$)/is);
     const summary = summaryMatch ? summaryMatch[1].trim() : 'No summary provided';
 
-    // Parse issues
     const issuesMatch = content.match(/ISSUES:([\s\S]+?)(?=PRAISES:|$)/i);
     if (issuesMatch) {
       const issuesText = issuesMatch[1].trim();
@@ -263,14 +257,12 @@ Return ONLY the fixed code in a markdown code block. Preserve all functionality 
         const lines = block.trim().split('\n');
         const firstLine = lines[0];
         
-        // Parse [severity] Line X: message
         const match = firstLine.match(/\[(\w+)\]\s*Line\s*(\d+)?\s*:?\s*(.+)/i);
         if (match) {
           const severity = match[1].toLowerCase() as ReviewIssue['severity'];
           const line = match[2] ? parseInt(match[2]) : undefined;
           const message = match[3].trim();
           
-          // Look for suggestion in next lines
           let suggestion: string | undefined;
           let code: string | undefined;
           
@@ -287,7 +279,6 @@ Return ONLY the fixed code in a markdown code block. Preserve all functionality 
       }
     }
 
-    // Parse praises as suggestions with positive severity
     const praisesMatch = content.match(/PRAISES:([\s\S]+?)$/i);
     if (praisesMatch) {
       const praises = praisesMatch[1].trim().split('\n').filter(p => p.trim().startsWith('-'));
