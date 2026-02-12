@@ -21,7 +21,9 @@ export class PromptService {
 
   async confirm(message: string, defaultValue = false): Promise<boolean> {
     const suffix = defaultValue ? ' [Y/n]' : ' [y/N]';
-    const answer = await this.question(`${Colors.yellow}${message}${suffix}${Colors.reset}`);
+    const answer = await this.question(
+      `${Colors.yellow}${message}${suffix}${Colors.reset}`,
+    );
 
     if (!answer.trim()) return defaultValue;
 
@@ -36,8 +38,12 @@ export class PromptService {
     console.log('');
 
     choices.forEach((choice, index) => {
-      const desc = choice.description ? `${Colors.dim} - ${choice.description}${Colors.reset}` : '';
-      console.log(`  ${Colors.white}${index + 1}.${Colors.reset} ${Colors.bold}${choice.label}${Colors.reset}${desc}`);
+      const desc = choice.description
+        ? `${Colors.dim} - ${choice.description}${Colors.reset}`
+        : '';
+      console.log(
+        `  ${Colors.white}${index + 1}.${Colors.reset} ${Colors.bold}${choice.label}${Colors.reset}${desc}`,
+      );
     });
 
     console.log('');
@@ -52,7 +58,9 @@ export class PromptService {
         return choices[index].key;
       }
 
-      console.log(`${Colors.red}Invalid choice. Please try again.${Colors.reset}`);
+      console.log(
+        `${Colors.red}Invalid choice. Please try again.${Colors.reset}`,
+      );
     }
   }
 
@@ -72,6 +80,5 @@ export class PromptService {
     console.log(`${Colors.blue}  ${message}${Colors.reset}`);
   }
 
-  close(): void {
-  }
+  close(): void {}
 }

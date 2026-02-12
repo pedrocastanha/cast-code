@@ -109,7 +109,6 @@ export class McpClientService extends EventEmitter {
       headers['Authorization'] = `Bearer ${connection.config.env.AUTH_TOKEN}`;
     }
 
-    // Validate URL
     try {
       new URL(endpoint);
     } catch {
