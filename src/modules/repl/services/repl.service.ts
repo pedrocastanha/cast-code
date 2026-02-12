@@ -12,6 +12,9 @@ import { SkillRegistryService } from '../../skills/services/skill-registry.servi
 import { CommitGeneratorService } from '../../git/services/commit-generator.service';
 import { MonorepoDetectorService } from '../../git/services/monorepo-detector.service';
 import { PrGeneratorService } from '../../git/services/pr-generator.service';
+import { CodeReviewService } from '../../git/services/code-review.service';
+import { ReleaseNotesService } from '../../git/services/release-notes.service';
+import { PlanModeService } from '../../core/services/plan-mode.service';
 import { SmartInput, Suggestion } from './smart-input';
 import { Colors, Icons } from '../utils/theme';
 import { WelcomeScreenService } from './welcome-screen.service';
@@ -35,6 +38,9 @@ export class ReplService {
     private readonly monorepoDetector: MonorepoDetectorService,
     private readonly prGenerator: PrGeneratorService,
     private readonly markdownRenderer: MarkdownRendererService,
+    private readonly codeReviewService: CodeReviewService,
+    private readonly releaseNotesService: ReleaseNotesService,
+    private readonly planModeService: PlanModeService,
   ) {}
 
   async start() {
@@ -99,6 +105,10 @@ export class ReplService {
       { text: '/up',       display: '/up',       description: 'Smart commit & push' },
       { text: '/split-up', display: '/split-up', description: 'Split into multiple commits' },
       { text: '/pr',       display: '/pr',       description: 'Create Pull Request' },
+      { text: '/review',   display: '/review',   description: 'Code review files' },
+      { text: '/fix',      display: '/fix',      description: 'Auto-fix code issues' },
+      { text: '/ident',    display: '/ident',    description: 'Indent/format all code' },
+      { text: '/release',  display: '/release',  description: 'Generate release notes' },
       { text: '/tools',    display: '/tools',    description: 'List tools' },
       { text: '/agents',   display: '/agents',   description: 'List/manage agents' },
       { text: '/skills',   display: '/skills',   description: 'List/manage skills' },
@@ -297,6 +307,10 @@ export class ReplService {
       case 'up':         await this.cmdUp(); break;
       case 'split-up':   await this.cmdSplitUp(); break;
       case 'pr':         await this.cmdPr(); break;
+      case 'review':     await this.cmdReview(args); break;
+      case 'fix':        await this.cmdFix(args); break;
+      case 'ident':      await this.cmdIdent(); break;
+      case 'release':    await this.cmdRelease(args); break;
       case 'tools':      this.cmdTools(); break;
       case 'agents':     await this.cmdAgents(args); break;
       case 'skills':     await this.cmdSkills(args); break;
@@ -318,6 +332,23 @@ export class ReplService {
     this.smartInput?.enterPassiveMode();
 
     try {
+      // Check if we should enter plan mode
+      const planCheck = await this.planModeService.shouldEnterPlanMode(message);
+      if (planCheck.shouldPlan) {
+        const usePlan = await this.smartInput!.askChoice(
+          `📝 This looks complex. Create a plan first?`,
+          [
+            { key: 'y', label: 'yes', description: 'Create structured plan' },
+            { key: 'n', label: 'no', description: 'Proceed without plan' },
+          ]
+        );
+        
+        if (usePlan === 'y') {
+          await this.cmdPlan(message);
+          return;
+        }
+      }
+
       const mentionResult = await this.mentionsService.processMessage(message);
 
       if (mentionResult.mentions.length > 0) {
@@ -789,6 +820,269 @@ export class ReplService {
     }
   }
 
+  private async cmdReview(args: string[]) {
+    const w = (s: string) => process.stdout.write(s);
+    
+    let files: string[] = [];
+    
+    if (args.length > 0) {
+      // Review specific files
+      files = args.filter(a => !a.startsWith('/'));
+    } else {
+      // Review staged files
+      w(`\r\n${Colors.cyan}🔍 Analyzing staged files...${Colors.reset}\r\n`);
+      const diffFiles = this.codeReviewService['getChangedFiles'](true);
+      files = diffFiles;
+    }
+    
+    if (files.length === 0) {
+      w(`${Colors.yellow}  No files to review${Colors.reset}\r\n\r\n`);
+      return;
+    }
+    
+    w(`\r\n${Colors.cyan}🤖 Reviewing ${files.length} file(s)...${Colors.reset}\r\n`);
+    this.startSpinner('Analyzing code');
+    
+    try {
+      const results = await this.codeReviewService.reviewFiles(files);
+      this.stopSpinner();
+      
+      let totalIssues = 0;
+      let totalScore = 0;
+      
+      for (const result of results) {
+        totalScore += result.score;
+        const errors = result.issues.filter(i => i.severity === 'error').length;
+        const warnings = result.issues.filter(i => i.severity === 'warning').length;
+        const suggestions = result.issues.filter(i => i.severity === 'suggestion').length;
+        
+        totalIssues += result.issues.length;
+        
+        const scoreColor = result.score >= 80 ? Colors.green : result.score >= 60 ? Colors.yellow : Colors.red;
+        
+        w(`\r\n${Colors.bold}${result.file}${Colors.reset} ${scoreColor}${result.score}/100${Colors.reset}\r\n`);
+        w(`  ${result.summary}\r\n`);
+        
+        if (errors > 0) w(`  ${Colors.red}✗ ${errors} errors${Colors.reset}  `);
+        if (warnings > 0) w(`${Colors.yellow}⚠ ${warnings} warnings${Colors.reset}  `);
+        if (suggestions > 0) w(`${Colors.dim}💡 ${suggestions} suggestions${Colors.reset}`);
+        if (errors > 0 || warnings > 0 || suggestions > 0) w('\r\n');
+        
+        // Show top issues
+        const topIssues = result.issues.filter(i => i.severity !== 'praise').slice(0, 3);
+        for (const issue of topIssues) {
+          const icon = issue.severity === 'error' ? '✗' : issue.severity === 'warning' ? '⚠' : '💡';
+          const color = issue.severity === 'error' ? Colors.red : issue.severity === 'warning' ? Colors.yellow : Colors.dim;
+          const line = issue.line ? `:${issue.line}` : '';
+          w(`  ${color}${icon}${Colors.reset} ${issue.message}${line}\r\n`);
+        }
+        
+        if (result.issues.length > 3) {
+          w(`  ${Colors.dim}... and ${result.issues.length - 3} more${Colors.reset}\r\n`);
+        }
+      }
+      
+      const avgScore = Math.round(totalScore / results.length);
+      const avgColor = avgScore >= 80 ? Colors.green : avgScore >= 60 ? Colors.yellow : Colors.red;
+      
+      w(`\r\n${Colors.bold}Summary:${Colors.reset} ${avgColor}${avgScore}/100${Colors.reset} | ${totalIssues} issue(s) found\r\n\r\n`);
+      
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
+  private async cmdFix(args: string[]) {
+    const w = (s: string) => process.stdout.write(s);
+    
+    if (args.length === 0) {
+      w(`${Colors.yellow}  Usage: /fix <file>${Colors.reset}\r\n\r\n`);
+      return;
+    }
+    
+    const filePath = args[0];
+    
+    w(`\r\n${Colors.cyan}🔧 Fixing ${filePath}...${Colors.reset}\r\n`);
+    this.startSpinner('Analyzing and fixing');
+    
+    try {
+      const result = await this.codeReviewService.fixFile(filePath);
+      this.stopSpinner();
+      
+      if (result.success) {
+        w(`${Colors.green}  ✓ File fixed successfully${Colors.reset}\r\n\r\n`);
+      } else {
+        w(`${Colors.red}  ✗ Failed to fix: ${result.error}${Colors.reset}\r\n\r\n`);
+      }
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
+  private async cmdIdent() {
+    const w = (s: string) => process.stdout.write(s);
+    
+    w(`\r\n${Colors.cyan}🎨 Formatting all code files...${Colors.reset}\r\n`);
+    this.startSpinner('Formatting');
+    
+    try {
+      const result = await this.codeReviewService.indentAll();
+      this.stopSpinner();
+      
+      w(`${Colors.green}  ✓ ${result.success} file(s) formatted${Colors.reset}\r\n`);
+      if (result.failed > 0) {
+        w(`${Colors.yellow}  ⚠ ${result.failed} file(s) failed${Colors.reset}\r\n`);
+      }
+      w(`\r\n`);
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
+  private async cmdRelease(args: string[]) {
+    const w = (s: string) => process.stdout.write(s);
+    
+    w(`\r\n${Colors.cyan}📝 Generating release notes...${Colors.reset}\r\n`);
+    this.startSpinner('Analyzing commits and generating');
+    
+    try {
+      const sinceTag = args[0];
+      const result = await this.releaseNotesService.generateReleaseNotes(sinceTag);
+      
+      this.stopSpinner();
+      
+      if (result.success && result.filePath) {
+        w(`${Colors.green}  ✓ Release notes generated!${Colors.reset}\r\n`);
+        w(`  ${Colors.dim}${result.filePath}${Colors.reset}\r\n\r\n`);
+        
+        if (result.content) {
+          w(`${Colors.bold}Preview:${Colors.reset}\r\n`);
+          const lines = result.content.split('\n').slice(0, 15);
+          for (const line of lines) {
+            w(`  ${line}\r\n`);
+          }
+          if (result.content.split('\n').length > 15) {
+            w(`  ${Colors.dim}...${Colors.reset}\r\n`);
+          }
+          w(`\r\n`);
+        }
+      } else {
+        w(`${Colors.red}  ✗ Failed: ${result.error}${Colors.reset}\r\n\r\n`);
+      }
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
+  private async cmdPlan(message: string) {
+    const w = (s: string) => process.stdout.write(s);
+    
+    w(`\r\n${Colors.cyan}📝 Creating plan...${Colors.reset}\r\n`);
+    this.startSpinner('Analyzing request');
+    
+    try {
+      const plan = await this.planModeService.generatePlan(message);
+      this.stopSpinner();
+      
+      // Display plan
+      const formattedPlan = this.planModeService.formatPlanForDisplay(plan);
+      w(formattedPlan);
+      
+      // Ask for approval
+      const action = await this.smartInput!.askChoice('Proceed with this plan?', [
+        { key: 'y', label: 'yes', description: 'Execute plan step by step' },
+        { key: 'e', label: 'edit', description: 'Modify plan' },
+        { key: 'n', label: 'no', description: 'Cancel' },
+      ]);
+      
+      if (action === 'n') {
+        w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+        return;
+      }
+      
+      if (action === 'e') {
+        const feedback = await this.smartInput!.question(`${Colors.cyan}What would you like to change?${Colors.reset}`);
+        if (feedback.trim()) {
+          w(`\r\n${Colors.cyan}📝 Updating plan...${Colors.reset}\r\n`);
+          this.startSpinner('Refining plan');
+          
+          const refinedPlan = await this.planModeService.refinePlan(plan, feedback.trim());
+          this.stopSpinner();
+          
+          w(this.planModeService.formatPlanForDisplay(refinedPlan));
+          
+          const confirm = await this.smartInput!.askChoice('Proceed with updated plan?', [
+            { key: 'y', label: 'yes', description: 'Execute plan' },
+            { key: 'n', label: 'no', description: 'Cancel' },
+          ]);
+          
+          if (confirm !== 'y') {
+            w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+            return;
+          }
+        }
+      }
+      
+      // Execute plan step by step
+      w(`\r\n${Colors.green}🚀 Executing plan...${Colors.reset}\r\n\r\n`);
+      
+      for (const step of plan.steps) {
+        w(`${Colors.cyan}Step ${step.id}:${Colors.reset} ${step.description}\r\n`);
+        if (step.files.length > 0) {
+          w(`  Files: ${step.files.join(', ')}\r\n`);
+        }
+        
+        const stepAction = await this.smartInput!.askChoice('Execute this step?', [
+          { key: 'y', label: 'yes', description: 'Execute' },
+          { key: 's', label: 'skip', description: 'Skip this step' },
+          { key: 'q', label: 'quit', description: 'Stop execution' },
+        ]);
+        
+        if (stepAction === 'q') {
+          w(`${Colors.dim}  Plan execution stopped${Colors.reset}\r\n\r\n`);
+          return;
+        }
+        
+        if (stepAction === 's') {
+          w(`${Colors.dim}  Skipped${Colors.reset}\r\n\r\n`);
+          continue;
+        }
+        
+        // Execute the step through the AI
+        const stepPrompt = `Execute this plan step:\n\n${step.description}\n\nFiles involved: ${step.files.join(', ')}\n\nMake the necessary changes.`;
+        
+        // Reset state for new AI interaction
+        this.isProcessing = true;
+        let firstChunk = true;
+        let fullResponse = '';
+        
+        for await (const chunk of this.deepAgent.chat(stepPrompt)) {
+          if (this.abortController?.signal.aborted) break;
+          
+          if (firstChunk) {
+            w(`\r\n${Colors.magenta}${Colors.bold}Cast${Colors.reset}\r\n`);
+            firstChunk = false;
+          }
+          
+          fullResponse += chunk;
+          w(chunk);
+        }
+        
+        w(`\r\n${Colors.green}  ✓ Step completed${Colors.reset}\r\n\r\n`);
+      }
+      
+      w(`${Colors.green}✓ Plan execution completed!${Colors.reset}\r\n\r\n`);
+      
+    } catch (error: any) {
+      this.stopSpinner();
+      w(`${Colors.red}  Error: ${error.message}${Colors.reset}\r\n\r\n`);
+    }
+  }
+
   private cmdTools() {
     const builtIn = [
       ['read_file',        'Read file contents'],
@@ -1218,6 +1512,10 @@ export class ReplService {
     w(`  ${Colors.cyan}/up${Colors.reset}             Smart commit & push (conventional commits)\r\n`);
     w(`  ${Colors.cyan}/split-up${Colors.reset}       Split diff into multiple logical commits\r\n`);
     w(`  ${Colors.cyan}/pr${Colors.reset}             Create Pull Request with AI-generated description\r\n`);
+    w(`  ${Colors.cyan}/review [files]${Colors.reset} Code review (staged or specified files)\r\n`);
+    w(`  ${Colors.cyan}/fix <file>${Colors.reset}     Auto-fix code issues\r\n`);
+    w(`  ${Colors.cyan}/ident${Colors.reset}          Indent/format all code files\r\n`);
+    w(`  ${Colors.cyan}/release [since-tag]${Colors.reset} Generate release notes\r\n`);
     w('\r\n');
     w(`${Colors.bold}Agents & Skills${Colors.reset}\r\n`);
     w(`  ${Colors.cyan}/agents${Colors.reset}         List agents\r\n`);
