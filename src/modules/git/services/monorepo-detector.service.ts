@@ -27,10 +27,11 @@ export class MonorepoDetectorService {
     for (const { dir, type } of patterns) {
       const fullPath = path.join(repoPath, dir);
       if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
-        const subdirs = fs.readdirSync(fullPath, { withFileTypes: true })
-          .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
-          .map(d => d.name);
-        
+        const subdirs = fs
+          .readdirSync(fullPath, { withFileTypes: true })
+          .filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+          .map((d) => d.name);
+
         if (subdirs.length > 0) {
           for (const subdir of subdirs) {
             const moduleName = this.inferModuleName(dir, subdir, type);
@@ -74,6 +75,7 @@ export class MonorepoDetectorService {
           }
         }
       } catch {
+        // Ignore parsing errors
       }
     }
 
@@ -111,9 +113,7 @@ export class MonorepoDetectorService {
   }
 
   private inferModuleName(parentDir: string, subdir: string, type: string): string {
-    const normalized = subdir
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '-');
+    const normalized = subdir.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
     if (['api', 'web', 'mobile', 'frontend', 'backend', 'admin', 'core', 'shared'].includes(normalized)) {
       return normalized;
@@ -141,7 +141,7 @@ export class MonorepoDetectorService {
       /^projects\/([^/]+)/,
       /^libs\/([^/]+)/,
       /^services\/([^/]+)/,
-      /^([^/]+)\/src/,  
+      /^([^/]+)\/src/,
     ];
 
     for (const pattern of patterns) {
@@ -177,11 +177,7 @@ export class MonorepoDetectorService {
   }
 
   private findWorkspaceFile(repoPath: string): string | null {
-    const files = [
-      'pnpm-workspace.yaml',
-      'pnpm-workspace.yml',
-      'lerna.json',
-    ];
+    const files = ['pnpm-workspace.yaml', 'pnpm-workspace.yml', 'lerna.json'];
 
     for (const file of files) {
       const fullPath = path.join(repoPath, file);
@@ -198,6 +194,7 @@ export class MonorepoDetectorService {
           return packageJson;
         }
       } catch {
+        // Ignore
       }
     }
 
@@ -219,9 +216,10 @@ export class MonorepoDetectorService {
               const pattern = pkgMatch[1].replace('/*', '');
               const fullPath = path.join(repoPath, pattern);
               if (fs.existsSync(fullPath)) {
-                const subdirs = fs.readdirSync(fullPath, { withFileTypes: true })
-                  .filter(d => d.isDirectory() && !d.name.startsWith('.'))
-                  .map(d => d.name);
+                const subdirs = fs
+                  .readdirSync(fullPath, { withFileTypes: true })
+                  .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+                  .map((d) => d.name);
                 modules.push(...subdirs);
               }
             }
@@ -235,9 +233,10 @@ export class MonorepoDetectorService {
             const dir = pattern.replace('/*', '');
             const fullPath = path.join(repoPath, dir);
             if (fs.existsSync(fullPath)) {
-              const subdirs = fs.readdirSync(fullPath, { withFileTypes: true })
-                .filter(d => d.isDirectory() && !d.name.startsWith('.'))
-                .map(d => d.name);
+              const subdirs = fs
+                .readdirSync(fullPath, { withFileTypes: true })
+                .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+                .map((d) => d.name);
               modules.push(...subdirs);
             }
           }
@@ -246,15 +245,17 @@ export class MonorepoDetectorService {
             const dir = pattern.replace('/*', '');
             const fullPath = path.join(repoPath, dir);
             if (fs.existsSync(fullPath)) {
-              const subdirs = fs.readdirSync(fullPath, { withFileTypes: true })
-                .filter(d => d.isDirectory() && !d.name.startsWith('.'))
-                .map(d => d.name);
+              const subdirs = fs
+                .readdirSync(fullPath, { withFileTypes: true })
+                .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+                .map((d) => d.name);
               modules.push(...subdirs);
             }
           }
         }
       }
     } catch {
+      // Ignore errors
     }
 
     return modules;

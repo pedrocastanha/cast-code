@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as path from 'path';
-import { MarkdownParserService } from '../../../common/services/markdown-parser.service';
-import { GLOBAL_CONFIG_DIR, DEFAULT_MODEL, DEFAULT_TEMPERATURE } from '../../../common/constants';
+import { MarkdownParserService } from './markdown-parser.service';
+import { GLOBAL_CONFIG_DIR, DEFAULT_MODEL, DEFAULT_TEMPERATURE } from '../constants';
 
 interface GlobalConfigFrontmatter {
   model?: string;

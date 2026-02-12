@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
-import { ConfigService } from '../../core/services/config.service';
+import { ConfigService } from '../../../common/services/config.service';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -448,12 +448,38 @@ export class ReplService {
       let finalMessage = message;
 
       if (confirm === 'e') {
-        const edited = await this.smartInput!.question(`${Colors.cyan}  Edit message:${Colors.reset}`);
-        if (!edited.trim()) {
+        const userInstruction = await this.smartInput!.question(`${Colors.cyan}  Instructions for the LLM (e.g., "mention the git module changes"):${Colors.reset}`);
+        if (!userInstruction.trim()) {
           w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
           return;
         }
-        finalMessage = edited.trim();
+        
+        w(`\r\n${Colors.cyan}🤖 Regenerating with your instructions...${Colors.reset}\r\n`);
+        this.startSpinner('Refining commit message');
+        
+        const refinedMessage = await this.commitGenerator.refineCommitMessage(
+          message,
+          userInstruction.trim(),
+          this.commitGenerator.getDiffInfo()!,
+        );
+        
+        this.stopSpinner();
+        
+        w(`\r\n${Colors.green}✓ Refined commit message:${Colors.reset}\r\n`);
+        w(`  ${Colors.cyan}${refinedMessage}${Colors.reset}\r\n\r\n`);
+        
+        // Ask for confirmation on the refined message
+        const confirmRefined = await this.smartInput!.askChoice('Use this message?', [
+          { key: 'y', label: 'yes', description: 'Commit and push' },
+          { key: 'n', label: 'no', description: 'Cancel' },
+        ]);
+        
+        if (confirmRefined === 'n') {
+          w(`${Colors.dim}  Cancelled${Colors.reset}\r\n\r\n`);
+          return;
+        }
+        
+        finalMessage = refinedMessage;
       }
 
       w(`\r\n${Colors.dim}  Committing...${Colors.reset}\r\n`);

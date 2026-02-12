@@ -1,5 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { ConfigService } from './services/config.service';
+import { ConfigService } from '../../common/services/config.service';
 import { DeepAgentService } from './services/deep-agent.service';
 import { AgentsModule } from '../agents/agents.module';
 import { SkillsModule } from '../skills/skills.module';
