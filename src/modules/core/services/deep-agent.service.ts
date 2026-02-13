@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import { createDeepAgent, FilesystemBackend } from 'deepagents';
 import { ConfigService } from '../../../common/services/config.service';
 import { LlmService } from '../../../common/services/llm.service';
+import { MarkdownRendererService } from '../../../common/services/markdown-renderer.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
@@ -42,6 +43,7 @@ export class DeepAgentService implements OnModuleInit {
     private readonly projectContext: ProjectContextService,
     private readonly skillRegistry: SkillRegistryService,
     private readonly memoryService: MemoryService,
+    private readonly markdownRenderer: MarkdownRendererService,
   ) {}
 
   async onModuleInit() {
