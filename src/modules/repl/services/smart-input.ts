@@ -118,9 +118,7 @@ export class SmartInput {
   }
 
   pause() {
-    // Marca como pausado - inputs serão ignorados
     this.isPaused = true;
-    // Remove o listener para evitar concorrência com inquirer
     if (this.dataHandler) {
       process.stdin.removeListener('data', this.dataHandler);
     }
@@ -132,9 +130,7 @@ export class SmartInput {
   }
 
   resume() {
-    // Desmarca pausa - inputs voltam a ser processados
     this.isPaused = false;
-    // Reconecta o listener
     if (this.dataHandler) {
       process.stdin.on('data', this.dataHandler);
     }
@@ -157,7 +153,6 @@ export class SmartInput {
   }
 
   private handleData(data: string) {
-    // Se estiver pausado, ignora todos os inputs
     if (this.isPaused) {
       return;
     }

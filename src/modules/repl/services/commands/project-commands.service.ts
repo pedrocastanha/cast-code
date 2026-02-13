@@ -46,7 +46,6 @@ export class ProjectCommandsService {
   }
 
   private async generateContext(smartInput: SmartInput, useAgent: boolean): Promise<void> {
-    // Pausa completamente o smart-input para evitar concorrência
     smartInput.pause();
     
     const w = (s: string) => process.stdout.write(s);
@@ -59,7 +58,6 @@ export class ProjectCommandsService {
     const contextPath = path.join(castDir, 'context.md');
     const agentInstructionsPath = path.join(castDir, 'agent-instructions.md');
 
-    // Ensure .cast directory exists
     try {
       await fs.mkdir(castDir, { recursive: true });
     } catch {}
@@ -69,7 +67,6 @@ export class ProjectCommandsService {
     try {
       const context = await this.projectAnalyzer.analyze();
       
-      // Show detected info
       w(colorize(`  ✓ Linguagem principal: ${context.primaryLanguage}\r\n`, 'success'));
       if (context.languages.length > 1) {
         w(colorize(`  ✓ Outras linguagens: ${context.languages.slice(1).join(', ')}\r\n`, 'success'));
@@ -80,14 +77,12 @@ export class ProjectCommandsService {
       w(colorize(`  ✓ ${context.modules.length} módulo(s) encontrado(s)\r\n`, 'success'));
       w(colorize(`  ✓ ${context.rawData.allFiles.length} arquivo(s) de código\r\n`, 'success'));
 
-      // Generate markdown
       const markdown = this.projectAnalyzer.generateMarkdown(context);
       await fs.writeFile(contextPath, markdown, 'utf-8');
 
       w(`\r\n${colorize('✓', 'success')} Contexto básico gerado: ${colorize(contextPath, 'accent')}\r\n`);
       w(colorize('  O Cast usará este contexto em todas as conversas!\r\n\r\n', 'muted'));
 
-      // If deep mode, also generate agent instructions
       if (useAgent) {
         w(colorize('  🤖 Gerando instruções para análise profunda...\r\n\r\n', 'info'));
         
@@ -102,7 +97,6 @@ export class ProjectCommandsService {
         w(colorize('  3. O agente analisará profundamente o projeto\r\n\r\n', 'muted'));
       }
 
-      // Show preview
       const showPreview = await confirmWithEsc({
         message: 'Deseja ver um preview do contexto gerado?',
         default: true,
@@ -125,7 +119,6 @@ export class ProjectCommandsService {
     } catch (error: any) {
       w(`\r\n${colorize('✗', 'error')} Erro ao analisar projeto: ${error.message}\r\n\r\n`);
     } finally {
-      // Sempre retoma o smart-input no final
       smartInput.resume();
     }
   }
@@ -151,7 +144,6 @@ export class ProjectCommandsService {
   private async editContext(): Promise<void> {
     const contextPath = path.join(process.cwd(), '.cast', 'context.md');
     
-    // Try to open with default editor
     const { spawn } = require('child_process');
     const editor = process.env.EDITOR || 'code';
 

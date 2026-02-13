@@ -34,7 +34,6 @@ export class ConfigCommandsService {
   async handleConfigCommand(args: string[], smartInput?: SmartInput): Promise<void> {
     const subcommand = args[0];
     
-    // Pausa o smart-input para evitar conflitos com prompts
     smartInput?.pause();
     
     try {
@@ -72,7 +71,6 @@ export class ConfigCommandsService {
         }
     }
     } finally {
-      // Sempre retoma o smart-input no final
       smartInput?.resume();
     }
   }
@@ -159,7 +157,6 @@ export class ConfigCommandsService {
     w(`\n${Colors.cyan}${Colors.bold}⚙️  Configuração Atual${Colors.reset}\n`);
     w(`${Colors.gray}${'─'.repeat(40)}${Colors.reset}\n\n`);
 
-    // Providers
     w(`${Colors.yellow}📦 Provedores configurados:${Colors.reset}\n`);
     const providers = this.configManager.getConfiguredProviders();
     if (providers.length === 0) {
@@ -176,7 +173,6 @@ export class ConfigCommandsService {
       }
     }
 
-    // Models
     w(`\n${Colors.yellow}🤖 Modelos configurados:${Colors.reset}\n`);
     for (const purpose of MODEL_PURPOSES) {
       const modelConfig = config.models[purpose.value];

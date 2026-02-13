@@ -37,7 +37,6 @@ export class InitConfigService {
       models: {},
     };
 
-    // Step 1: Choose providers to configure
     const selectedProviders = await this.selectProviders();
 
     if (selectedProviders.length === 0) {
@@ -45,7 +44,6 @@ export class InitConfigService {
       return;
     }
 
-    // Step 2: Configure each provider
     for (const provider of selectedProviders) {
       console.log(chalk.cyan(`\n📦 Configurando ${PROVIDER_METADATA[provider].name}...`));
       const providerConfig = await this.configureProvider(provider);
@@ -58,7 +56,6 @@ export class InitConfigService {
       }
     }
 
-    // Step 3: Configure models for different purposes
     console.log(chalk.cyan('\n🤖 Configurando Modelos por Finalidade\n'));
     console.log(
       'Agora você pode configurar diferentes modelos para diferentes tarefas. ' +
@@ -75,7 +72,6 @@ export class InitConfigService {
       return;
     }
 
-    // Step 4: Save configuration
     await this.configManager.saveConfig(config);
 
     console.log(chalk.green.bold('\n✅ Configuração salva com sucesso!\n'));
@@ -161,7 +157,6 @@ export class InitConfigService {
       if (baseUrl === null) return null;
     }
 
-    // Show available models
     console.log(chalk.gray(`  → Modelos populares: ${meta.popularModels.join(', ')}`));
 
     return { apiKey, baseUrl };
@@ -171,7 +166,6 @@ export class InitConfigService {
     config: CastConfig,
     availableProviders: ProviderType[]
   ): Promise<boolean> {
-    // Configure default model first (required)
     console.log(chalk.yellow('→ Configurando modelo padrão (obrigatório)\n'));
     const defaultModel = await this.selectModelConfig(
       'default',
@@ -190,7 +184,6 @@ export class InitConfigService {
     if (configureOthers === null) return false;
 
     if (!configureOthers) {
-      // Use default for everything
       MODEL_PURPOSES.forEach((purpose) => {
         if (purpose.value !== 'default') {
           config.models[purpose.value] = { ...config.models.default };
@@ -199,7 +192,6 @@ export class InitConfigService {
       return true;
     }
 
-    // Configure each purpose
     for (const purpose of MODEL_PURPOSES) {
       if (purpose.value === 'default') continue;
 
@@ -220,7 +212,6 @@ export class InitConfigService {
         if (modelConfig === null) return false;
         config.models[purpose.value] = modelConfig;
       } else {
-        // Copy from default
         config.models[purpose.value] = { ...config.models.default };
       }
     }
@@ -249,7 +240,6 @@ export class InitConfigService {
 
     const meta = PROVIDER_METADATA[provider];
 
-    // Build model choices
     const modelChoices = [
       ...meta.popularModels.map((m) => ({ name: m, value: m })),
       { name: 'Outro (customizado)', value: '__custom__' },
@@ -275,7 +265,6 @@ export class InitConfigService {
       model = selectedModel;
     }
 
-    // Temperature
     const temperature = await inputWithEsc({
       message: 'Temperature (0.0 - 2.0):',
       default: String(defaultModel?.temperature ?? 0.1),

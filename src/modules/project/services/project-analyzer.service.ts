@@ -3,7 +3,6 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { glob } from 'glob';
 
-// Language configurations
 interface LanguageConfig {
   name: string;
   extensions: string[];
@@ -114,7 +113,6 @@ const LANGUAGES: Record<string, LanguageConfig> = {
   },
 };
 
-// Architecture patterns detection
 const ARCHITECTURE_PATTERNS = [
   {
     name: 'Layered Architecture',
@@ -176,78 +174,54 @@ const PATTERN_ROLES: Record<string, string> = {
   resource: 'Resource - Endpoints REST',
   router: 'Router - Define rotas',
   route: 'Route - Configuração de rota',
-  
-  // Services
   service: 'Serviço - Lógica de negócio',
   usecase: 'Caso de Uso - Orquestra operação específica',
   interactor: 'Interactor - Coordena fluxo de dados',
-  
-  // Data
   repository: 'Repositório - Acesso a dados',
   dao: 'DAO - Data Access Object',
   model: 'Modelo - Entidade/Modelo de dados',
   entity: 'Entidade - Objeto de domínio',
   schema: 'Schema - Definição de estrutura de dados',
   migration: 'Migration - Alteração de banco de dados',
-  
-  // Domain
   aggregate: 'Aggregate - Raiz de agregação DDD',
   valueobject: 'Value Object - Objeto de valor imutável',
   domainevent: 'Domain Event - Evento de domínio',
-  
-  // Infrastructure
   adapter: 'Adapter - Adapta interface externa',
   gateway: 'Gateway - Interface para sistema externo',
   client: 'Client - Cliente HTTP/API',
   provider: 'Provider - Provedor de serviço/dependência',
-  
-  // Configuration
   config: 'Configuração - Setup e configurações',
   settings: 'Settings - Configurações do projeto',
   env: 'Environment - Variáveis de ambiente',
-  
-  // Utils
   utils: 'Utilitários - Funções auxiliares',
   helpers: 'Helpers - Funções de apoio',
   common: 'Common - Código compartilhado',
   shared: 'Shared - Recursos compartilhados',
   lib: 'Library - Biblioteca interna',
-  
-  // Testing
   test: 'Teste - Testes unitários/integração',
   spec: 'Spec - Especificação/teste',
   mock: 'Mock - Simulação para testes',
   fixture: 'Fixture - Dados de teste',
-  
-  // UI
   component: 'Componente - Componente de UI',
   page: 'Page - Página da aplicação',
   layout: 'Layout - Template de layout',
   style: 'Style - Estilos CSS/styled',
-  
-  // Events
   event: 'Event - Definição de evento',
   listener: 'Listener - Ouvinte de evento',
   subscriber: 'Subscriber - Assinante de evento',
   producer: 'Producer - Produtor de evento',
   consumer: 'Consumer - Consumidor de evento/mensagem',
-  
-  // Middleware
   middleware: 'Middleware - Interceptador de requisições',
   guard: 'Guard - Proteção de rotas/recursos',
   interceptor: 'Interceptor - Intercepta execução',
   filter: 'Filter - Filtro de dados/requisições',
   pipe: 'Pipe - Transformação de dados',
   decorator: 'Decorator - Decorador/annotation',
-  
-  // Jobs/Background
   job: 'Job - Tarefa em background',
   worker: 'Worker - Processador de tarefas',
   queue: 'Queue - Fila de processamento',
   schedule: 'Schedule - Tarefa agendada',
   cron: 'Cron - Job periódico',
-  
-  // API
   dto: 'DTO - Data Transfer Object',
   request: 'Request - Objeto de requisição',
   response: 'Response - Objeto de resposta',
@@ -299,30 +273,22 @@ export class ProjectAnalyzerService {
   async analyze(projectPath: string = process.cwd()): Promise<ProjectContext> {
     const name = path.basename(projectPath);
     
-    // Detect languages used
     const languages = await this.detectLanguages(projectPath);
     const primaryLanguage = languages[0] || 'unknown';
     
-    // Get structure
     const structure = await this.analyzeStructure(projectPath, primaryLanguage);
     
-    // Detect architecture
     const architecture = await this.detectArchitecture(projectPath, structure.directories);
     
-    // Analyze modules
     const modules = await this.analyzeModules(projectPath, structure.directories);
     
-    // Get dependencies
     const dependencies = await this.getDependencies(projectPath, primaryLanguage);
     
-    // Detect conventions
     const conventions = await this.detectConventions(projectPath);
     
-    // Get all files for raw data
     const allFiles = await this.getAllFiles(projectPath, languages);
     const configFiles = await this.getConfigFiles(projectPath);
     
-    // Generate descriptions
     const objective = this.generateObjective(name, primaryLanguage, architecture);
     const description = this.generateDescription(name, primaryLanguage, architecture, modules.length);
     
@@ -361,7 +327,6 @@ export class ProjectAnalyzerService {
       } catch {}
     }
     
-    // Sort by count descending
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .map(([lang]) => lang);
@@ -372,7 +337,6 @@ export class ProjectAnalyzerService {
     const directories: string[] = [];
     const entryPoints: string[] = [];
     
-    // Common source directories
     const commonDirs = ['src', 'lib', 'app', 'source', 'core', 'packages', 'internal', 'cmd', 'pkg'];
     
     for (const dir of commonDirs) {
@@ -384,7 +348,6 @@ export class ProjectAnalyzerService {
       } catch {}
     }
     
-    // Find entry points based on language
     if (langConfig) {
       for (const pattern of langConfig.entryPatterns) {
         try {
@@ -449,7 +412,6 @@ export class ProjectAnalyzerService {
             const files = await this.getFilesInDir(modulePath);
             const keyFiles = files.slice(0, 5);
             
-            // Detect role based on name
             const role = this.detectRole(entry.name);
             
             modules.push({
@@ -476,7 +438,6 @@ export class ProjectAnalyzerService {
       }
     }
     
-    // Default based on common patterns
     if (['auth', 'authentication', 'security'].some(p => lower.includes(p))) {
       return 'Autenticação e autorização';
     }
@@ -512,7 +473,6 @@ export class ProjectAnalyzerService {
     const internal: string[] = [];
     const external: string[] = [];
     
-    // Language-specific dependency detection
     switch (language) {
       case 'typescript':
       case 'javascript':
@@ -525,7 +485,6 @@ export class ProjectAnalyzerService {
           
           for (const [name, version] of Object.entries(allDeps)) {
             if (name.startsWith('@') && name.includes('/')) {
-              // Scoped packages - check if internal
               const scope = name.split('/')[0];
               if (scope === `@${pkg.name}` || name.startsWith('@internal')) {
                 internal.push(name);
@@ -586,11 +545,10 @@ export class ProjectAnalyzerService {
   }
   
   private async detectConventions(projectPath: string): Promise<ProjectContext['conventions']> {
-    const naming = 'mixed'; // Simplified detection
+    const naming = 'mixed';
     let testing = false;
     let linting = false;
     
-    // Check for testing
     try {
       await fs.access(path.join(projectPath, 'test'));
       testing = true;
@@ -601,7 +559,6 @@ export class ProjectAnalyzerService {
       } catch {}
     }
     
-    // Check for linting
     const lintFiles = ['.eslintrc', '.eslintrc.js', '.eslintrc.json', 'pyproject.toml', 'setup.cfg'];
     for (const file of lintFiles) {
       try {
@@ -727,11 +684,9 @@ export class ProjectAnalyzerService {
     return parts.join(' ') + '.';
   }
   
-  // Generate Markdown for the context file
   generateMarkdown(context: ProjectContext): string {
     const lines: string[] = [];
     
-    // Frontmatter
     lines.push('---');
     lines.push(`name: ${context.name}`);
     lines.push(`objective: |`);
@@ -750,13 +705,11 @@ export class ProjectAnalyzerService {
     lines.push('---');
     lines.push('');
     
-    // Description
     lines.push('# Visão Geral');
     lines.push('');
     lines.push(context.description);
     lines.push('');
     
-    // Architecture
     if (context.architecture) {
       lines.push('## Arquitetura');
       lines.push('');
@@ -768,7 +721,6 @@ export class ProjectAnalyzerService {
       lines.push('');
     }
     
-    // Structure
     lines.push('## Estrutura');
     lines.push('');
     
@@ -784,7 +736,6 @@ export class ProjectAnalyzerService {
       lines.push('');
     }
     
-    // Modules
     if (context.modules.length > 0) {
       lines.push('## Módulos');
       lines.push('');
@@ -808,7 +759,6 @@ export class ProjectAnalyzerService {
       });
     }
     
-    // Dependencies
     if (context.dependencies.external.length > 0) {
       lines.push('## Dependências');
       lines.push('');
@@ -823,7 +773,6 @@ export class ProjectAnalyzerService {
       lines.push('');
     }
     
-    // Conventions
     lines.push('## Convenções');
     lines.push('');
     lines.push(`- **Nomenclatura:** ${context.conventions.naming}`);
@@ -831,7 +780,6 @@ export class ProjectAnalyzerService {
     lines.push(`- **Linting:** ${context.conventions.linting ? 'Sim' : 'Não detectado'}`);
     lines.push('');
     
-    // Raw data summary
     lines.push('## Estatísticas');
     lines.push('');
     lines.push(`- **Total de arquivos:** ${context.rawData.allFiles.length}`);
@@ -842,7 +790,6 @@ export class ProjectAnalyzerService {
     return lines.join('\n');
   }
   
-  // Generate agent instructions for deep analysis
   generateAgentInstructions(context: ProjectContext): string {
     return `Analise profundamente o projeto "${context.name}" localizado em ${context.structure.root}.
 

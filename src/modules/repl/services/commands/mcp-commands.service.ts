@@ -25,7 +25,6 @@ export class McpCommandsService {
     const sub = args[0] || 'menu';
     const w = (s: string) => process.stdout.write(s);
     
-    // Pausa o smart-input para evitar conflitos com prompts
     smartInput.pause();
 
     try {
@@ -70,7 +69,6 @@ export class McpCommandsService {
         break;
     }
     } finally {
-      // Sempre retoma o smart-input no final
       smartInput.resume();
     }
   }
