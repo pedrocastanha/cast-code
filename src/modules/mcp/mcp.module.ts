@@ -4,6 +4,6 @@ import { McpRegistryService } from './services/mcp-registry.service';
 
 @Module({
   providers: [McpClientService, McpRegistryService],
-  exports: [McpRegistryService],
+  exports: [McpClientService, McpRegistryService],
 })
 export class McpModule {}
