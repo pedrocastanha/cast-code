@@ -39,6 +39,7 @@ export class SmartInput {
 
   private dataHandler: ((data: string) => void) | null = null;
   private terminalWidth = 80; // default
+  private isPaused = false;
 
   constructor(opts: SmartInputOptions) {
     this.opts = opts;
@@ -116,6 +117,30 @@ export class SmartInput {
     }
   }
 
+  pause() {
+    this.isPaused = true;
+    if (this.dataHandler) {
+      process.stdin.removeListener('data', this.dataHandler);
+    }
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
+    this.clearSuggestions();
+    process.stdout.write('\r\n');
+  }
+
+  resume() {
+    this.isPaused = false;
+    if (this.dataHandler) {
+      process.stdin.on('data', this.dataHandler);
+    }
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.resume();
+    this.showPrompt();
+  }
+
   destroy() {
     this.clearSuggestions();
     if (this.dataHandler) {
@@ -128,6 +153,10 @@ export class SmartInput {
   }
 
   private handleData(data: string) {
+    if (this.isPaused) {
+      return;
+    }
+
     if (this.mode === 'passive') {
       for (const ch of data) {
         if (ch.charCodeAt(0) === 0x03) {

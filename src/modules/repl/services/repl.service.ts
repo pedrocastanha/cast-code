@@ -12,6 +12,8 @@ import { ReplCommandsService } from './commands/repl-commands.service';
 import { GitCommandsService } from './commands/git-commands.service';
 import { AgentCommandsService } from './commands/agent-commands.service';
 import { McpCommandsService } from './commands/mcp-commands.service';
+import { ConfigCommandsService } from '../../config/services/config-commands.service';
+import { ProjectCommandsService } from './commands/project-commands.service';
 import { Colors, Icons } from '../utils/theme';
 
 @Injectable()
@@ -35,6 +37,8 @@ export class ReplService {
     private readonly gitCommands: GitCommandsService,
     private readonly agentCommands: AgentCommandsService,
     private readonly mcpCommands: McpCommandsService,
+    private readonly configCommands: ConfigCommandsService,
+    private readonly projectCommands: ProjectCommandsService,
   ) {}
 
   async start(): Promise<void> {
@@ -85,6 +89,8 @@ export class ReplService {
       { text: '/mentions', display: '/mentions', description: 'Mentions help' },
       { text: '/model', display: '/model', description: 'Show model' },
       { text: '/config', display: '/config', description: 'Configuration' },
+      { text: '/project', display: '/project', description: 'Project context' },
+      { text: '/project-deep', display: '/project-deep', description: 'Deep project analysis' },
       { text: '/init', display: '/init', description: 'Initialize .cast/' },
       { text: '/mcp', display: '/mcp', description: 'MCP servers' },
     ];
@@ -200,7 +206,9 @@ export class ReplService {
       case 'quit': process.exit(0);
       case 'compact': this.deepAgent.clearHistory(); process.stdout.write(`${Colors.green}  Compacted${Colors.reset}\r\n`); break;
       case 'context': this.replCommands.cmdContext(); break;
-      case 'config': this.replCommands.cmdConfig(); break;
+      case 'config': 
+        await this.configCommands.handleConfigCommand(args, this.smartInput!); 
+        break;
       case 'model': this.replCommands.cmdModel(args); break;
       case 'init': this.replCommands.cmdInit(); break;
       case 'mentions': this.replCommands.cmdMentionsHelp(); break;
@@ -210,21 +218,43 @@ export class ReplService {
       case 'status': this.gitCommands.runGit('git status'); break;
       case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
       case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
-      case 'commit': await this.gitCommands.cmdCommit(args, this.smartInput!); break;
-      case 'up': await this.gitCommands.cmdUp(this.smartInput!); break;
-      case 'split-up': await this.gitCommands.cmdSplitUp(this.smartInput!); break;
-      case 'pr': await this.gitCommands.cmdPr(this.smartInput!); break;
+      case 'commit': 
+        await this.gitCommands.cmdCommit(args, this.smartInput!); 
+        break;
+      case 'up': 
+        await this.gitCommands.cmdUp(this.smartInput!); 
+        break;
+      case 'split-up': 
+        await this.gitCommands.cmdSplitUp(this.smartInput!); 
+        break;
+      case 'pr': 
+        await this.gitCommands.cmdPr(this.smartInput!); 
+        break;
       case 'review': await this.gitCommands.cmdReview(args); break;
       case 'fix': await this.gitCommands.cmdFix(args); break;
       case 'ident': await this.gitCommands.cmdIdent(); break;
       case 'release': await this.gitCommands.cmdRelease(args); break;
 
       // Agent/Skill commands
-      case 'agents': await this.agentCommands.cmdAgents(args, this.smartInput!); break;
-      case 'skills': await this.agentCommands.cmdSkills(args, this.smartInput!); break;
+      case 'agents': 
+        await this.agentCommands.cmdAgents(args, this.smartInput!); 
+        break;
+      case 'skills': 
+        await this.agentCommands.cmdSkills(args, this.smartInput!); 
+        break;
 
       // MCP commands
-      case 'mcp': await this.mcpCommands.cmdMcp(args, this.smartInput!); break;
+      case 'mcp': 
+        await this.mcpCommands.cmdMcp(args, this.smartInput!); 
+        break;
+
+      // Project commands
+      case 'project':
+        await this.projectCommands.cmdProject(args, this.smartInput!);
+        break;
+      case 'project-deep':
+        await this.projectCommands.cmdProject(['deep'], this.smartInput!);
+        break;
 
       default:
         process.stdout.write(`${Colors.red}  Unknown: /${cmd}${Colors.reset}  ${Colors.dim}Try /help${Colors.reset}\r\n`);

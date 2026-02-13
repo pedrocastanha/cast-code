@@ -129,11 +129,12 @@ export class CommitGeneratorService {
       let committedCount = 0;
 
       for (const commit of commits) {
+        execSync('git reset', { cwd });
+
         for (const file of commit.files) {
           try {
             execSync(`git add "${file}"`, { cwd });
           } catch {
-            // Ignore individual staging errors
           }
         }
 

@@ -246,6 +246,83 @@ E skills em `src/modules/skills/definitions/`:
 
 ---
 
+## FASE 7: Comando `/project` - Análise de Contexto ✅ CONCLUÍDO
+
+### 7.1 — Implementar análise universal de projeto
+
+**Status:** ✅ CONCLUÍDO
+
+**Implementação:**
+- Criado `ProjectAnalyzerService` que detecta qualquer linguagem/framework via file patterns
+- Suporte a: TypeScript, JavaScript, Python, Go, Rust, Java, PHP, Ruby, C#, e mais
+- Detecta arquiteturas: Layered, Clean, Hexagonal, Microservices, DDD, CQRS
+- Analisa módulos, dependências, entry points, e estrutura
+
+**Arquivo:** `src/modules/project/services/project-analyzer.service.ts`
+
+### 7.2 — Comando `/project` (rápido)
+
+**Status:** ✅ CONCLUÍDO
+
+**Sintaxe:**
+```bash
+/project              # Analisa e gera/atualiza o contexto
+/project analyze      # Gera .cast/context.md automaticamente
+/project show         # Mostra o contexto atual
+/project edit         # Abre no editor para edição
+```
+
+**Funcionalidade:**
+- Análise rápida (~1-2 segundos)
+- Gera `.cast/context.md` com:
+  - Stack detectada
+  - Estrutura de diretórios
+  - Módulos principais
+  - Dependências chave
+  - Padrões de arquitetura
+- Carregado automaticamente em todas as conversas
+
+**Arquivo:** `src/modules/repl/services/commands/project-commands.service.ts`
+
+### 7.3 — Comando `/project-deep` (agent instructions)
+
+**Status:** ✅ CONCLUÍDO
+
+**Sintaxe:**
+```bash
+/project-deep         # Análise profunda com instruções para agente
+```
+
+**Funcionalidade:**
+- Gera `.cast/context.md` (contexto básico)
+- Gera `.cast/agent-instructions.md` com tarefas detalhadas para um agente de IA:
+  1. Explore a estrutura do projeto
+  2. Analise cada módulo em profundidade
+  3. Documente padrões e convenções
+  4. Identifique fluxos de dados
+  5. Gere sumário executivo
+- Instruções podem ser copiadas para uma nova conversa com agente especialista
+
+### 7.4 — Resolver conflitos de stdin
+
+**Status:** ✅ CONCLUÍDO
+
+**Problema:** REPL capturava input durante prompts do inquirer
+
+**Solução:**
+- Adicionado `pause()`/`resume()` no `SmartInput`
+- Todos os comandos interativos pausam antes de usar inquirer
+- Métodos `pause()` removem listeners e desativam raw mode
+- Métodos `resume()` restauram listeners e reativam raw mode
+
+**Arquivos:** 
+- `src/modules/repl/services/smart-input.ts`
+- `src/modules/repl/services/commands/project-commands.service.ts`
+- `src/modules/repl/services/commands/mcp-commands.service.ts`
+- `src/modules/config/services/config-commands.service.ts`
+
+---
+
 ## Ordem de Execução
 
 | Prioridade | Fase | Impacto | Estimativa de Complexidade |
@@ -267,8 +344,8 @@ E skills em `src/modules/skills/definitions/`:
 
 | Arquivo | Fases |
 |---------|-------|
-| `src/modules/repl/services/smart-input.ts` | 1.1, 1.2, 1.3 |
-| `src/modules/repl/services/repl.service.ts` | 1.3, 1.4, 3.1, 3.2, 5.2 |
+| `src/modules/repl/services/smart-input.ts` | 1.1, 1.2, 1.3, 7.4 |
+| `src/modules/repl/services/repl.service.ts` | 1.3, 1.4, 3.1, 3.2, 5.2, 7.2, 7.3 |
 | `src/modules/core/services/deep-agent.service.ts` | 2.1, 3.1, 3.2, 4.1, 5.1 |
 | `src/modules/tools/services/filesystem-tools.service.ts` | 2.1 |
 | `src/modules/agents/services/agent-registry.service.ts` | 5.1 |
@@ -276,3 +353,7 @@ E skills em `src/modules/skills/definitions/`:
 | `src/modules/mcp/services/mcp-registry.service.ts` | 6.2 |
 | `src/modules/agents/definitions/*.md` (novos) | 5.3 |
 | `src/modules/skills/definitions/*.md` (novos) | 5.3 |
+| `src/modules/project/services/project-analyzer.service.ts` (novo) | 7.1, 7.2, 7.3 |
+| `src/modules/repl/services/commands/project-commands.service.ts` (novo) | 7.2, 7.3, 7.4 |
+| `src/modules/repl/services/commands/mcp-commands.service.ts` | 7.4 |
+| `src/modules/config/services/config-commands.service.ts` | 7.4 |
