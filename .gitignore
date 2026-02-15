@@ -23,3 +23,6 @@ docs
 CLAUDE.md
 .cast/
 to-do.md
+./.cast/
+cast/
+.cast
