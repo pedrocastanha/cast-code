@@ -13,10 +13,11 @@ import { AgentsModule } from '../agents/agents.module';
 import { SkillsModule } from '../skills/skills.module';
 import { McpModule } from '../mcp/mcp.module';
 import { ProjectModule } from '../project/project.module';
+import { MemoryModule } from '../memory/memory.module';
 import { ConfigModule } from '../config';
 
 @Module({
-  imports: [ConfigModule, CoreModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule],
+  imports: [ConfigModule, CoreModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule, MemoryModule],
   providers: [
     ReplService,
     WelcomeScreenService,

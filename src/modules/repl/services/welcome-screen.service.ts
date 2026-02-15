@@ -97,6 +97,8 @@ export class WelcomeScreenService {
 
     const tips = [
       { cmd: '/help', desc: 'Show all commands' },
+      { cmd: '/init', desc: 'Map project context' },
+      { cmd: '/mcp add', desc: 'Connect Figma MCP' },
       { cmd: '@file', desc: 'Add file context' },
       { cmd: 'Tab',   desc: 'Accept suggestions' },
     ];
