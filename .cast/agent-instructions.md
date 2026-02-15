@@ -1,4 +1,4 @@
-Analise profundamente o projeto "cast-code" localizado em /home/pedro-castanheira/Desktop/cast-code.
+Analise profundamente o projeto "kimi-code" localizado em /home/pedrocastanha/Desktop/typescript-projects/kimi-code.
 
 ## Tarefas:
 
