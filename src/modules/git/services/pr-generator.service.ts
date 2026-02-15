@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { LlmService } from '../../../common/services/llm.service';
+import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
 
 export interface CommitInfo {
@@ -30,7 +30,7 @@ export interface PRCreationResult {
 @Injectable()
 export class PrGeneratorService {
   constructor(
-    private readonly llmService: LlmService,
+    private readonly multiLlmService: MultiLlmService,
     private readonly monorepoDetector: MonorepoDetectorService,
   ) {}
 
@@ -48,23 +48,20 @@ export class PrGeneratorService {
   detectDefaultBaseBranch(): string {
     try {
       const cwd = process.cwd();
-      // Check common base branch names in order of preference
       const candidates = ['main', 'master', 'develop'];
       
       for (const branch of candidates) {
         try {
-          // Check if branch exists locally or remotely
           execSync(`git rev-parse --verify ${branch} 2>/dev/null || git rev-parse --verify origin/${branch} 2>/dev/null`, { 
             cwd, 
             stdio: 'ignore' 
           });
           return branch;
         } catch {
-          // Branch doesn't exist, try next
         }
       }
       
-      return 'main'; // fallback
+      return 'main';
     } catch {
       return 'main';
     }
@@ -100,11 +97,9 @@ export class PrGeneratorService {
     try {
       const cwd = process.cwd();
       
-      // Check if base branch exists locally or remotely
       try {
         execSync(`git rev-parse --verify ${baseBranch}`, { cwd, stdio: 'ignore' });
       } catch {
-        // Try remote branch
         try {
           execSync(`git rev-parse --verify origin/${baseBranch}`, { cwd, stdio: 'ignore' });
         } catch {
@@ -112,7 +107,6 @@ export class PrGeneratorService {
         }
       }
 
-      // Get commits that are in current branch but not in base
       const logOutput = execSync(
         `git log ${baseBranch}..HEAD --pretty=format:"%H|%s|%an|%ad" --date=short`,
         { cwd, encoding: 'utf-8' }
@@ -129,14 +123,12 @@ export class PrGeneratorService {
         const [hash, message, author, date] = line.split('|');
         if (!hash) continue;
 
-        // Get files changed in this commit
         const filesOutput = execSync(
           `git diff-tree --no-commit-id --name-only -r ${hash}`,
           { cwd, encoding: 'utf-8' }
         );
         const files = filesOutput.trim().split('\n').filter(f => f);
 
-        // Get diff stats for this commit
         const diffOutput = execSync(
           `git show ${hash} --stat`,
           { cwd, encoding: 'utf-8' }
@@ -159,7 +151,7 @@ export class PrGeneratorService {
   }
 
   async analyzeCommit(commit: CommitInfo): Promise<{ summary: string; details: string }> {
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('cheap');
 
     const prompt = this.buildCommitAnalysisPrompt(commit);
 
@@ -177,8 +169,7 @@ export class PrGeneratorService {
     commits: CommitInfo[],
     baseBranch: string = 'develop',
   ): Promise<PRDescription> {
-    // Use single agent to analyze all commits at once
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('cheap');
     const prompt = this.buildSinglePrompt(branchName, commits, baseBranch);
 
     const response = await llm.invoke([
@@ -204,7 +195,6 @@ export class PrGeneratorService {
     const { platform } = this.detectPlatform();
     const branch = this.getCurrentBranch();
 
-    // Only GitHub is supported for automatic creation
     if (platform !== 'github') {
       return {
         success: false,
@@ -214,7 +204,6 @@ export class PrGeneratorService {
       };
     }
 
-    // Check if gh CLI is available
     try {
       execSync('which gh', { cwd: process.cwd() });
     } catch {
@@ -229,7 +218,6 @@ export class PrGeneratorService {
     try {
       const cwd = process.cwd();
 
-      // Create PR using gh CLI
       const tempFile = `/tmp/pr-body-${Date.now()}.md`;
       require('fs').writeFileSync(tempFile, description);
 
@@ -239,7 +227,6 @@ export class PrGeneratorService {
           { cwd, encoding: 'utf-8' }
         );
         
-        // Extract URL from result
         const urlMatch = result.match(/https:\/\/github\.com\/[^\s]+/);
         
         return { 
@@ -314,7 +301,6 @@ export class PrGeneratorService {
 
       const branch = this.getCurrentBranch();
 
-      // Convert SSH to HTTPS if needed
       let httpsUrl = remoteUrl
         .replace(/^git@github\.com:/, 'https://github.com/')
         .replace(/^git@gitlab\.com:/, 'https://gitlab.com/')
@@ -386,7 +372,6 @@ export class PrGeneratorService {
     return { title, description };
   }
 
-  // Single agent approach - analyze all commits at once
   private buildSinglePrompt(branchName: string, commits: CommitInfo[], baseBranch: string): string {
     const commitsInfo = commits.map((c, i) => 
       `${i + 1}. **${c.hash}** - ${c.message}\n   Files: ${c.files.slice(0, 5).join(', ')}${c.files.length > 5 ? '...' : ''}\n   Stats: ${c.diff.split('\n').slice(-3, -1).join(' ')}`
@@ -431,7 +416,6 @@ TESTING: <how to test these changes>`;
 
     const title = titleMatch ? titleMatch[1].trim() : '';
     
-    // Build markdown description
     const parts: string[] = [];
     
     if (overviewMatch) {
@@ -452,7 +436,6 @@ TESTING: <how to test these changes>`;
 
     const description = parts.join('\n\n');
 
-    // Parse commit summaries
     const commitSummaries: { hash: string; summary: string; details: string }[] = [];
     
     if (commitsMatch) {
@@ -471,7 +454,6 @@ TESTING: <how to test these changes>`;
       }
     }
 
-    // Fallback: if no commit summaries parsed, create simple ones from commits
     if (commitSummaries.length === 0) {
       for (const commit of commits) {
         commitSummaries.push({

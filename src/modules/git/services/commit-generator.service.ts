@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { LlmService } from '../../../common/services/llm.service';
+import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
 import { GitDiffInfo, SplitCommit, CommitGroup, MonorepoInfo } from '../types/git.types';
 
 @Injectable()
 export class CommitGeneratorService {
   constructor(
-    private readonly llmService: LlmService,
+    private readonly multiLlmService: MultiLlmService,
     private readonly monorepoDetector: MonorepoDetectorService,
   ) {}
 
@@ -48,7 +48,7 @@ export class CommitGeneratorService {
     const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles];
     const scope = this.monorepoDetector.determineScope(allFiles, monorepoInfo);
 
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('cheap');
     const prompt = this.buildCommitPrompt(diffInfo, scope);
 
     const response = await llm.invoke([
@@ -67,7 +67,7 @@ export class CommitGeneratorService {
     const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
     const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles];
 
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('cheap');
     const splitPrompt = this.buildSplitPrompt(diffInfo, allFiles);
 
     const splitResponse = await llm.invoke([
@@ -166,7 +166,7 @@ export class CommitGeneratorService {
     userSuggestion: string,
     diffInfo: GitDiffInfo,
   ): Promise<string> {
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('cheap');
 
     const prompt = `Current commit message: ${currentMessage}\n\nUser suggestion: ${userSuggestion}\n\nDiff:\n${diffInfo.staged.slice(0, 3000)}`;
 
@@ -251,7 +251,7 @@ export class CommitGeneratorService {
   }
 
   private async generateMessageForGroup(group: CommitGroup, diffInfo: GitDiffInfo): Promise<string> {
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('cheap');
 
     const scopePart = group.scope ? `(${group.scope})` : '';
 

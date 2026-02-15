@@ -32,7 +32,7 @@ export class WelcomeScreenService {
       colorize(Box.topLeft + Box.horizontal.repeat(innerWidth + 2) + Box.topRight, 'primary')
     );
 
-    const logoText = '✦ CAST CODE ✦';
+    const logoText = `${Icons.chestnut} CAST CODE ${Icons.chestnut}`;
     const logoPadding = Math.floor((innerWidth - logoText.length) / 2);
     console.log(
       colorize(Box.vertical, 'primary') + ' ' +
@@ -69,7 +69,12 @@ export class WelcomeScreenService {
     );
 
     if (context.projectPath) {
-      const projectLine = ` ${colorize('Project:'.padEnd(maxLabel), labelColor)}${colorize(context.projectPath, 'accent')} `;
+      const maxPathLen = innerWidth - maxLabel - 3;
+      let displayPath = context.projectPath;
+      if (displayPath.length > maxPathLen) {
+        displayPath = '...' + displayPath.slice(displayPath.length - maxPathLen + 3);
+      }
+      const projectLine = ` ${colorize('Project:'.padEnd(maxLabel), labelColor)}${colorize(displayPath, 'accent')} `;
       console.log(
         colorize(Box.vertical, 'primary') +
         visiblePadEnd(projectLine, innerWidth) +
@@ -120,7 +125,7 @@ export class WelcomeScreenService {
 
   printBanner(): void {
     console.log('');
-    console.log(colorize('  ✦ CAST CODE ✦', 'primary'));
+    console.log(colorize(`  ${Icons.chestnut} CAST CODE ${Icons.chestnut}`, 'primary'));
     console.log('');
   }
 
@@ -132,7 +137,7 @@ export class WelcomeScreenService {
   }): void {
     const parts: string[] = [];
     
-    parts.push(colorize(Icons.robot, 'primary') + ' ' + colorize(context.model, 'cyan'));
+    parts.push(colorize(Icons.chestnut, 'primary') + ' ' + colorize(context.model, 'cyan'));
     
     if (context.branch) {
       const branchIcon = context.hasChanges ? Icons.circle : Icons.branch;

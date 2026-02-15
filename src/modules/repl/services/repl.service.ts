@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
+import { ConfigManagerService } from '../../config/services/config-manager.service';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -14,6 +15,7 @@ import { AgentCommandsService } from './commands/agent-commands.service';
 import { McpCommandsService } from './commands/mcp-commands.service';
 import { ConfigCommandsService } from '../../config/services/config-commands.service';
 import { ProjectCommandsService } from './commands/project-commands.service';
+import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { Colors, Icons } from '../utils/theme';
 
 @Injectable()
@@ -26,6 +28,7 @@ export class ReplService {
   constructor(
     private readonly deepAgent: DeepAgentService,
     private readonly configService: ConfigService,
+    private readonly configManager: ConfigManagerService,
     private readonly mentionsService: MentionsService,
     private readonly mcpRegistry: McpRegistryService,
     private readonly agentRegistry: AgentRegistryService,
@@ -38,6 +41,7 @@ export class ReplService {
     private readonly mcpCommands: McpCommandsService,
     private readonly configCommands: ConfigCommandsService,
     private readonly projectCommands: ProjectCommandsService,
+    private readonly toolsRegistry: ToolsRegistryService,
   ) {}
 
   async start(): Promise<void> {
@@ -46,7 +50,7 @@ export class ReplService {
 
     this.welcomeScreen.printWelcomeScreen({
       projectPath: initResult.projectPath || undefined,
-      model: `${this.configService.getProvider()}/${this.configService.getModel()}`,
+      model: this.getModelDisplayName(),
       toolCount: initResult.toolCount,
       agentCount,
     });
@@ -172,6 +176,7 @@ export class ReplService {
 
   private handleExit(): void {
     process.stdout.write(`${Colors.dim}  Goodbye!${Colors.reset}\r\n`);
+    this.stop();
     process.exit(0);
   }
 
@@ -201,8 +206,8 @@ export class ReplService {
       case 'help': this.replCommands.printHelp(); break;
       case 'clear': this.replCommands.cmdClear(this.welcomeScreen); break;
       case 'exit':
-      case 'quit': process.exit(0);
-      case 'compact': this.deepAgent.clearHistory(); process.stdout.write(`${Colors.green}  Compacted${Colors.reset}\r\n`); break;
+      case 'quit': this.handleExit(); return;
+      case 'compact': await this.handleCompact(); break;
       case 'context': this.replCommands.cmdContext(); break;
       case 'config': 
         await this.configCommands.handleConfigCommand(args, this.smartInput!); 
@@ -254,6 +259,21 @@ export class ReplService {
 
       default:
         process.stdout.write(`${Colors.red}  Unknown: /${cmd}${Colors.reset}  ${Colors.dim}Try /help${Colors.reset}\r\n`);
+    }
+  }
+
+  private async handleCompact(): Promise<void> {
+    const msgCount = this.deepAgent.getMessageCount();
+    if (msgCount < 4) {
+      process.stdout.write(`${Colors.dim}  Nothing to compact (${msgCount} messages)${Colors.reset}\r\n`);
+      return;
+    }
+    process.stdout.write(`${Colors.dim}  Summarizing ${msgCount} messages...${Colors.reset}\r\n`);
+    const result = await this.deepAgent.compactHistory();
+    if (result.compacted) {
+      process.stdout.write(`${Colors.green}  Compacted: ${result.messagesBefore} → ${result.messagesAfter} messages${Colors.reset}\r\n`);
+    } else {
+      process.stdout.write(`${Colors.yellow}  Could not compact (summarization failed)${Colors.reset}\r\n`);
     }
   }
 
@@ -311,7 +331,7 @@ export class ReplService {
 
         if (firstChunk && !isToolOutput) {
           this.stopSpinner();
-          process.stdout.write(`\r\n${Colors.magenta}${Colors.bold}Cast${Colors.reset}\r\n`);
+          process.stdout.write(`\r\n${Colors.magenta}${Colors.bold}${Icons.chestnut} Cast${Colors.reset}\r\n`);
           firstChunk = false;
         }
 
@@ -414,7 +434,7 @@ export class ReplService {
   private startSpinner(label: string): void {
     let i = 0;
     this.spinnerTimer = setInterval(() => {
-      process.stdout.write(`\r${Colors.cyan}${Icons.spinner[i++ % Icons.spinner.length]}${Colors.reset} ${Colors.dim}${label}...${Colors.reset}`);
+      process.stdout.write(`\r${Colors.cyan}${Icons.thinkingChestnut[i++ % Icons.thinkingChestnut.length]}${Colors.reset} ${Colors.dim}${label}...${Colors.reset}`);
     }, 80);
   }
 
@@ -427,24 +447,17 @@ export class ReplService {
   }
 
   private cmdTools(): void {
-    const tools = [
-      ['read_file', 'Read file contents'],
-      ['write_file', 'Write/create files'],
-      ['edit_file', 'Edit files'],
-      ['glob', 'Find files by pattern'],
-      ['grep', 'Search file contents'],
-      ['ls', 'List directory'],
-      ['shell', 'Execute commands'],
-      ['web_search', 'Web search'],
-      ['web_fetch', 'Fetch URL content'],
-    ];
+    const allTools = this.toolsRegistry.getAllTools();
+    const tools: [string, string][] = allTools.map(t => [t.name, t.description.slice(0, 60)]);
 
-    const maxLen = Math.max(...tools.map(([n]) => n.length));
-    
-    process.stdout.write('\r\n');
-    process.stdout.write(`${Colors.bold}Tools (${tools.length}):${Colors.reset}\r\n`);
-    for (const [name, desc] of tools) {
-      process.stdout.write(`  ${Colors.cyan}${name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
+    if (tools.length > 0) {
+      const maxLen = Math.max(...tools.map(([n]) => n.length));
+
+      process.stdout.write('\r\n');
+      process.stdout.write(`${Colors.bold}Built-in Tools (${tools.length}):${Colors.reset}\r\n`);
+      for (const [name, desc] of tools) {
+        process.stdout.write(`  ${Colors.cyan}${name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
+      }
     }
 
     const mcpTools = this.mcpRegistry.getAllMcpTools();
@@ -455,6 +468,17 @@ export class ReplService {
       }
     }
     process.stdout.write('\r\n');
+  }
+
+  private getModelDisplayName(): string {
+    try {
+      const modelConfig = this.configManager.getModelConfig('default');
+      if (modelConfig) {
+        return `${modelConfig.provider}/${modelConfig.model}`;
+      }
+    } catch {
+    }
+    return `${this.configService.getProvider()}/${this.configService.getModel()}`;
   }
 
   stop(): void {

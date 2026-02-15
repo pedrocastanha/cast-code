@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { LlmService } from '../../../common/services/llm.service';
+import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -23,7 +23,7 @@ export interface ReleaseNotesData {
 
 @Injectable()
 export class ReleaseNotesService {
-  constructor(private readonly llmService: LlmService) {}
+  constructor(private readonly multiLlmService: MultiLlmService) {}
 
   async generateReleaseNotes(
     sinceTag?: string,
@@ -157,7 +157,7 @@ export class ReleaseNotesService {
   }
 
   private async generateAIAnalysis(commits: string[], changedFiles: string[]): Promise<Partial<ReleaseNotesData>> {
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('cheap');
     
     const commitMessages = commits.map(c => {
       const parts = c.split('|');

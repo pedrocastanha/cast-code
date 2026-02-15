@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { LlmService } from '../../../common/services/llm.service';
+import { MultiLlmService } from '../../../common/services/multi-llm.service';
 
 export interface ReviewIssue {
   severity: 'error' | 'warning' | 'suggestion' | 'praise';
@@ -20,7 +20,7 @@ export interface ReviewResult {
 
 @Injectable()
 export class CodeReviewService {
-  constructor(private readonly llmService: LlmService) {}
+  constructor(private readonly multiLlmService: MultiLlmService) {}
 
   async reviewFile(filePath: string): Promise<ReviewResult> {
     const content = this.readFile(filePath);
@@ -33,7 +33,7 @@ export class CodeReviewService {
       };
     }
 
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('reviewer');
     const prompt = this.buildReviewPrompt(filePath, content);
 
     const response = await llm.invoke([
@@ -65,7 +65,7 @@ export class CodeReviewService {
       return { success: false, error: 'Could not read file' };
     }
 
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('reviewer');
     const prompt = this.buildFixPrompt(filePath, content);
 
     const response = await llm.invoke([
@@ -95,7 +95,7 @@ export class CodeReviewService {
         execSync(`npx prettier --write "${filePath}"`, { cwd: process.cwd() });
         return { success: true };
       } catch {
-        const llm = this.llmService.createModel();
+        const llm = this.multiLlmService.createModel('reviewer');
         const prompt = `Format and indent this code properly. Maintain all functionality, only fix indentation and formatting:
 
 File: ${filePath}

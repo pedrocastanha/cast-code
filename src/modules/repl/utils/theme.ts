@@ -78,6 +78,8 @@ export const Icons = {
   down: '↓',
   left: '←',
   right: '→',
+  chestnut: '🌰',
+  thinkingChestnut: ['🌰◜', '🌰◠', '🌰◝', '🌰◞', '🌰◡', '🌰◟'],
 } as const;
 
 export const UI = {
@@ -87,7 +89,7 @@ export const UI = {
 
   box: (content: string[], width = 50, title?: string): string => {
     const lines: string[] = [];
-    const innerWidth = width - 4; // Account for borders and padding
+    const innerWidth = width - 4;
 
     if (title) {
       const titleLen = title.length;

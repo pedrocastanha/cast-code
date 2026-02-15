@@ -8,6 +8,7 @@ import { McpCommandsService } from './services/commands/mcp-commands.service';
 import { ConfigCommandsService } from '../config/services/config-commands.service';
 import { ProjectCommandsService } from './services/commands/project-commands.service';
 import { CoreModule } from '../core/core.module';
+import { ToolsModule } from '../tools/tools.module';
 import { GitModule } from '../git/git.module';
 import { AgentsModule } from '../agents/agents.module';
 import { SkillsModule } from '../skills/skills.module';
@@ -17,7 +18,7 @@ import { MemoryModule } from '../memory/memory.module';
 import { ConfigModule } from '../config';
 
 @Module({
-  imports: [ConfigModule, CoreModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule, MemoryModule],
+  imports: [ConfigModule, CoreModule, ToolsModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule, MemoryModule],
   providers: [
     ReplService,
     WelcomeScreenService,
