@@ -79,4 +79,12 @@ export class SkillRegistryService {
   async loadProjectSkills(projectPath: string) {
     await this.skillLoader.loadFromPath(projectPath);
   }
+
+  getSkillSummaries(): { name: string; description: string }[] {
+    const skills = this.skillLoader.getAllSkills();
+    return skills.map(s => ({
+      name: s.name,
+      description: s.description || 'No description',
+    }));
+  }
 }

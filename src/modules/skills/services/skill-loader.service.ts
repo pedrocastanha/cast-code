@@ -65,7 +65,11 @@ export class SkillLoaderService implements OnModuleInit {
   }
 
   getAllSkills(): SkillDefinition[] {
-    return Array.from(this.skills.values());
+    const unique = new Map<string, SkillDefinition>();
+    for (const skill of this.skills.values()) {
+      unique.set(skill.name, skill);
+    }
+    return Array.from(unique.values());
   }
 
   getSkillNames(): string[] {

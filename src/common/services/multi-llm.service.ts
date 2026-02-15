@@ -24,7 +24,7 @@ export class MultiLlmService {
       );
     }
 
-    const { provider, model, temperature = 0.1 } = modelConfig;
+    const { provider, model, temperature } = modelConfig;
     const providerConfig = this.configManager.getProviderConfig(provider);
 
     if (!providerConfig) {
@@ -51,7 +51,7 @@ export class MultiLlmService {
     provider: ProviderType,
     config: { apiKey?: string; baseUrl?: string },
     model: string,
-    temperature: number,
+    temperature: number | undefined,
     streaming: boolean
   ): BaseChatModel {
     switch (provider) {
@@ -60,7 +60,7 @@ export class MultiLlmService {
       case 'openrouter':
         return new ChatOpenAI({
           modelName: model,
-          temperature,
+          ...(temperature !== undefined ? { temperature } : {}),
           openAIApiKey: config.apiKey,
           configuration: {
             baseURL: config.baseUrl,
@@ -71,7 +71,7 @@ export class MultiLlmService {
       case 'anthropic':
         return new ChatAnthropic({
           modelName: model,
-          temperature,
+          ...(temperature !== undefined ? { temperature } : {}),
           anthropicApiKey: config.apiKey,
           anthropicApiUrl: config.baseUrl,
           streaming,
@@ -80,16 +80,15 @@ export class MultiLlmService {
       case 'gemini':
         return new ChatGoogleGenerativeAI({
           modelName: model,
-          temperature,
+          ...(temperature !== undefined ? { temperature } : {}),
           apiKey: config.apiKey,
           streaming,
         });
 
       case 'kimi':
-        // Kimi usa API compatível com OpenAI
         return new ChatOpenAI({
           modelName: model,
-          temperature,
+          ...(temperature !== undefined ? { temperature } : {}),
           openAIApiKey: config.apiKey,
           configuration: {
             baseURL: config.baseUrl || 'https://api.moonshot.cn/v1',
@@ -100,7 +99,7 @@ export class MultiLlmService {
       case 'ollama':
         return new ChatOllama({
           model,
-          temperature,
+          ...(temperature !== undefined ? { temperature } : {}),
           baseUrl: config.baseUrl || 'http://localhost:11434',
         });
 

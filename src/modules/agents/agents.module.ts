@@ -8,6 +8,6 @@ import { McpModule } from '../mcp/mcp.module';
 @Module({
   imports: [SkillsModule, ToolsModule, McpModule],
   providers: [AgentLoaderService, AgentRegistryService],
-  exports: [AgentRegistryService],
+  exports: [AgentLoaderService, AgentRegistryService],
 })
 export class AgentsModule {}
