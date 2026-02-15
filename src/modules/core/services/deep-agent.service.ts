@@ -4,7 +4,7 @@ import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/
 import { execSync } from 'child_process';
 import { createDeepAgent, FilesystemBackend } from 'deepagents';
 import { ConfigService } from '../../../common/services/config.service';
-import { LlmService } from '../../../common/services/llm.service';
+import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MarkdownRendererService } from '../../../common/services/markdown-renderer.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
@@ -35,7 +35,7 @@ export class DeepAgentService implements OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly llmService: LlmService,
+    private readonly multiLlmService: MultiLlmService,
     private readonly agentRegistry: AgentRegistryService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly mcpRegistry: McpRegistryService,
@@ -78,7 +78,7 @@ export class DeepAgentService implements OnModuleInit {
       await this.memoryService.initialize(projectPath);
     }
 
-    this.model = this.llmService.createStreamingModel();
+    this.model = this.multiLlmService.createStreamingModel('default');
 
     const contextPrompt = this.projectContext.getContextPrompt();
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
@@ -187,7 +187,7 @@ export class DeepAgentService implements OnModuleInit {
 
     const builtInCount = tools.length;
     const mcpCount = mcpTools.length;
-    const discoveryCount = 2; // mcp_list_servers, mcp_list_tools
+    const discoveryCount = 2;
 
     parts.push(
       `# Available Tools`,
@@ -701,8 +701,12 @@ export class DeepAgentService implements OnModuleInit {
     }
   }
 
-  private async autoSummarize(): Promise<boolean> {
-    if (this.messages.length < SUMMARIZE_THRESHOLD || !this.model) {
+  private async autoSummarize(force = false): Promise<boolean> {
+    if ((!force && this.messages.length < SUMMARIZE_THRESHOLD) || !this.model) {
+      return false;
+    }
+
+    if (this.messages.length < 4) {
       return false;
     }
 
@@ -779,13 +783,13 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           }
         }
 
-        if (event.event === 'on_llm_end') {
-          const usage = event.data?.output?.llmOutput?.tokenUsage
-            || event.data?.output?.llmOutput?.usage
-            || event.data?.output?.usage_metadata;
+        if (event.event === 'on_chat_model_end') {
+          const output = event.data?.output;
+          const usage = output?.usage_metadata
+            || output?.response_metadata?.usage;
           if (usage) {
-            interactionInputTokens += usage.promptTokens || usage.input_tokens || 0;
-            interactionOutputTokens += usage.completionTokens || usage.output_tokens || 0;
+            interactionInputTokens += usage.input_tokens || usage.prompt_tokens || usage.promptTokens || 0;
+            interactionOutputTokens += usage.output_tokens || usage.completion_tokens || usage.completionTokens || 0;
           }
         }
 
@@ -837,6 +841,15 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
   clearHistory() {
     this.messages = [];
     this.tokenCount = 0;
+  }
+
+  async compactHistory(): Promise<{ compacted: boolean; messagesBefore: number; messagesAfter: number }> {
+    const before = this.messages.length;
+    if (before < 4) {
+      return { compacted: false, messagesBefore: before, messagesAfter: before };
+    }
+    const result = await this.autoSummarize(true);
+    return { compacted: result, messagesBefore: before, messagesAfter: this.messages.length };
   }
 
   getHistory(): BaseMessage[] {

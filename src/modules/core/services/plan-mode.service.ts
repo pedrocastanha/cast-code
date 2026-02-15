@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { LlmService } from '../../../common/services/llm.service';
+import { MultiLlmService } from '../../../common/services/multi-llm.service';
 
 export interface PlanStep {
   id: number;
@@ -20,11 +20,11 @@ export interface Plan {
 
 @Injectable()
 export class PlanModeService {
-  constructor(private readonly llmService: LlmService) {}
+  constructor(private readonly multiLlmService: MultiLlmService) {}
 
   async shouldEnterPlanMode(userMessage: string): Promise<{ shouldPlan: boolean; reason?: string }> {
     const indicators = [
-      userMessage.match(/\b\w+\.(ts|tsx|js|jsx|py|java|go|rs)\b/g)?.length > 1,
+      (userMessage.match(/\b\w+\.(ts|tsx|js|jsx|py|java|go|rs)\b/g)?.length ?? 0) > 1,
       /\b(and|then|also|additionally)\b.*\b(create|add|modify|update|delete|refactor|implement)\b/i.test(userMessage),
       /\b(refactor|architecture|restructure|redesign|migration|implement.*feature|create.*module)\b/i.test(userMessage),
       /\b(first|second|third|then|after|before|finally)\b/i.test(userMessage),
@@ -38,7 +38,7 @@ export class PlanModeService {
     }
     
     if (userMessage.length > 100) {
-      const llm = this.llmService.createModel();
+      const llm = this.multiLlmService.createModel('planner');
       const prompt = `Should this request use a structured plan mode?
 
 Request: "${userMessage}"
@@ -68,7 +68,7 @@ Reply ONLY with: YES or NO`;
   }
 
   async generatePlan(userMessage: string, context?: string): Promise<Plan> {
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('planner');
     
     const prompt = `Create a detailed plan for this request:
 
@@ -104,7 +104,7 @@ Be specific about file paths and changes.`;
   }
 
   async generateClarifyingQuestions(userMessage: string): Promise<string[]> {
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('planner');
     const prompt = `Given this software request, ask up to 3 short clarifying questions that help produce a better implementation plan.
 
 Request: ${userMessage}
@@ -133,7 +133,7 @@ Rules:
   }
 
   async refinePlan(plan: Plan, feedback: string): Promise<Plan> {
-    const llm = this.llmService.createModel();
+    const llm = this.multiLlmService.createModel('planner');
     
     const currentPlan = plan.steps.map(s => 
       `${s.id}. ${s.description} | Files: ${s.files.join(', ')}`
