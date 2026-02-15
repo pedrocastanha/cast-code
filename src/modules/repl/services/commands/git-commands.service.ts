@@ -182,8 +182,10 @@ export class GitCommandsService {
 
     w(`\r\n${Colors.cyan}🤖 Analyzing for split...${Colors.reset}\r\n`);
 
-    const commits = await this.commitGenerator.splitCommits();
-    if (!commits || commits.length === 0) {
+    const proposedCommits = await this.commitGenerator.splitCommits();
+    const commits = (proposedCommits || []).filter(c => c.files && c.files.length > 0);
+
+    if (commits.length === 0) {
       w(`${Colors.red}  Failed to split commits${Colors.reset}\r\n\r\n`);
       return;
     }

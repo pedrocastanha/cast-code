@@ -80,14 +80,17 @@ export class CommitGeneratorService {
 
     if (!commitGroups?.length) return null;
 
-    for (const group of commitGroups) {
+    const validGroups = commitGroups.filter((group) => Array.isArray(group.files) && group.files.length > 0);
+    if (validGroups.length === 0) return null;
+
+    for (const group of validGroups) {
       if (!group.scope) {
         group.scope = this.monorepoDetector.determineScope(group.files, monorepoInfo);
       }
     }
 
     const splitCommits: SplitCommit[] = [];
-    for (const group of commitGroups) {
+    for (const group of validGroups) {
       const message = await this.generateMessageForGroup(group, diffInfo);
       splitCommits.push({ ...group, message });
     }
