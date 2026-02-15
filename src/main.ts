@@ -7,7 +7,6 @@ import { ReplService } from './modules/repl/services/repl.service';
 import { ConfigManagerService } from './modules/config/services/config-manager.service';
 import { InitConfigService } from './modules/config/services/init-config.service';
 
-// Load .env file
 config();
 
 async function checkAndRunSetup(configManager: ConfigManagerService, initService: InitConfigService): Promise<boolean> {
@@ -16,31 +15,29 @@ async function checkAndRunSetup(configManager: ConfigManagerService, initService
   if (!hasConfig) {
     console.log('\n👋 Bem-vindo ao Cast Code!\n');
     console.log('Parece que esta é a primeira vez que você executa o Cast.');
-    console.log('Vamos fazer a configuração inicial?\n');
-    
-    // Import inquirer dynamically to avoid issues if not needed
-    const { confirm } = await import('@inquirer/prompts');
-    
-    const shouldSetup = await confirm({
-      message: 'Deseja configurar agora?',
-      default: true,
-    });
-    
-    if (shouldSetup) {
+    console.log('Vamos fazer a configuração inicial agora.\n');
+
+    try {
       await initService.runInitialSetup();
-      return true;
-    } else {
-      console.log('\n⚠️  Você pode configurar depois rodando: cast config init\n');
-      console.log('Por enquanto, você precisa definir a variável OPENAI_API_KEY no ambiente.\n');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`\n❌ Falha na configuração inicial: ${message}\n`);
       return false;
     }
+
+    const created = await configManager.configExists();
+    if (!created) {
+      console.log('\n⚠️  Configuração não concluída. Rode: cast config init\n');
+      return false;
+    }
+
+    return true;
   }
   
   return true;
 }
 
 async function bootstrap() {
-  // Special commands that don't need full bootstrap
   const args = process.argv.slice(2);
   const command = args[0];
   
@@ -50,7 +47,13 @@ async function bootstrap() {
     });
     
     const configCommands = app.get(InitConfigService);
-    await configCommands.runInitialSetup();
+    try {
+      await configCommands.runInitialSetup();
+    } catch (error) {
+      const message = error instanceof Error ? error.stack || error.message : String(error);
+      console.error('\nFailed to run initial setup:\n', message);
+      process.exitCode = 1;
+    }
     await app.close();
     return;
   }
@@ -62,7 +65,6 @@ async function bootstrap() {
   const configManager = app.get(ConfigManagerService);
   const initService = app.get(InitConfigService);
   
-  // Check if config exists
   const ready = await checkAndRunSetup(configManager, initService);
   
   if (!ready) {
@@ -70,7 +72,6 @@ async function bootstrap() {
     process.exit(1);
   }
 
-  // Load config
   await configManager.loadConfig();
 
   const repl = app.get(ReplService);
@@ -89,4 +90,8 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  const message = error instanceof Error ? error.stack || error.message : String(error);
+  console.error('\nFatal bootstrap error:\n', message);
+  process.exit(1);
+});
