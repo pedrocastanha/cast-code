@@ -103,6 +103,35 @@ Be specific about file paths and changes.`;
     return this.parsePlan(text, userMessage);
   }
 
+  async generateClarifyingQuestions(userMessage: string): Promise<string[]> {
+    const llm = this.llmService.createModel();
+    const prompt = `Given this software request, ask up to 3 short clarifying questions that help produce a better implementation plan.
+
+Request: ${userMessage}
+
+Rules:
+- Ask only high-impact questions (constraints, scope boundaries, compatibility, deadlines).
+- Return ONLY numbered questions, one per line.
+- If request is already clear, return "NONE".`;
+
+    try {
+      const response = await llm.invoke([
+        new SystemMessage('You create concise planning questions for software tasks.'),
+        new HumanMessage(prompt),
+      ]);
+      const text = this.extractContent(response.content).trim();
+      if (!text || text.toUpperCase() === 'NONE') return [];
+
+      return text
+        .split('\n')
+        .map((line) => line.replace(/^\s*\d+[\).\-\s]*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 3);
+    } catch {
+      return [];
+    }
+  }
+
   async refinePlan(plan: Plan, feedback: string): Promise<Plan> {
     const llm = this.llmService.createModel();
     

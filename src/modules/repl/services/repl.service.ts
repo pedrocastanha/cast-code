@@ -32,7 +32,6 @@ export class ReplService {
     private readonly skillRegistry: SkillRegistryService,
     private readonly welcomeScreen: WelcomeScreenService,
     private readonly planMode: PlanModeService,
-    // Command services
     private readonly replCommands: ReplCommandsService,
     private readonly gitCommands: GitCommandsService,
     private readonly agentCommands: AgentCommandsService,
@@ -91,7 +90,7 @@ export class ReplService {
       { text: '/config', display: '/config', description: 'Configuration' },
       { text: '/project', display: '/project', description: 'Project context' },
       { text: '/project-deep', display: '/project-deep', description: 'Deep project analysis' },
-      { text: '/init', display: '/init', description: 'Initialize .cast/' },
+      { text: '/init', display: '/init', description: 'Analyze project and generate context' },
       { text: '/mcp', display: '/mcp', description: 'MCP servers' },
     ];
 
@@ -199,7 +198,6 @@ export class ReplService {
     const args = parts.slice(1);
 
     switch (cmd) {
-      // Repl commands
       case 'help': this.replCommands.printHelp(); break;
       case 'clear': this.replCommands.cmdClear(this.welcomeScreen); break;
       case 'exit':
@@ -210,11 +208,12 @@ export class ReplService {
         await this.configCommands.handleConfigCommand(args, this.smartInput!); 
         break;
       case 'model': this.replCommands.cmdModel(args); break;
-      case 'init': this.replCommands.cmdInit(); break;
+      case 'init':
+        await this.projectCommands.cmdProject(['analyze'], this.smartInput!);
+        break;
       case 'mentions': this.replCommands.cmdMentionsHelp(); break;
       case 'tools': this.cmdTools(); break;
 
-      // Git commands
       case 'status': this.gitCommands.runGit('git status'); break;
       case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
       case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
@@ -235,7 +234,6 @@ export class ReplService {
       case 'ident': await this.gitCommands.cmdIdent(); break;
       case 'release': await this.gitCommands.cmdRelease(args); break;
 
-      // Agent/Skill commands
       case 'agents': 
         await this.agentCommands.cmdAgents(args, this.smartInput!); 
         break;
@@ -243,12 +241,10 @@ export class ReplService {
         await this.agentCommands.cmdSkills(args, this.smartInput!); 
         break;
 
-      // MCP commands
       case 'mcp': 
         await this.mcpCommands.cmdMcp(args, this.smartInput!); 
         break;
 
-      // Project commands
       case 'project':
         await this.projectCommands.cmdProject(args, this.smartInput!);
         break;
@@ -267,7 +263,8 @@ export class ReplService {
     this.smartInput?.enterPassiveMode();
 
     try {
-      // Check if we should enter plan mode
+      let messageToProcess = message;
+
       const planCheck = await this.planMode.shouldEnterPlanMode(message);
       if (planCheck.shouldPlan) {
         const usePlan = await this.smartInput!.askChoice(
@@ -279,16 +276,17 @@ export class ReplService {
         );
         
         if (usePlan === 'y') {
-          // Plan mode handling would go here
-          process.stdout.write(`${Colors.dim}  Plan mode: Not yet implemented in modular version${Colors.reset}\r\n\r\n`);
-          this.isProcessing = false;
-          this.smartInput?.exitPassiveMode();
-          return;
+          const plannedMessage = await this.runInteractivePlanMode(message);
+          if (!plannedMessage) {
+            this.isProcessing = false;
+            this.smartInput?.exitPassiveMode();
+            return;
+          }
+          messageToProcess = plannedMessage;
         }
       }
 
-      // Process mentions
-      const mentionResult = await this.mentionsService.processMessage(message);
+      const mentionResult = await this.mentionsService.processMessage(messageToProcess);
       if (mentionResult.mentions.length > 0) {
         const summary = this.mentionsService.getMentionsSummary(mentionResult.mentions);
         for (const line of summary) {
@@ -297,10 +295,8 @@ export class ReplService {
         process.stdout.write('\r\n');
       }
 
-      // Start spinner
       this.startSpinner('Thinking');
 
-      // Stream response
       let firstChunk = true;
       let fullResponse = '';
 
@@ -341,6 +337,78 @@ export class ReplService {
       this.abortController = null;
       this.smartInput?.exitPassiveMode();
     }
+  }
+
+  private async runInteractivePlanMode(userMessage: string): Promise<string | null> {
+    process.stdout.write(`\r\n${Colors.cyan}${Colors.bold}📋 PLAN MODE${Colors.reset}\r\n`);
+    process.stdout.write(`${Colors.dim}Build plan first, execute after approval${Colors.reset}\r\n\r\n`);
+
+    const clarifyingQuestions = await this.planMode.generateClarifyingQuestions(userMessage);
+    const answers: string[] = [];
+
+    if (clarifyingQuestions.length > 0) {
+      process.stdout.write(`${Colors.dim}I need a few quick clarifications:${Colors.reset}\r\n`);
+      for (let i = 0; i < clarifyingQuestions.length; i++) {
+        const q = clarifyingQuestions[i];
+        const answer = await this.smartInput!.question(`${Colors.yellow}Q${i + 1}:${Colors.reset} ${q} `);
+        if (answer.trim()) {
+          answers.push(`- ${q} => ${answer.trim()}`);
+        }
+      }
+      process.stdout.write('\r\n');
+    }
+
+    const context = answers.length > 0 ? `User clarifications:\n${answers.join('\n')}` : undefined;
+    let plan = await this.planMode.generatePlan(userMessage, context);
+
+    while (true) {
+      process.stdout.write(this.planMode.formatPlanForDisplay(plan));
+
+      const action = await this.smartInput!.askChoice('Plan options', [
+        { key: 'a', label: 'accept', description: 'Use this plan and continue' },
+        { key: 'r', label: 'refine', description: 'Refine plan with extra feedback' },
+        { key: 'c', label: 'cancel', description: 'Cancel and return to prompt' },
+      ]);
+
+      if (action === 'c') {
+        process.stdout.write(`${Colors.dim}  Plan cancelled${Colors.reset}\r\n\r\n`);
+        return null;
+      }
+
+      if (action === 'r') {
+        const feedback = await this.smartInput!.question(`${Colors.cyan}Refinement feedback:${Colors.reset} `);
+        if (!feedback.trim()) {
+          process.stdout.write(`${Colors.dim}  No feedback provided. Keeping current plan.${Colors.reset}\r\n\r\n`);
+          continue;
+        }
+        plan = await this.planMode.refinePlan(plan, feedback.trim());
+        continue;
+      }
+
+      return this.buildPlanExecutionPrompt(userMessage, plan, answers);
+    }
+  }
+
+  private buildPlanExecutionPrompt(userMessage: string, plan: { title: string; overview: string; steps: Array<{ id: number; description: string; files: string[] }> }, clarifications: string[]): string {
+    const lines: string[] = [];
+    lines.push(userMessage);
+    lines.push('');
+    lines.push('Approved execution plan:');
+    lines.push(`Title: ${plan.title}`);
+    lines.push(`Overview: ${plan.overview}`);
+    lines.push('Steps:');
+    for (const step of plan.steps) {
+      const files = step.files.length > 0 ? ` | files: ${step.files.join(', ')}` : '';
+      lines.push(`${step.id}. ${step.description}${files}`);
+    }
+    if (clarifications.length > 0) {
+      lines.push('');
+      lines.push('User clarifications:');
+      lines.push(...clarifications);
+    }
+    lines.push('');
+    lines.push('Execute the task following this approved plan and report progress by step.');
+    return lines.join('\n');
   }
 
   private startSpinner(label: string): void {

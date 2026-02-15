@@ -66,10 +66,14 @@ export class DeepAgentService implements OnModuleInit {
       }
 
       const agentsOverridePath = this.projectLoader.getAgentsOverridePath(projectPath);
+      const legacyAgentsOverridePath = this.projectLoader.getLegacyAgentsOverridePath(projectPath);
       await this.agentRegistry.loadProjectAgents(agentsOverridePath);
+      await this.agentRegistry.loadProjectAgents(legacyAgentsOverridePath);
 
       const skillsOverridePath = this.projectLoader.getSkillsOverridePath(projectPath);
+      const legacySkillsOverridePath = this.projectLoader.getLegacySkillsOverridePath(projectPath);
       await this.skillRegistry.loadProjectSkills(skillsOverridePath);
+      await this.skillRegistry.loadProjectSkills(legacySkillsOverridePath);
 
       await this.memoryService.initialize(projectPath);
     }
@@ -181,9 +185,29 @@ export class DeepAgentService implements OnModuleInit {
       ``,
     );
 
+    const builtInCount = tools.length;
+    const mcpCount = mcpTools.length;
+    const discoveryCount = 2; // mcp_list_servers, mcp_list_tools
+
     parts.push(
       `# Available Tools`,
-      `You have ${allToolNames.length} tools available. USE THEM PROACTIVELY.`,
+      ``,
+      `You have ${allToolNames.length} tools available:`,
+      `- **Built-in**: ${builtInCount} tools (read_file, write_file, edit_file, glob, grep, ls, shell, task management, memory)`,
+    );
+
+    if (mcpCount > 0) {
+      const serverCount = mcpServerSummaries.length;
+      parts.push(`- **MCP**: ${mcpCount} tools from ${serverCount} server(s)`);
+    }
+
+    if (mcpCount > 0) {
+      parts.push(`- **Discovery**: ${discoveryCount} tools (mcp_list_servers, mcp_list_tools)`);
+    }
+
+    parts.push(
+      ``,
+      `USE THEM PROACTIVELY.`,
       ``,
     );
 
@@ -197,9 +221,14 @@ export class DeepAgentService implements OnModuleInit {
 
     if (mcpTools.length > 0) {
       parts.push(`## MCP Tools (External Services)`);
+      parts.push(``);
+      parts.push(`**⚠️ Important**: Only tools from servers with status "connected" are available. Tools from disconnected servers will fail.`);
+      parts.push(``);
+
       if (mcpServerSummaries.length > 0) {
         for (const server of mcpServerSummaries) {
-          parts.push(`### ${server.name} (${server.transport}, ${server.status}) — ${server.toolCount} tools`);
+          const statusIcon = server.status === 'connected' ? '✓' : '✗';
+          parts.push(`### ${statusIcon} ${server.name} (${server.transport}, ${server.status}) — ${server.toolCount} tools`);
           for (const td of server.toolDescriptions) {
             parts.push(`- **${td.name}**: ${td.description}`);
           }
@@ -355,9 +384,16 @@ export class DeepAgentService implements OnModuleInit {
         `## Delegation Pattern`,
         `1. Identify the task and which sub-agent is best suited`,
         `2. Create a clear, specific task description with all necessary context`,
-        `3. Track the delegation with task_create`,
-        `4. When the sub-agent returns, verify the result and integrate it`,
-        `5. Mark the task as completed`,
+        `3. Delegate execution to that sub-agent (do not stop at planning only)`,
+        `4. Track delegated work with task_create/task_update`,
+        `5. When the sub-agent returns, verify the result and integrate it`,
+        `6. Mark the task as completed`,
+        ``,
+        `## Delegation Quality Bar`,
+        `- If user explicitly asks to use a specific sub-agent, you MUST delegate to it`,
+        `- For frontend UI generation from Figma, prefer the frontend sub-agent when available`,
+        `- Avoid fake delegation: creating tasks without executing delegated work is not enough`,
+        `- Return concrete delegated outputs (files changed, decisions made, validations run)`,
         ``,
         `## Multi-Agent Coordination`,
         `For large tasks, you can orchestrate multiple sub-agents:`,
@@ -466,10 +502,21 @@ export class DeepAgentService implements OnModuleInit {
     );
 
     if (skillKnowledge) {
+      const skillSummaries = this.skillRegistry.getSkillSummaries();
+
       parts.push(
         `# Domain Knowledge`,
         ``,
-        `The following knowledge comes from your skill library. These are reference materials — study them to learn patterns, decision frameworks, and anti-patterns for each domain. Use this knowledge when making decisions about how to approach tasks.`,
+        `You have ${skillSummaries.length} skills loaded:`,
+      );
+
+      for (const skill of skillSummaries) {
+        parts.push(`- **${skill.name}**: ${skill.description}`);
+      }
+
+      parts.push(
+        ``,
+        `The following are the complete guidelines from your skill library. These are reference materials — study them to learn patterns, decision frameworks, and anti-patterns for each domain. Use this knowledge when making decisions about how to approach tasks.`,
         ``,
         skillKnowledge,
         ``,

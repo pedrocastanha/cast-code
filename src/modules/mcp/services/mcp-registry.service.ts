@@ -201,4 +201,20 @@ export class McpRegistryService implements OnModuleDestroy {
       this.registerMcp(name, config);
     }
   }
+
+  async addAndConnect(name: string, config: McpConfig): Promise<boolean> {
+    this.registerMcp(name, config);
+    return await this.connectMcp(name);
+  }
+
+  isConnected(name: string): boolean {
+    return this.mcpClient.getStatus(name) === 'connected';
+  }
+
+  getConnectedServers(): string[] {
+    const summaries = this.getServerSummaries();
+    return summaries
+      .filter(s => s.status === 'connected')
+      .map(s => s.name);
+  }
 }

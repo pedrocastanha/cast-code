@@ -101,7 +101,7 @@ export class CommitGeneratorService {
       if (autoStage) {
         execSync('git add -A', { cwd });
       }
-      execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd });
+      execSync('git commit -F -', { cwd, input: `${message}\n`, encoding: 'utf-8' });
       return true;
     } catch {
       return false;
@@ -123,10 +123,13 @@ export class CommitGeneratorService {
     }
   }
 
-  executeSplitCommits(commits: SplitCommit[]): { success: boolean; committed: number; error?: string } {
+  executeSplitCommits(commits: SplitCommit[]): { success: boolean; committed: number; error?: string; originalHead?: string } {
+    const cwd = process.cwd();
+    let committedCount = 0;
+    let originalHead: string | undefined;
+
     try {
-      const cwd = process.cwd();
-      let committedCount = 0;
+      originalHead = execSync('git rev-parse HEAD', { cwd, encoding: 'utf-8' }).trim();
 
       for (const commit of commits) {
         execSync('git reset', { cwd });
@@ -134,20 +137,24 @@ export class CommitGeneratorService {
         for (const file of commit.files) {
           try {
             execSync(`git add "${file}"`, { cwd });
-          } catch {
-          }
+          } catch {}
         }
 
         const staged = execSync('git diff --cached --name-only', { cwd, encoding: 'utf-8' });
         if (!staged.trim()) continue;
 
-        execSync(`git commit -m "${commit.message.replace(/"/g, '\\"')}"`, { cwd });
+        execSync('git commit -F -', { cwd, input: `${commit.message}\n`, encoding: 'utf-8' });
         committedCount++;
       }
 
       return { success: true, committed: committedCount };
     } catch (error: any) {
-      return { success: false, committed: 0, error: error.message || 'Failed to execute commits' };
+      return {
+        success: false,
+        committed: committedCount,
+        error: error.message || 'Failed to execute commits',
+        originalHead
+      };
     }
   }
 
@@ -271,9 +278,7 @@ export class CommitGeneratorService {
         if (parsed.commits && Array.isArray(parsed.commits)) {
           return parsed.commits;
         }
-      } catch {
-        // Continue to try other formats
-      }
+      } catch {}
     }
 
     try {
@@ -281,9 +286,7 @@ export class CommitGeneratorService {
       if (parsed.commits && Array.isArray(parsed.commits)) {
         return parsed.commits;
       }
-    } catch {
-      // Continue
-    }
+    } catch {}
 
     return null;
   }

@@ -175,7 +175,6 @@ export class InitConfigService {
     if (defaultModel === null) return false;
     config.models.default = defaultModel;
 
-    // Ask if user wants to configure other purposes
     const configureOthers = await confirmWithEsc({
       message: 'Deseja configurar modelos específicos para outras finalidades?',
       default: true,
@@ -265,24 +264,9 @@ export class InitConfigService {
       model = selectedModel;
     }
 
-    const temperature = await inputWithEsc({
-      message: 'Temperature (0.0 - 2.0):',
-      default: String(defaultModel?.temperature ?? 0.1),
-      validate: (value) => {
-        const num = parseFloat(value);
-        if (isNaN(num) || num < 0 || num > 2) {
-          return 'Temperature deve ser um número entre 0.0 e 2.0';
-        }
-        return true;
-      },
-    });
-
-    if (temperature === null) return null;
-
     return {
       provider,
       model,
-      temperature: parseFloat(temperature),
     };
   }
 }

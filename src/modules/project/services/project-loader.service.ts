@@ -92,4 +92,12 @@ export class ProjectLoaderService {
   getSkillsOverridePath(projectPath: string): string {
     return path.join(projectPath, CAST_DIR, 'skills');
   }
+
+  getLegacyAgentsOverridePath(projectPath: string): string {
+    return path.join(projectPath, CAST_DIR, 'definitions', 'agents');
+  }
+
+  getLegacySkillsOverridePath(projectPath: string): string {
+    return path.join(projectPath, CAST_DIR, 'definitions', 'skills');
+  }
 }

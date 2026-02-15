@@ -38,7 +38,8 @@ export class GitCommandsService {
     } else {
       const { execSync } = require('child_process');
       try {
-        execSync(`git add -A && git commit -m "${msg.replace(/"/g, '\\"')}"`, { stdio: 'inherit' });
+        execSync('git add -A', { cwd: process.cwd() });
+        execSync('git commit -F -', { cwd: process.cwd(), input: `${msg}\n`, encoding: 'utf-8' });
       } catch {}
     }
   }
@@ -211,8 +212,18 @@ export class GitCommandsService {
     const result = this.commitGenerator.executeSplitCommits(commits);
 
     if (result.success) {
-      w(`${Colors.green}  ✓ ${result.committed} commits executed${Colors.reset}\r\n`);
-      
+      w(`${Colors.green}  ✓ ${result.committed} commits executed${Colors.reset}\r\n\r\n`);
+
+      const { execSync } = require('child_process');
+      try {
+        const log = execSync(`git log --oneline -${result.committed}`, { cwd: process.cwd(), encoding: 'utf-8' });
+        w(colorize('  Commits criados:\r\n', 'bold'));
+        log.split('\n').filter(l => l.trim()).forEach((line: string) => {
+          w(`    ${colorize(line, 'muted')}\r\n`);
+        });
+        w('\r\n');
+      } catch {}
+
       w(colorize('  Pushing...\r\n', 'muted'));
       const pushResult = this.commitGenerator.executePush();
 
@@ -222,7 +233,14 @@ export class GitCommandsService {
         w(`${Colors.red}  ✗ Push failed:${Colors.reset} ${pushResult.error}\r\n\r\n`);
       }
     } else {
-      w(`${Colors.red}  ✗ Failed:${Colors.reset} ${result.error}\r\n\r\n`);
+      w(`${Colors.red}  ✗ Failed after ${result.committed} commit(s):${Colors.reset} ${result.error}\r\n`);
+
+      if (result.originalHead && result.committed > 0) {
+        w(`${colorize('  Rollback disponível:', 'warning')}\r\n`);
+        w(`  ${colorize(`git reset --soft ${result.originalHead}`, 'cyan')}\r\n\r\n`);
+      } else {
+        w('\r\n');
+      }
     }
   }
 

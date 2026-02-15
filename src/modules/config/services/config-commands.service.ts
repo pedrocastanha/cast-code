@@ -12,7 +12,6 @@ import {
   selectWithEsc,
   inputWithEsc,
   confirmWithEsc,
-  numberWithEsc,
   CancelledPromptError,
   withEsc,
 } from '../../repl/utils/prompts-with-esc';
@@ -33,9 +32,12 @@ export class ConfigCommandsService {
 
   async handleConfigCommand(args: string[], smartInput?: SmartInput): Promise<void> {
     const subcommand = args[0];
-    
-    smartInput?.pause();
-    
+    const useInquirerFlow = ['init', 'setup', 'add-provider', 'set-model', 'remove-provider'].includes(subcommand || '');
+
+    if (useInquirerFlow) {
+      smartInput?.pause();
+    }
+
     try {
       switch (subcommand) {
       case 'init':
@@ -71,7 +73,9 @@ export class ConfigCommandsService {
         }
     }
     } finally {
-      smartInput?.resume();
+      if (useInquirerFlow) {
+        smartInput?.resume();
+      }
     }
   }
 
@@ -179,7 +183,7 @@ export class ConfigCommandsService {
       if (modelConfig) {
         const providerName = PROVIDER_METADATA[modelConfig.provider].name;
         w(`   ${Colors.cyan}${purpose.label.padEnd(12)}${Colors.reset} → ${modelConfig.model}\n`);
-        w(`   ${Colors.gray}${' '.repeat(12)}   ${providerName} (temp: ${modelConfig.temperature})${Colors.reset}\n`);
+        w(`   ${Colors.gray}${' '.repeat(12)}   ${providerName}${Colors.reset}\n`);
       }
     }
 
@@ -399,22 +403,9 @@ export class ConfigCommandsService {
       }
     }
 
-    const temperature = await numberWithEsc({
-      message: 'Temperature (0.0 - 2.0):',
-      default: 0.1,
-      min: 0,
-      max: 2,
-    });
-
-    if (temperature === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
-      return;
-    }
-
     await this.configManager.setModel(purpose, {
       provider,
       model,
-      temperature: temperature ?? 0.1,
     });
 
     const purposeLabel = MODEL_PURPOSES.find((p) => p.value === purpose)?.label;

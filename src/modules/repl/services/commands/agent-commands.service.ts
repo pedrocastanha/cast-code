@@ -94,7 +94,7 @@ export class AgentCommandsService {
   private async createAgentWizard(smartInput: SmartInput): Promise<void> {
     const fs = require('fs');
     const path = require('path');
-    const castDir = path.join(process.cwd(), '.cast', 'definitions', 'agents');
+    const castDir = path.join(process.cwd(), '.cast', 'agents');
     
     if (!fs.existsSync(castDir)) {
       fs.mkdirSync(castDir, { recursive: true });
@@ -145,7 +145,7 @@ export class AgentCommandsService {
   private async createSkillWizard(smartInput: SmartInput): Promise<void> {
     const fs = require('fs');
     const path = require('path');
-    const castDir = path.join(process.cwd(), '.cast', 'definitions', 'skills');
+    const castDir = path.join(process.cwd(), '.cast', 'skills');
     
     if (!fs.existsSync(castDir)) {
       fs.mkdirSync(castDir, { recursive: true });

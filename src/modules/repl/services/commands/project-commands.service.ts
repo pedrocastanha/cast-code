@@ -150,8 +150,7 @@ export class ProjectCommandsService {
     try {
       spawn(editor, [contextPath], { 
         detached: true, 
-        stdio: 'ignore',
-        shell: true 
+        stdio: 'ignore'
       }).unref();
       
       console.log(`\r\n  ${colorize('✓', 'success')} Abrindo ${contextPath} no editor...\r\n`);

@@ -21,8 +21,7 @@ const DEFAULT_CONFIG: CastConfig = {
   models: {
     default: {
       provider: 'openai',
-      model: 'gpt-4o-mini',
-      temperature: 0.1,
+      model: 'gpt-4.1-nano',
     },
   },
 };
@@ -98,7 +97,6 @@ export class ConfigManagerService {
     const config = this.config.providers[provider];
     if (!config) return false;
 
-    // Ollama doesn't require API key
     if (provider === 'ollama') {
       return !!(config as { baseUrl?: string }).baseUrl;
     }

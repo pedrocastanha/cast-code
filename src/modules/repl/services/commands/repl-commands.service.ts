@@ -2,12 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { Colors, colorize, Box, Icons } from '../../utils/theme';
 import { ConfigService } from '../../../../common/services/config.service';
 import { DeepAgentService } from '../../../core/services/deep-agent.service';
+import { McpRegistryService } from '../../../mcp/services/mcp-registry.service';
+import { AgentLoaderService } from '../../../agents/services/agent-loader.service';
+import { SkillRegistryService } from '../../../skills/services/skill-registry.service';
+import { ProjectContextService } from '../../../project/services/project-context.service';
+import { MemoryService } from '../../../memory/services/memory.service';
 
 @Injectable()
 export class ReplCommandsService {
   constructor(
     private readonly deepAgent: DeepAgentService,
     private readonly configService: ConfigService,
+    private readonly mcpRegistry: McpRegistryService,
+    private readonly agentLoader: AgentLoaderService,
+    private readonly skillRegistry: SkillRegistryService,
+    private readonly projectContext: ProjectContextService,
+    private readonly memoryService: MemoryService,
   ) {}
 
   printHelp(): void {
@@ -56,13 +66,20 @@ export class ReplCommandsService {
     process.stdout.write(header('Config', Icons.gear));
     process.stdout.write(cmd('/model', 'Show/change model'));
     process.stdout.write(cmd('/config', 'Show configuration'));
-    process.stdout.write(cmd('/init', 'Initialize .cast/ directory'));
+    process.stdout.write(cmd('/init', 'Analyze project and generate context'));
+    process.stdout.write(cmd('/project-deep', 'Generate deep context + agent brief'));
 
     process.stdout.write(header('MCP', Icons.cloud));
     process.stdout.write(cmd('/mcp list', 'List MCP servers'));
     process.stdout.write(cmd('/mcp tools', 'List MCP tools'));
     process.stdout.write(cmd('/mcp add', 'Add new MCP server'));
     process.stdout.write(cmd('/mcp help', 'MCP setup guide'));
+
+    process.stdout.write(header('Frontend Flow', Icons.lightbulb));
+    process.stdout.write(cmd('1) /mcp add', 'Connect Figma MCP'));
+    process.stdout.write(cmd('2) /init', 'Map project and create context'));
+    process.stdout.write(cmd('3) /agents', 'Ensure frontend agent is loaded'));
+    process.stdout.write(cmd('4) prompt', 'Ask to scaffold screens/components from Figma'));
 
     process.stdout.write(header('Mentions', Icons.file));
     process.stdout.write(cmd('@file.ts', 'Inject file content'));
@@ -88,14 +105,69 @@ export class ReplCommandsService {
   }
 
   cmdContext(): void {
-    process.stdout.write('\r\n');
-    process.stdout.write(colorize(Icons.circle + ' ', 'accent') + colorize('Session', 'bold') + '\r\n');
-    process.stdout.write(colorize(Box.horizontal.repeat(20), 'subtle') + '\r\n');
-    process.stdout.write(`  ${colorize('Messages:', 'muted')} ${this.deepAgent.getMessageCount()}\r\n`);
-    process.stdout.write(`  ${colorize('Tokens:', 'muted')}   ${colorize(this.deepAgent.getTokenCount().toLocaleString(), 'cyan')}\r\n`);
-    process.stdout.write(`  ${colorize('CWD:', 'muted')}      ${colorize(process.cwd(), 'accent')}\r\n`);
-    process.stdout.write(`  ${colorize('Model:', 'muted')}    ${colorize(this.configService.getProvider() + '/' + this.configService.getModel(), 'cyan')}\r\n`);
-    process.stdout.write('\r\n');
+    const w = (s: string) => process.stdout.write(s);
+
+    w('\r\n');
+    w(colorize(Icons.circle + ' ', 'accent') + colorize('Session Info', 'bold') + '\r\n');
+    w(colorize(Box.horizontal.repeat(40), 'subtle') + '\r\n\r\n');
+
+    w(`  ${colorize('Messages:', 'muted')}  ${this.deepAgent.getMessageCount()}\r\n`);
+    w(`  ${colorize('Tokens:', 'muted')}    ${colorize(this.deepAgent.getTokenCount().toLocaleString(), 'cyan')}\r\n`);
+    w(`  ${colorize('CWD:', 'muted')}       ${colorize(process.cwd(), 'accent')}\r\n`);
+    w(`  ${colorize('Model:', 'muted')}     ${colorize(this.configService.getProvider() + '/' + this.configService.getModel(), 'cyan')}\r\n\r\n`);
+
+    const mcpSummaries = this.mcpRegistry.getServerSummaries();
+    const mcpConnected = mcpSummaries.filter(s => s.status === 'connected').length;
+    const mcpTotal = mcpSummaries.length;
+    const mcpTools = mcpSummaries.reduce((sum, s) => sum + s.toolCount, 0);
+
+    w(`  ${colorize('MCP Servers:', 'muted')} ${colorize(mcpConnected.toString(), mcpConnected > 0 ? 'success' : 'muted')}/${mcpTotal}`);
+    if (mcpTools > 0) {
+      w(` ${colorize(`(${mcpTools} tools)`, 'muted')}`);
+    }
+    w('\r\n');
+
+    if (mcpSummaries.length > 0) {
+      mcpSummaries.forEach(s => {
+        const icon = s.status === 'connected' ? colorize('●', 'success') : colorize('○', 'error');
+        w(`    ${icon} ${colorize(s.name, 'cyan')} ${colorize(`(${s.toolCount} tools)`, 'muted')}\r\n`);
+      });
+      w('\r\n');
+    }
+
+    const agents = this.agentLoader.getAllAgents();
+    w(`  ${colorize('Agents:', 'muted')}      ${colorize(agents.length.toString(), 'cyan')}\r\n`);
+    if (agents.length > 0) {
+      const agentNames = agents.slice(0, 5).map(a => a.name).join(', ');
+      const more = agents.length > 5 ? ` +${agents.length - 5}` : '';
+      w(`    ${colorize(agentNames + more, 'muted')}\r\n\r\n`);
+    } else {
+      w('\r\n');
+    }
+
+    const skills = this.skillRegistry.getAllSkills();
+    w(`  ${colorize('Skills:', 'muted')}      ${colorize(skills.length.toString(), 'cyan')}\r\n`);
+    if (skills.length > 0) {
+      const skillNames = skills.slice(0, 5).map(s => s.name).join(', ');
+      const more = skills.length > 5 ? ` +${skills.length - 5}` : '';
+      w(`    ${colorize(skillNames + more, 'muted')}\r\n\r\n`);
+    } else {
+      w('\r\n');
+    }
+
+    const hasContext = this.projectContext.hasContext();
+    w(`  ${colorize('Project:', 'muted')}     ${hasContext ? colorize('✓ loaded', 'success') : colorize('not loaded', 'muted')}\r\n`);
+
+    try {
+      const memoryPath = this.memoryService['memoryPath'];
+      if (memoryPath) {
+        w(`  ${colorize('Memory:', 'muted')}      ${colorize('✓ enabled', 'success')}\r\n`);
+      }
+    } catch {
+      w(`  ${colorize('Memory:', 'muted')}      ${colorize('not configured', 'muted')}\r\n`);
+    }
+
+    w('\r\n');
   }
 
   cmdConfig(): void {
@@ -109,10 +181,9 @@ export class ReplCommandsService {
     process.stdout.write(colorize(Box.horizontal.repeat(25), 'subtle') + '\r\n');
     process.stdout.write(`  ${colorize('Provider:', 'muted')}    ${colorize(this.configService.getProvider(), 'cyan')}\r\n`);
     process.stdout.write(`  ${colorize('Model:', 'muted')}       ${colorize(this.configService.getModel(), 'cyan')}\r\n`);
-    process.stdout.write(`  ${colorize('Temp:', 'muted')}        ${colorize(this.configService.getTemperature().toString(), 'cyan')}\r\n`);
     process.stdout.write(`  ${colorize('CWD:', 'muted')}         ${colorize(process.cwd(), 'accent')}\r\n`);
     process.stdout.write(`  ${colorize('Messages:', 'muted')}   ${this.deepAgent.getMessageCount()}\r\n`);
-    process.stdout.write(`  ${colorize('.cast/:', 'muted')}     ${hasCastDir ? colorize('✓ found', 'success') : colorize('not found (use /init)', 'warning')}\r\n`);
+    process.stdout.write(`  ${colorize('.cast/:', 'muted')}     ${hasCastDir ? colorize('✓ found', 'success') : colorize('not found (use /project)', 'warning')}\r\n`);
     process.stdout.write('\r\n');
   }
 
@@ -139,8 +210,8 @@ export class ReplCommandsService {
     }
 
     fs.mkdirSync(castDir, { recursive: true });
-    fs.mkdirSync(path.join(castDir, 'definitions', 'agents'), { recursive: true });
-    fs.mkdirSync(path.join(castDir, 'definitions', 'skills'), { recursive: true });
+    fs.mkdirSync(path.join(castDir, 'agents'), { recursive: true });
+    fs.mkdirSync(path.join(castDir, 'skills'), { recursive: true });
     fs.mkdirSync(path.join(castDir, 'mcp'), { recursive: true });
 
     fs.writeFileSync(
@@ -148,7 +219,6 @@ export class ReplCommandsService {
       [
         '---',
         'model: gpt-4.1',
-        'temperature: 0.1',
         '---',
         '',
         '# Project Context',
@@ -159,7 +229,7 @@ export class ReplCommandsService {
     );
 
     process.stdout.write(`${Colors.green}  Initialized .cast/ directory${Colors.reset}\r\n`);
-    process.stdout.write(`  ${Colors.dim}Created: config.md, definitions/agents/, definitions/skills/, mcp/${Colors.reset}\r\n\r\n`);
+    process.stdout.write(`  ${Colors.dim}Created: config.md, agents/, skills/, mcp/${Colors.reset}\r\n\r\n`);
   }
 
   cmdMentionsHelp(): void {

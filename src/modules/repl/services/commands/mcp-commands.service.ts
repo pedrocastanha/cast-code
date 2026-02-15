@@ -8,6 +8,7 @@ import {
   confirmWithEsc,
   CancelledPromptError,
 } from '../../utils/prompts-with-esc';
+import { getAllTemplates, getTemplatesByCategory, getTemplate, McpCategory } from '../../../mcp/catalog/mcp-templates';
 
 interface SmartInput {
   askChoice: (question: string, choices: { key: string; label: string; description: string }[]) => Promise<string>;
@@ -68,6 +69,12 @@ export class McpCommandsService {
         this.printMcpHelp();
         break;
     }
+    } catch (error: any) {
+      if (error instanceof CancelledPromptError || error?.name === 'CancelledPromptError') {
+        console.log(colorize('\n❌ Cancelado. Voltando ao chat...\n', 'warning'));
+        return;
+      }
+      throw error;
     } finally {
       smartInput.resume();
     }
@@ -218,13 +225,23 @@ export class McpCommandsService {
 
     console.log(colorize('(pressione ESC para cancelar a qualquer momento)\r\n', 'muted'));
 
-    // Show popular options first
-    const useTemplate = await confirmWithEsc({
-      message: 'Usar um servidor MCP popular (GitHub, Filesystem, etc)?',
-      default: true,
+    const category = await selectWithEsc<McpCategory | 'custom'>({
+      message: 'Escolha uma categoria:',
+      choices: [
+        { name: '🔧 Dev Tools (GitHub, Linear, Jira, Sentry, Docker)', value: 'dev' as McpCategory },
+        { name: '🎨 Design (Figma)', value: 'design' as McpCategory },
+        { name: '🗄️  Data (PostgreSQL, MongoDB, Redis, Supabase)', value: 'data' as McpCategory },
+        { name: '🔍 Search (Brave, Exa, Perplexity, Context7)', value: 'search' as McpCategory },
+        { name: '☁️  Cloud (Vercel, Cloudflare, AWS S3)', value: 'cloud' as McpCategory },
+        { name: '📋 Productivity (Slack, Notion, Google Drive, Maps)', value: 'productivity' as McpCategory },
+        { name: '💳 Payments (Stripe, Twilio)', value: 'payments' as McpCategory },
+        { name: '🌐 Browser (Puppeteer)', value: 'browser' as McpCategory },
+        { name: '📁 Filesystem', value: 'filesystem' as McpCategory },
+        { name: '➕ Configuração manual', value: 'custom' },
+      ],
     });
 
-    if (useTemplate === null) {
+    if (category === null) {
       w(colorize('\r\n  ❌ Cancelado.\r\n\r\n', 'warning'));
       return;
     }
@@ -232,99 +249,70 @@ export class McpCommandsService {
     let config: Record<string, any> = {};
     let name: string;
 
-    if (useTemplate) {
-      const template = await selectWithEsc<string>({
+    if (category !== 'custom') {
+      const templates = getTemplatesByCategory(category);
+      const templateId = await selectWithEsc<string>({
         message: 'Escolha um servidor:',
-        choices: [
-          { name: 'GitHub - Acesse issues, repos, PRs', value: 'github' },
-          { name: 'Figma - Acesse designs e componentes', value: 'figma' },
-          { name: 'Filesystem - Acesse arquivos locais', value: 'filesystem' },
-          { name: 'PostgreSQL - Consulte bancos de dados', value: 'postgres' },
-          { name: 'Brave Search - Busca na web', value: 'brave' },
-          { name: 'Puppeteer - Automação de browser', value: 'puppeteer' },
-          { name: '➕ Configuração manual', value: 'custom' },
-        ],
+        choices: templates.map(t => ({
+          name: `${t.name} - ${t.description}`,
+          value: t.id,
+        })),
       });
 
-      if (template === null) {
+      if (templateId === null) {
         w(colorize('\r\n  ❌ Cancelado.\r\n\r\n', 'warning'));
         return;
       }
 
-      if (template === 'github') {
-        name = 'github';
-        const token = await smartInput.question(colorize('  GitHub Token (ghp_...): ', 'cyan'));
-        config = {
-          type: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-github'],
-          env: { GITHUB_PERSONAL_ACCESS_TOKEN: token },
-        };
-      } else if (template === 'figma') {
-        name = 'figma';
-        w('\r\n');
-        w(colorize('  🎨 Figma MCP (Servidor Remoto)\r\n', 'cyan'));
-        w(colorize('  ─────────────────────────────\r\n\r\n', 'subtle'));
-        w(colorize('  Este é um servidor remoto oficial do Figma.\r\n', 'muted'));
-        w(colorize('  Após adicionar, use /mcp para autenticar.\r\n\r\n', 'muted'));
-        config = {
-          type: 'http',
-          endpoint: 'https://mcp.figma.com/mcp',
-        };
-      } else if (template === 'filesystem') {
-        name = 'filesystem';
-        const dir = await smartInput.question(colorize('  Diretório acessível: ', 'cyan'));
-        config = {
-          type: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-filesystem', dir || process.cwd()],
-        };
-      } else if (template === 'postgres') {
-        name = 'postgres';
-        const dbUrl = await smartInput.question(colorize('  Database URL: ', 'cyan'));
-        config = {
-          type: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-postgres', dbUrl],
-        };
-      } else if (template === 'brave') {
-        name = 'brave';
-        const apiKey = await smartInput.question(colorize('  Brave API Key: ', 'cyan'));
-        config = {
-          type: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-brave-search'],
-          env: { BRAVE_API_KEY: apiKey },
-        };
-      } else if (template === 'puppeteer') {
-        name = 'puppeteer';
-        config = {
-          type: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-puppeteer'],
-        };
-      } else {
-        // Custom - fall through to manual
-        name = '';
-      }
-
-      if (name) {
-        const filePath = path.join(mcpDir, `${name}.json`);
-        fs.writeFileSync(filePath, JSON.stringify({ [name]: config }, null, 2));
-        w(`\r\n${colorize('✓', 'success')} MCP configurado: ${colorize(filePath, 'accent')}\r\n`);
-        
-        if (name === 'figma') {
-          w(colorize('\r\n  ⚠️  Atenção: Autenticação OAuth necessária!\r\n', 'warning'));
-          w(colorize('     O Figma requer autenticação OAuth.\r\n', 'muted'));
-          w(colorize('     Após reiniciar, o servidor solicitará login.\r\n\r\n', 'muted'));
-        }
-        
-        w(colorize('  Reinicie o Cast para conectar\r\n\r\n', 'muted'));
+      const template = getTemplate(templateId);
+      if (!template) {
+        w(colorize('\r\n  ❌ Template não encontrado.\r\n\r\n', 'error'));
         return;
       }
+
+      name = template.id;
+      config = JSON.parse(JSON.stringify(template.config)); // Deep clone
+
+      if (template.credentials.length > 0) {
+        w(`\r\n${colorize('📝 Configuração:', 'bold')}\r\n`);
+
+        for (const cred of template.credentials) {
+          if (cred.isArg) {
+            const value = await smartInput.question(colorize(`  ${cred.name} (${cred.placeholder}): `, 'cyan'));
+            if (!value.trim() && cred.required) {
+              w(colorize('\r\n  ❌ Campo obrigatório!\r\n\r\n', 'error'));
+              return;
+            }
+            if (value.trim()) {
+              config.args.push(value.trim());
+            }
+          } else {
+            const value = await smartInput.question(colorize(`  ${cred.name} (${cred.placeholder}): `, 'cyan'));
+            if (!value.trim() && cred.required) {
+              w(colorize('\r\n  ❌ Campo obrigatório!\r\n\r\n', 'error'));
+              return;
+            }
+            if (value.trim()) {
+              if (!config.env) config.env = {};
+              config.env[cred.envVar] = value.trim();
+            }
+          }
+        }
+      }
+
+      const filePath = path.join(mcpDir, `${name}.json`);
+      fs.writeFileSync(filePath, JSON.stringify({ [name]: config }, null, 2));
+      w(`\r\n${colorize('✓', 'success')} MCP configurado: ${colorize(filePath, 'accent')}\r\n`);
+
+      if (template.config.type === 'http') {
+        w(colorize('\r\n  ⚠️  Servidor HTTP/OAuth detectado!\r\n', 'warning'));
+        w(colorize('     Autenticação pode ser necessária após conectar.\r\n\r\n', 'muted'));
+      }
+
+      w(colorize('  Reinicie o Cast para conectar\r\n\r\n', 'muted'));
+      return;
     }
 
-    // Manual configuration
     const nameInput = await inputWithEsc({
       message: colorize('  Nome do servidor: ', 'cyan'),
     });
@@ -447,7 +435,6 @@ export class McpCommandsService {
   }
 
   private async testMcpTool(smartInput: SmartInput): Promise<void> {
-    // Implementation for testing MCP tools could go here
     console.log(colorize('\nEm breve!\n', 'muted'));
   }
 
