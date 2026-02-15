@@ -66,6 +66,7 @@ export class MultiLlmService {
             baseURL: config.baseUrl,
           },
           streaming,
+          streamUsage: streaming,
         });
 
       case 'anthropic':
@@ -94,6 +95,7 @@ export class MultiLlmService {
             baseURL: config.baseUrl || 'https://api.moonshot.cn/v1',
           },
           streaming,
+          streamUsage: streaming,
         });
 
       case 'ollama':
