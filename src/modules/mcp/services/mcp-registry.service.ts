@@ -19,6 +19,14 @@ export class McpRegistryService implements OnModuleDestroy {
     this.configs.set(name, config);
   }
 
+  getConfig(name: string): McpConfig | undefined {
+    return this.configs.get(name);
+  }
+
+  getAuthUrl(name: string): string | undefined {
+    return this.mcpClient.getAuthUrl(name);
+  }
+
   async connectMcp(name: string): Promise<boolean> {
     const config = this.configs.get(name);
 

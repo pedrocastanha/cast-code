@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Colors, colorize, Box, Icons } from '../../utils/theme';
 import { McpRegistryService } from '../../../mcp/services/mcp-registry.service';
 import { McpClientService } from '../../../mcp/services/mcp-client.service';
@@ -24,51 +26,47 @@ export class McpCommandsService {
 
   async cmdMcp(args: string[], smartInput: SmartInput & { pause: () => void; resume: () => void }): Promise<void> {
     const sub = args[0] || 'menu';
-    const w = (s: string) => process.stdout.write(s);
-    
-    smartInput.pause();
 
+    if (sub === 'menu') {
+      try {
+        await this.showMcpMenu(smartInput);
+      } catch (error: any) {
+        if (error instanceof CancelledPromptError || error?.name === 'CancelledPromptError') {
+          console.log(colorize('\n❌ Cancelado. Voltando ao chat...\n', 'warning'));
+        } else {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    smartInput.pause();
     try {
       switch (sub) {
-      case 'menu':
-        await this.showMcpMenu(smartInput);
-        break;
-
-      case 'list': {
-        await this.listServers();
-        break;
+        case 'list':
+          await this.listServers();
+          break;
+        case 'tools':
+          await this.listTools();
+          break;
+        case 'add':
+          await this.addMcpWizard(smartInput);
+          break;
+        case 'remove':
+          await this.removeMcpWizard(smartInput);
+          break;
+        case 'test':
+          await this.testMcpTool(smartInput);
+          break;
+        case 'what':
+        case 'about':
+          this.printWhatIsMcp();
+          break;
+        case 'help':
+        default:
+          this.printMcpHelp();
+          break;
       }
-
-      case 'tools': {
-        await this.listTools();
-        break;
-      }
-
-      case 'add': {
-        await this.addMcpWizard(smartInput);
-        break;
-      }
-
-      case 'remove': {
-        await this.removeMcpWizard(smartInput);
-        break;
-      }
-
-      case 'test': {
-        await this.testMcpTool(smartInput);
-        break;
-      }
-
-      case 'what':
-      case 'about':
-        this.printWhatIsMcp();
-        break;
-
-      case 'help':
-      default:
-        this.printMcpHelp();
-        break;
-    }
     } catch (error: any) {
       if (error instanceof CancelledPromptError || error?.name === 'CancelledPromptError') {
         console.log(colorize('\n❌ Cancelado. Voltando ao chat...\n', 'warning'));
@@ -98,10 +96,10 @@ export class McpCommandsService {
       const action = await this.withEsc(() => smartInput.askChoice('O que deseja fazer?', [
         { key: '1', label: 'Ver servidores', description: 'Listar MCPs configurados' },
         { key: '2', label: 'Ver ferramentas', description: 'Todas as tools disponíveis' },
-        { key: '3', label: 'Adicionar servidor', description: 'Configurar novo MCP' },
-        { key: '4', label: 'Remover servidor', description: 'Desconectar MCP' },
-        { key: '5', label: 'O que é MCP?', description: 'Entenda o protocolo' },
-        { key: '6', label: 'Como criar um MCP', description: 'Guia de desenvolvimento' },
+        { key: '3', label: 'Conectar servidores', description: 'Conectar/reconectar MCPs configurados' },
+        { key: '4', label: 'Adicionar servidor', description: 'Configurar novo MCP' },
+        { key: '5', label: 'Remover servidor', description: 'Desconectar MCP' },
+        { key: '6', label: 'O que é MCP?', description: 'Entenda o protocolo' },
         { key: 'q', label: 'Voltar', description: 'Sair do MCP Hub' },
       ]));
 
@@ -110,6 +108,7 @@ export class McpCommandsService {
         return;
       }
 
+      let pause = true;
       switch (action) {
         case '1':
           await this.listServers();
@@ -118,19 +117,25 @@ export class McpCommandsService {
           await this.listTools();
           break;
         case '3':
-          await this.addMcpWizard(smartInput);
+          await this.connectServers(smartInput as any);
           break;
         case '4':
-          await this.removeMcpWizard(smartInput);
+          await this.addMcpWizard(smartInput);
+          pause = false;
           break;
         case '5':
-          this.printWhatIsMcp();
+          await this.removeMcpWizard(smartInput);
+          pause = false;
           break;
         case '6':
-          this.printHowToCreate();
+          this.printWhatIsMcp();
           break;
         case 'q':
           return;
+      }
+
+      if (pause) {
+        await smartInput.question(colorize('\nEnter para continuar...', 'muted'));
       }
     }
   }
@@ -144,6 +149,82 @@ export class McpCommandsService {
       }
       throw error;
     }
+  }
+
+  private async connectServers(smartInput?: SmartInput & { pause: () => void; resume: () => void }): Promise<void> {
+    const w = (s: string) => process.stdout.write(s);
+    const summaries = this.mcpRegistry.getServerSummaries();
+
+    w('\r\n');
+    w(colorize(Icons.cloud + ' ', 'accent') + colorize('Conectar Servidores MCP', 'bold') + '\r\n');
+    w(colorize(Box.horizontal.repeat(40), 'subtle') + '\r\n\n');
+
+    if (summaries.length === 0) {
+      w(`  ${colorize('Nenhum servidor configurado. Use a opção Adicionar servidor.', 'muted')}\r\n\n`);
+      return;
+    }
+
+    w(`  ${colorize('Conectando ' + summaries.length + ' servidor(es)...', 'muted')}\r\n\n`);
+
+    const results = await this.mcpRegistry.connectAll();
+
+    for (const [name, ok] of results.entries()) {
+      const icon = ok ? colorize('●', 'success') : colorize('○', 'error');
+      const status = ok ? colorize('conectado', 'success') : colorize('falhou', 'error');
+      w(`  ${icon} ${colorize(name, 'cyan')} — ${status}\r\n`);
+
+      if (!ok) {
+        const config = this.mcpRegistry.getConfig(name);
+
+        if (config?.type === 'http') {
+          w(`\r\n  ${colorize('⚠️  ' + name + ': OAuth bloqueado pelo servidor', 'warning')}\r\n`);
+          w(`     Este servidor só aceita clientes pré-aprovados (ex: VS Code, Cursor).\r\n`);
+          w(`     Alternativa: use o proxy mcp-remote para redirecionar via cliente aprovado.\r\n\r\n`);
+
+        } else if (config?.type === 'stdio' && smartInput) {
+          const template = getTemplate(name);
+          if (template?.credentials?.length) {
+            const missing = template.credentials.filter(cred => {
+              if (cred.isArg) return false; 
+              return !config.env?.[cred.envVar];
+            });
+
+            if (missing.length > 0) {
+              w(`\r\n  ${colorize('🔑 Credenciais necessárias para ' + name, 'warning')}\r\n\r\n`);
+
+              const mcpDir = path.join(process.cwd(), '.cast', 'mcp');
+              const filePath = path.join(mcpDir, `${name}.json`);
+              const updatedConfig = JSON.parse(JSON.stringify(config));
+              if (!updatedConfig.env) updatedConfig.env = {};
+
+              for (const cred of missing) {
+                const value = await smartInput.question(
+                  colorize(`  ${cred.name} (${cred.placeholder}): `, 'cyan'),
+                );
+                if (value.trim()) {
+                  updatedConfig.env[cred.envVar] = value.trim();
+                }
+              }
+
+              fs.writeFileSync(filePath, JSON.stringify({ [name]: updatedConfig }, null, 2));
+              this.mcpRegistry.registerMcp(name, updatedConfig);
+
+              w(`\r\n  ${colorize('Reconectando ' + name + '...', 'muted')}\r\n`);
+              const retryOk = await this.mcpRegistry.connectMcp(name);
+              const retryIcon = retryOk ? colorize('●', 'success') : colorize('○', 'error');
+              const retryStatus = retryOk ? colorize('conectado', 'success') : colorize('falhou — verifique a credencial', 'error');
+              w(`  ${retryIcon} ${colorize(name, 'cyan')} — ${retryStatus}\r\n\r\n`);
+            } else {
+              w(`  ${colorize('Verifique se o servidor está disponível e tente novamente.', 'muted')}\r\n\r\n`);
+            }
+          }
+        }
+      }
+    }
+
+    const finalResults = await this.mcpRegistry.connectAll();
+    const connected = [...finalResults.values()].filter(Boolean).length;
+    w(`  ${colorize(`${connected}/${finalResults.size} conectado(s)`, connected === finalResults.size ? 'success' : 'warning')}\r\n\r\n`);
   }
 
   private async listServers(): Promise<void> {
@@ -210,8 +291,6 @@ export class McpCommandsService {
   }
 
   private async addMcpWizard(smartInput: SmartInput): Promise<void> {
-    const fs = require('fs');
-    const path = require('path');
     const mcpDir = path.join(process.cwd(), '.cast', 'mcp');
 
     if (!fs.existsSync(mcpDir)) {
@@ -304,7 +383,30 @@ export class McpCommandsService {
       fs.writeFileSync(filePath, JSON.stringify({ [name]: config }, null, 2));
       w(`\r\n${colorize('✓', 'success')} MCP configurado: ${colorize(filePath, 'accent')}\r\n`);
 
-      if (template.config.type === 'http') {
+      if (name === 'figma') {
+        w('\r\n');
+        w(colorize('  ─────────────────────────────────────────\r\n', 'subtle'));
+        w(colorize('   Tutorial — Figma Desktop MCP\r\n', 'bold'));
+        w(colorize('  ─────────────────────────────────────────\r\n', 'subtle'));
+        w('\r\n');
+        w(colorize('  Passo 1: ', 'accent') + 'Instale o Figma Desktop\r\n');
+        w(colorize('           https://www.figma.com/downloads/\r\n', 'muted'));
+        w('\r\n');
+        w(colorize('  Passo 2: ', 'accent') + 'Abra qualquer arquivo de Design no Figma\r\n');
+        w('\r\n');
+        w(colorize('  Passo 3: ', 'accent') + 'Ative o Dev Mode\r\n');
+        w(colorize('           Clique no botão "<>" no canto superior direito\r\n', 'muted'));
+        w('\r\n');
+        w(colorize('  Passo 4: ', 'accent') + 'Habilite o servidor MCP\r\n');
+        w(colorize('           Painel Inspect → seção MCP\r\n', 'muted'));
+        w(colorize('           Ative "Enable desktop MCP server"\r\n', 'muted'));
+        w('\r\n');
+        w(colorize('  Passo 5: ', 'accent') + 'Conecte via Cast\r\n');
+        w(colorize('           Reinicie o Cast e use /mcp → Conectar servidores\r\n', 'muted'));
+        w('\r\n');
+        w(colorize('  ─────────────────────────────────────────\r\n', 'subtle'));
+        w('\r\n');
+      } else if (template.config.type === 'http') {
         w(colorize('\r\n  ⚠️  Servidor HTTP/OAuth detectado!\r\n', 'warning'));
         w(colorize('     Autenticação pode ser necessária após conectar.\r\n\r\n', 'muted'));
       }
@@ -395,8 +497,6 @@ export class McpCommandsService {
   }
 
   private async removeMcpWizard(smartInput: SmartInput): Promise<void> {
-    const fs = require('fs');
-    const path = require('path');
     const mcpDir = path.join(process.cwd(), '.cast', 'mcp');
 
     if (!fs.existsSync(mcpDir)) {

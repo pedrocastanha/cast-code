@@ -30,4 +30,5 @@ export interface McpConnection {
   process?: unknown;
   tools: McpTool[];
   status: McpConnectionStatus;
+  authUrl?: string;
 }

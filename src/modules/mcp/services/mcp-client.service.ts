@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { spawn, ChildProcess } from 'child_process';
 import { McpConfig, McpTool, McpConnection } from '../types';
+import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { CastOAuthProvider } from './cast-oauth-provider';
 
 @Injectable()
 export class McpClientService extends EventEmitter {
@@ -101,13 +103,6 @@ export class McpClientService extends EventEmitter {
 
   private async connectHttp(name: string, connection: McpConnection): Promise<void> {
     const endpoint = connection.config.endpoint!;
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-
-    if (connection.config.env?.AUTH_TOKEN) {
-      headers['Authorization'] = `Bearer ${connection.config.env.AUTH_TOKEN}`;
-    }
 
     try {
       new URL(endpoint);
@@ -115,52 +110,86 @@ export class McpClientService extends EventEmitter {
       throw new Error(`Invalid MCP HTTP endpoint: ${endpoint}`);
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-    const initResponse = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: this.nextId(),
-        method: 'initialize',
-        params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: { name: 'cast-code', version: '1.0.0' },
-        },
-      }),
-      signal: controller.signal,
-    });
+    const provider = new CastOAuthProvider(name);
+    const cachedTokens = provider.tokens();
+    if (cachedTokens?.access_token) {
+      headers['Authorization'] = `Bearer ${cachedTokens.access_token}`;
+    }
 
-    clearTimeout(timeout);
+    const doFetch = async (body: object, hdrs = headers, timeoutMs = 15000): Promise<Response> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(endpoint, {
+          method: 'POST',
+          headers: hdrs,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const initBody = {
+      jsonrpc: '2.0',
+      id: this.nextId(),
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'cast-code', version: '1.0.0' },
+      },
+    };
+
+    let initResponse = await doFetch(initBody);
+
+    if (initResponse.status === 401) {
+      provider.invalidateCredentials('tokens');
+
+      let authResult = await auth(provider, { serverUrl: endpoint });
+
+      if (authResult === 'REDIRECT') {
+        this.emit('oauth:browser-opened', name, provider.redirectUrl);
+        const code = await provider.waitForCallback();
+        authResult = await auth(provider, { serverUrl: endpoint, authorizationCode: code });
+      }
+
+      if (authResult !== 'AUTHORIZED') {
+        throw new Error(`OAuth failed for ${name}`);
+      }
+
+      const tokens = provider.tokens();
+      if (!tokens?.access_token) {
+        throw new Error(`No access token for ${name} after OAuth`);
+      }
+
+      headers['Authorization'] = `Bearer ${tokens.access_token}`;
+      initResponse = await doFetch(initBody);
+    }
 
     if (!initResponse.ok) {
       throw new Error(`HTTP MCP init failed: ${initResponse.status} ${initResponse.statusText}`);
     }
 
-    const toolsController = new AbortController();
-    const toolsTimeout = setTimeout(() => toolsController.abort(), 10000);
+    const sessionId = initResponse.headers.get('mcp-session-id');
+    if (sessionId) headers['Mcp-Session-Id'] = sessionId;
 
-    const toolsResponse = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: this.nextId(),
-        method: 'tools/list',
-        params: {},
-      }),
-      signal: toolsController.signal,
+    const toolsResponse = await doFetch({
+      jsonrpc: '2.0',
+      id: this.nextId(),
+      method: 'tools/list',
+      params: {},
     });
-
-    clearTimeout(toolsTimeout);
 
     if (toolsResponse.ok) {
       const data = await toolsResponse.json();
       connection.tools = data.result?.tools || data.tools || [];
     }
+
+    (connection as any)._httpHeaders = headers;
   }
 
   private sendRequest(
@@ -217,12 +246,9 @@ export class McpClientService extends EventEmitter {
 
     if (connection.config.type === 'http') {
       const endpoint = connection.config.endpoint!;
-      const headers: Record<string, string> = {
+      const headers: Record<string, string> = (connection as any)._httpHeaders ?? {
         'Content-Type': 'application/json',
       };
-      if (connection.config.env?.AUTH_TOKEN) {
-        headers['Authorization'] = `Bearer ${connection.config.env.AUTH_TOKEN}`;
-      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -248,6 +274,10 @@ export class McpClientService extends EventEmitter {
 
   getStatus(name: string): string {
     return this.connections.get(name)?.status || 'unknown';
+  }
+
+  getAuthUrl(name: string): string | undefined {
+    return this.connections.get(name)?.authUrl;
   }
 
   getAllStatuses(): Map<string, string> {

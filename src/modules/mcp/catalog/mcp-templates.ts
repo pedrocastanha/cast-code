@@ -134,8 +134,20 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
   // ===== DESIGN =====
   figma: {
     id: 'figma',
-    name: 'Figma',
-    description: 'Acesse designs e componentes (OAuth)',
+    name: 'Figma Desktop',
+    description: 'Acesse designs via app desktop local (sem OAuth)',
+    category: 'design',
+    config: {
+      type: 'http',
+      endpoint: 'http://127.0.0.1:3845/mcp',
+    },
+    credentials: [],
+  },
+
+  'figma-remote': {
+    id: 'figma-remote',
+    name: 'Figma Remote (OAuth)',
+    description: 'Servidor remoto Figma — requer cliente pré-aprovado',
     category: 'design',
     config: {
       type: 'http',

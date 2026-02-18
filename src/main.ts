@@ -7,7 +7,7 @@ import { ReplService } from './modules/repl/services/repl.service';
 import { ConfigManagerService } from './modules/config/services/config-manager.service';
 import { InitConfigService } from './modules/config/services/init-config.service';
 
-config();
+config({ quiet: true });
 
 async function checkAndRunSetup(configManager: ConfigManagerService, initService: InitConfigService): Promise<boolean> {
   const hasConfig = await configManager.configExists();
