@@ -1,60 +1,200 @@
 # Cast Code
 
-Cast Code is a multi-agent coding CLI for day-to-day engineering work.
-It is designed to feel like an in-terminal AI teammate that can read your codebase, plan work, use tools, and delegate to specialist sub-agents.
+A multi-agent coding CLI for day-to-day engineering work. Cast feels like an AI teammate living inside your terminal — it reads your codebase, plans work, uses tools, and delegates to specialist sub-agents.
 
-## Why this project
+Inspired by [Claude Code](https://claude.ai/code), [OpenAI Codex](https://openai.com/codex), and [Kimi](https://kimi.ai).
+Built by [pedrocastanha](https://github.com/pedrocastanha).
 
-Main goal: accelerate product delivery, especially frontend bootstrap work from design prototypes.
+---
 
-Typical target workflow:
-- connect Figma MCP,
-- map project context,
-- ask Cast to scaffold screens/components/styles,
-- let frontend engineers focus on integration and complex business flows.
+## Why
 
-## Requirements
+The main goal is to accelerate product delivery, especially frontend work from design prototypes.
 
-- Node.js `>= 20`
-- npm
-- At least one LLM provider configured (`/config init`)
+Typical workflow:
+- connect Figma Desktop MCP
+- map project context with `/init`
+- ask Cast to scaffold screens, components, and styles
+- let engineers focus on integration and business logic
 
-## Install (global, from npm)
+---
+
+## Install
 
 ```bash
 npm install -g cast-code
 cast
 ```
 
-> Requires Node.js >= 20. Works on any Linux/macOS terminal: bash, zsh, fish, dash, ksh, and others.
+> Requires Node.js >= 20. Works on bash, zsh, fish, dash, ksh and any POSIX-compatible shell on Linux and macOS.
 
-### If `cast` is not found after install
+### `cast` not found after install?
 
-The npm global bin directory may not be in your PATH. Run `npm prefix -g` to find it, then add `<prefix>/bin` to your shell:
+The npm global bin directory may not be in your PATH. Find it with `npm prefix -g`, then add `<prefix>/bin` to your shell config:
 
-**bash** (`~/.bashrc` or `~/.bash_profile`):
+| Shell | File | Line |
+|---|---|---|
+| bash | `~/.bashrc` or `~/.bash_profile` | `export PATH="$(npm prefix -g)/bin:$PATH"` |
+| zsh | `~/.zshrc` | `export PATH="$(npm prefix -g)/bin:$PATH"` |
+| fish | `~/.config/fish/config.fish` | `fish_add_path (npm prefix -g)/bin` |
+| dash / ksh | `~/.profile` | `export PATH="$(npm prefix -g)/bin:$PATH"` |
+
+Reload your shell (`source ~/.zshrc`, `source ~/.bashrc`, or open a new terminal), then run `cast`.
+
+---
+
+## First Run
+
+On first launch the setup wizard runs automatically. To reconfigure at any time:
+
 ```bash
-export PATH="$(npm prefix -g)/bin:$PATH"
+/config init
 ```
 
-**zsh** (`~/.zshrc`):
-```zsh
-export PATH="$(npm prefix -g)/bin:$PATH"
+Config is stored at `~/.cast/config.yaml`.
+
+---
+
+## Providers
+
+Cast supports multiple LLM providers. Configure via `/config init` or set environment variables:
+
+| Variable | Provider |
+|---|---|
+| `ANTHROPIC_API_KEY` | Anthropic / Claude |
+| `OPENAI_API_KEY` | OpenAI / GPT |
+| `GOOGLE_API_KEY` | Google Gemini |
+
+You can also assign different models per purpose — `default`, `subAgent`, `coder`, `architect`, `reviewer`, `planner`, `cheap` — to tune cost and performance by task type.
+
+---
+
+## Commands
+
+### Core
+
+| Command | Description |
+|---|---|
+| `/help` | Show command guide |
+| `/init` | Analyze project and generate context |
+| `/project-deep` | Deep context + specialist brief |
+| `/context` | Show session, tools, agents, skills, MCP status |
+| `/clear` | Clear conversation history |
+| `/compact` | Compact context window |
+| `/exit` | Exit CLI |
+
+### Config
+
+| Command | Description |
+|---|---|
+| `/config` | Config menu |
+| `/config show` | Show current config |
+| `/config path` | Print config file path |
+| `/config add-provider` | Add a new LLM provider |
+| `/config set-model` | Set model by purpose |
+
+### MCP
+
+| Command | Description |
+|---|---|
+| `/mcp` | MCP hub menu |
+| `/mcp list` | List configured servers |
+| `/mcp tools` | List available tools |
+| `/mcp add` | Add server (from templates or custom) |
+| `/mcp remove` | Remove a server |
+| `/mcp what` | Explain what MCP is |
+
+### Git
+
+| Command | Description |
+|---|---|
+| `/status`, `/diff`, `/log` | Git status, diff, log |
+| `/commit` | AI-generated commit message |
+| `/up`, `/split-up` | Push / push with split commits |
+| `/pr` | Generate pull request description |
+| `/review` | Code review |
+| `/fix`, `/ident`, `/release` | Fix issues, identify patterns, generate release notes |
+
+### Agents & Skills
+
+| Command | Description |
+|---|---|
+| `/agents` | List specialist agents |
+| `/agents create` | Create a custom agent |
+| `/skills` | List skills |
+| `/skills create` | Create a custom skill |
+
+---
+
+## Mentions
+
+Inject context directly into any prompt:
+
+```
+@src/components/Button.tsx     — single file
+@src/components/              — entire directory
+@git:status                   — current git status
+@git:diff                     — current diff
 ```
 
-**fish** (`~/.config/fish/config.fish`):
-```fish
-fish_add_path (npm prefix -g)/bin
+---
+
+## Plan Mode
+
+For complex requests Cast enters plan mode:
+- asks clarifying questions
+- generates a structured plan
+- lets you refine, approve, or cancel
+- executes with the approved plan as context
+
+---
+
+## MCP — Model Context Protocol
+
+Cast ships with templates for 30+ MCP servers across categories: Dev Tools, Design, Data, Search, Cloud, Productivity, Payments, and Browser.
+
+### Figma Desktop (recommended)
+
+1. Install [Figma Desktop](https://www.figma.com/downloads/)
+2. Open a Design file and enter Dev Mode (`<>` button, top right)
+3. In the Inspect panel, enable **"Enable desktop MCP server"**
+4. In Cast: `/mcp add` → Design → Figma Desktop
+5. Restart Cast, then `/mcp` → Conectar servidores
+
+For HTTP servers that require OAuth, Cast handles the full OAuth 2.0 + PKCE flow automatically and stores tokens in `~/.cast/mcp-auth/`.
+
+---
+
+## Technical Stack
+
+- **Runtime**: Node.js >= 20, TypeScript
+- **Framework**: NestJS (dependency injection, modular architecture)
+- **LLM**: LangChain + LangGraph (multi-agent orchestration, streaming)
+- **MCP**: `@modelcontextprotocol/sdk` (stdio and HTTP/SSE transports, OAuth 2.0 + PKCE)
+- **Providers**: Anthropic, OpenAI, Google Gemini, Ollama
+- **Config**: YAML stored at `~/.cast/config.yaml`
+- **Auth tokens**: stored at `~/.cast/mcp-auth/<server>/`
+
+### Project layout
+
+```
+src/modules/
+  repl/        interactive CLI, commands, SmartInput
+  core/        deep agent orchestration, system prompt, plan mode
+  agents/      specialist sub-agents (coder, architect, reviewer…)
+  skills/      skill definitions and knowledge loading
+  mcp/         MCP client, OAuth provider, server registry, templates
+  project/     project analysis and context generation
+  tasks/       task management and plan execution tools
+  git/         commit, PR, review, and release generators
+  config/      provider and model configuration
+  memory/      session memory tools
+  mentions/    @-mention context injection
 ```
 
-**dash / ksh / others** (`~/.profile`):
-```sh
-export PATH="$(npm prefix -g)/bin:$PATH"
-```
+---
 
-After editing, reload your shell (`source ~/.zshrc`, `source ~/.bashrc`, or open a new terminal), then run `cast`.
-
-## Install (local development)
+## Local Development
 
 ```bash
 npm install
@@ -62,156 +202,16 @@ npm run build
 npm run start
 ```
 
-For development mode:
+Watch mode:
 
 ```bash
 npm run start:dev
 ```
 
-## First Run
-
-On first run, configure providers/models:
-
-```bash
-/config init
-```
-
-Configuration file:
-- `~/.cast/config.yaml`
-
-## Frontend Daily Flow (Recommended)
-
-1. Connect Figma MCP
-
-```bash
-/mcp add
-```
-
-2. Map project context
-
-```bash
-/init
-```
-
-`/init` is the project bootstrap command. It analyzes the repo and refreshes `.cast/context.md`.
-
-3. Validate specialists
-
-```bash
-/agents
-/skills
-/context
-```
-
-4. Prompt for scaffold generation
-
-Example prompt:
-
-```text
-Use Figma to extract main screens and create a full frontend scaffold:
-- routes
-- page skeletons
-- reusable UI components (button, table, modal, form)
-- design tokens and global styling
-- responsive behavior
-```
-
-## Useful Commands
-
-### Core
-- `/help` show command guide
-- `/init` analyze project and generate context
-- `/project-deep` generate deep context + specialist brief
-- `/context` show session, tools, agents, skills, MCP status
-- `/clear` clear conversation history
-- `/compact` compact context window
-- `/exit` exit CLI
-
-### Config
-- `/config` config menu
-- `/config show` show current config
-- `/config path` print config path
-- `/config add-provider` add provider
-- `/config set-model` set model by purpose
-
-### MCP
-- `/mcp` MCP hub menu
-- `/mcp list` list servers
-- `/mcp tools` list tools
-- `/mcp add` add server from templates or custom
-- `/mcp remove` remove server
-- `/mcp what` explain MCP
-
-### Git
-- `/status`, `/diff`, `/log`
-- `/commit`, `/up`, `/split-up`, `/pr`
-- `/review`, `/fix`, `/ident`, `/release`
-
-### Agents & Skills
-- `/agents`, `/agents create`
-- `/skills`, `/skills create`
-
-## Mentions
-
-Use mentions to inject context directly:
-
-- `@src/file.ts`
-- `@path/to/dir/`
-- `@git:status`
-- `@git:diff`
-
-## Plan Mode
-
-For complex requests, Cast can enter plan mode:
-- asks clarifying questions,
-- generates a structured plan,
-- allows refine/approve/cancel,
-- executes with the approved plan as context.
-
-## Providers and Model Purposes
-
-Cast supports multiple providers and model purposes:
-- `default`
-- `subAgent`
-- `coder`
-- `architect`
-- `reviewer`
-- `planner`
-- `cheap`
-
-This enables cost/performance tuning by task type.
-
-## Project Structure (high level)
-
-- `src/modules/repl` interactive CLI and commands
-- `src/modules/core` deep agent orchestration and system prompt
-- `src/modules/agents` specialist sub-agents
-- `src/modules/skills` skill definitions and knowledge
-- `src/modules/mcp` MCP integration
-- `src/modules/project` project analysis/context generation
-- `src/modules/tasks` task and plan tools
+---
 
 ## Notes
 
-- Keep `.cast/context.md` updated for better answers.
-- For MCP servers requiring OAuth (like Figma), authenticate after adding and restarting Cast.
-- If no agents/skills appear, run `/context` and verify project-level `.cast/agents` and `.cast/skills`.
-
-## Environment Variables
-
-Before running, configure at least one LLM provider via `/config init` or set the relevant environment variables:
-
-| Variable | Provider |
-|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic / Claude |
-| `OPENAI_API_KEY` | OpenAI |
-| `GOOGLE_API_KEY` | Google Gemini |
-
-Example:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-cast
-```
-
-Or create a `.env` file in your working directory with the keys above.
+- Keep `.cast/context.md` updated — the richer the context, the better the answers.
+- Project-level agents and skills live in `.cast/agents/` and `.cast/skills/` at the repo root.
+- Run `/context` to verify what Cast can currently see.
