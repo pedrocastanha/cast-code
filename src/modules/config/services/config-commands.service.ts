@@ -235,15 +235,21 @@ export class ConfigCommandsService {
     } else {
       console.log(chalk.gray(`→ Obtenha sua API key em: ${meta.websiteUrl}`));
       
-      const apiKey = await inputWithEsc({
+      const apiKeyRaw = await inputWithEsc({
         message: `API Key para ${meta.name}:`,
-        validate: (v) => v.length > 5 || 'API key muito curta',
+        validate: (v) => {
+          const clean = v.trim();
+          if (clean.length <= 5) return 'API key muito curta';
+          if (/[\s%]/.test(clean)) return 'API key contém caracteres inválidos (espaços ou %)';
+          return true;
+        },
       });
 
-      if (apiKey === null) {
+      if (apiKeyRaw === null) {
         console.log(chalk.yellow('\n❌ Cancelado.\n'));
         return;
       }
+      const apiKey = apiKeyRaw.trim();
 
       const useCustom = await confirmWithEsc({
         message: 'Usar URL customizada?',

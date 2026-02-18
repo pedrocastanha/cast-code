@@ -1,9 +1,8 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { execSync } from 'child_process';
 import { createDeepAgent, FilesystemBackend } from 'deepagents';
-import { ConfigService } from '../../../common/services/config.service';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MarkdownRendererService } from '../../../common/services/markdown-renderer.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -26,15 +25,20 @@ const DEEPAGENT_BUILTIN_TOOLS = new Set([
 ]);
 
 @Injectable()
-export class DeepAgentService implements OnModuleInit {
+export class DeepAgentService {
   private agent: any;
   private model: BaseChatModel | null = null;
   private messages: BaseMessage[] = [];
   private tokenCount = 0;
   private lastToolOutputs: { tool: string; output: string }[] = [];
 
+  private cachedSystemPrompt: string = '';
+  private cachedExtraTools: any[] = [];
+  private cachedMcpTools: any[] = [];
+  private cachedMcpDiscoveryTools: any[] = [];
+  private cachedSubagents: any[] = [];
+
   constructor(
-    private readonly configService: ConfigService,
     private readonly multiLlmService: MultiLlmService,
     private readonly agentRegistry: AgentRegistryService,
     private readonly toolsRegistry: ToolsRegistryService,
@@ -45,10 +49,6 @@ export class DeepAgentService implements OnModuleInit {
     private readonly memoryService: MemoryService,
     private readonly markdownRenderer: MarkdownRendererService,
   ) {}
-
-  async onModuleInit() {
-    await this.configService.loadGlobalConfig();
-  }
 
   async initialize(): Promise<ProjectInitResult> {
     const projectPath = await this.projectLoader.detectProject();
@@ -93,6 +93,12 @@ export class DeepAgentService implements OnModuleInit {
 
     const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, skillKnowledge, subagents, allTools, mcpTools, mcpServerSummaries);
 
+    this.cachedSystemPrompt = systemPrompt;
+    this.cachedExtraTools = extraTools;
+    this.cachedMcpTools = mcpTools;
+    this.cachedMcpDiscoveryTools = mcpDiscoveryTools;
+    this.cachedSubagents = subagents;
+
     this.agent = createDeepAgent({
       model: this.model,
       systemPrompt,
@@ -107,6 +113,17 @@ export class DeepAgentService implements OnModuleInit {
       agentCount: subagents.length,
       toolCount: extraTools.length + mcpTools.length,
     };
+  }
+
+  async reinitializeModel(): Promise<void> {
+    this.model = this.multiLlmService.createStreamingModel('default');
+    this.agent = createDeepAgent({
+      model: this.model,
+      systemPrompt: this.cachedSystemPrompt,
+      tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
+      subagents: this.cachedSubagents,
+      backend: () => new FilesystemBackend({ rootDir: process.cwd() }),
+    });
   }
 
   private getGitStatus(): string {

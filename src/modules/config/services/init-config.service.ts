@@ -129,17 +129,22 @@ export class InitConfigService {
 
     console.log(chalk.gray(`  → Obtenha sua API key em: ${meta.websiteUrl}`));
 
-    const apiKey = await inputWithEsc({
+    const apiKeyRaw = await inputWithEsc({
       message: `API Key para ${meta.name}:`,
       validate: (value) => {
-        if (!value || value.trim().length < 10) {
+        const clean = value.trim();
+        if (!clean || clean.length < 10) {
           return 'Por favor, insira uma API key válida';
+        }
+        if (/[\s%]/.test(clean)) {
+          return 'API key contém caracteres inválidos (espaços ou %)';
         }
         return true;
       },
     });
 
-    if (apiKey === null) return null;
+    if (apiKeyRaw === null) return null;
+    const apiKey = apiKeyRaw.trim();
 
     const useCustomUrl = await confirmWithEsc({
       message: 'Usar URL de API customizada (ex: OpenRouter, proxy)?',

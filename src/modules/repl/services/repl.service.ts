@@ -209,8 +209,10 @@ export class ReplService {
       case 'quit': this.handleExit(); return;
       case 'compact': await this.handleCompact(); break;
       case 'context': this.replCommands.cmdContext(); break;
-      case 'config': 
-        await this.configCommands.handleConfigCommand(args, this.smartInput!); 
+      case 'config':
+        await this.configCommands.handleConfigCommand(args, this.smartInput!);
+        await this.configManager.loadConfig();
+        await this.deepAgent.reinitializeModel();
         break;
       case 'model': this.replCommands.cmdModel(args); break;
       case 'init':

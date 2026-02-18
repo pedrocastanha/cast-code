@@ -38,8 +38,9 @@ export class SmartInput {
   private opts: SmartInputOptions;
 
   private dataHandler: ((data: string) => void) | null = null;
-  private terminalWidth = 80; // default
+  private terminalWidth = 80;
   private isPaused = false;
+  private cursorRow = 0;
 
   constructor(opts: SmartInputOptions) {
     this.opts = opts;
@@ -82,6 +83,7 @@ export class SmartInput {
     this.cursor = 0;
     this.suggestions = [];
     this.selectedIndex = -1;
+    this.cursorRow = 0;
     this.mode = 'input';
     this.render();
   }
@@ -525,37 +527,32 @@ export class SmartInput {
   private render() {
     const write = (s: string) => process.stdout.write(s);
 
-    // Calcular quantas linhas o buffer atual ocupa
     const totalLength = this.promptLen + this.buffer.length;
-    const linesUsed = Math.ceil(totalLength / this.terminalWidth);
+    const linesUsed = Math.max(1, Math.ceil(totalLength / this.terminalWidth));
+    const exactWrap = totalLength > 0 && totalLength % this.terminalWidth === 0;
 
-    // Ir para o início do input (primeira linha do input)
-    if (linesUsed > 1) {
-      write(`\x1b[${linesUsed - 1}A`); // Sobe para primeira linha do input
-    }
-    write('\r'); // Volta para início da linha
-
-    // Limpar todas as linhas usadas pelo input
-    for (let i = 0; i < linesUsed; i++) {
-      write('\x1b[K'); // Limpa linha atual
-      if (i < linesUsed - 1) write('\n'); // Desce se não for última linha
-    }
-
-    // Voltar para primeira linha
-    if (linesUsed > 1) {
-      write(`\x1b[${linesUsed - 1}A`);
+    if (this.cursorRow > 0) {
+      write(`\x1b[${this.cursorRow}A`);
     }
     write('\r');
 
-    // Escrever prompt + buffer
+    const linesToClear = linesUsed + (exactWrap ? 1 : 0);
+    for (let i = 0; i < linesToClear; i++) {
+      write('\x1b[K');
+      if (i < linesToClear - 1) write('\n');
+    }
+
+    if (linesToClear > 1) {
+      write(`\x1b[${linesToClear - 1}A`);
+    }
+    write('\r');
+
     write(this.prompt + this.buffer);
 
-    // Limpar resto da tela (para sugestões antigas)
     write('\x1b[J');
 
     this.renderedLines = 0;
 
-    // Renderizar sugestões
     if (this.suggestions.length > 0) {
       const maxVisible = 10;
       const total = this.suggestions.length;
@@ -598,29 +595,33 @@ export class SmartInput {
       }
     }
 
-    // Voltar para linha do input se renderizou sugestões
     if (this.renderedLines > 0) {
       write(`\x1b[${this.renderedLines}A`);
     }
 
-    // Posicionar cursor corretamente considerando wrapping
-    const { row, col } = this.calculateCursorPosition();
+    const { row: targetRow, col: targetCol } = this.calculateCursorPosition();
+    const afterWriteRow = exactWrap ? linesUsed : linesUsed - 1;
+    const delta = targetRow - afterWriteRow;
 
-    if (row > 0) {
-      write(`\x1b[${row}B`); // Desce 'row' linhas
-    }
-    write(`\x1b[${col}G`); // Move para coluna
+    if (delta > 0) write(`\x1b[${delta}B`);
+    else if (delta < 0) write(`\x1b[${-delta}A`);
+    write(`\x1b[${targetCol}G`);
+
+    this.cursorRow = targetRow;
   }
 
   private clearSuggestions() {
     if (this.renderedLines > 0) {
-      const { row, col } = this.calculateCursorPosition();
+      const totalLength = this.promptLen + this.buffer.length;
+      const linesUsed = Math.max(1, Math.ceil(totalLength / this.terminalWidth));
+      const exactWrap = totalLength > 0 && totalLength % this.terminalWidth === 0;
+      const afterWriteRow = exactWrap ? linesUsed : linesUsed - 1;
+      const afterWriteCol = exactWrap ? 1 : (totalLength % this.terminalWidth) + 1;
 
-      // Posiciona no fim do buffer
-      if (row > 0) {
-        process.stdout.write(`\x1b[${row}B`);
-      }
-      process.stdout.write(`\x1b[${col}G\x1b[J`);
+      const delta = afterWriteRow - this.cursorRow;
+      if (delta > 0) process.stdout.write(`\x1b[${delta}B`);
+      else if (delta < 0) process.stdout.write(`\x1b[${-delta}A`);
+      process.stdout.write(`\x1b[${afterWriteCol}G\x1b[J`);
 
       this.renderedLines = 0;
     }
