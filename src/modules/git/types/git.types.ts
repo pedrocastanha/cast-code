@@ -35,6 +35,7 @@ export interface GitDiffInfo {
   unstaged: string;
   stagedFiles: string[];
   unstagedFiles: string[];
+  untrackedFiles: string[];
   stats: string;
 }
 

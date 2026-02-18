@@ -61,7 +61,7 @@ export class MultiLlmService {
         return new ChatOpenAI({
           modelName: model,
           ...(temperature !== undefined ? { temperature } : {}),
-          openAIApiKey: config.apiKey,
+          apiKey: config.apiKey,
           configuration: {
             baseURL: config.baseUrl,
           },
@@ -90,7 +90,7 @@ export class MultiLlmService {
         return new ChatOpenAI({
           modelName: model,
           ...(temperature !== undefined ? { temperature } : {}),
-          openAIApiKey: config.apiKey,
+          apiKey: config.apiKey,
           configuration: {
             baseURL: config.baseUrl || 'https://api.moonshot.cn/v1',
           },

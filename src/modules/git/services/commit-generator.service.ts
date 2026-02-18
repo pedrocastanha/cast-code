@@ -18,12 +18,15 @@ export class CommitGeneratorService {
       const staged = execSync('git diff --cached', { cwd, encoding: 'utf-8' });
       const unstaged = execSync('git diff', { cwd, encoding: 'utf-8' });
       const stats = execSync('git diff --stat', { cwd, encoding: 'utf-8' });
+      const untrackedRaw = execSync('git ls-files --others --exclude-standard', { cwd, encoding: 'utf-8' });
+      const untrackedFiles = untrackedRaw.trim() ? untrackedRaw.trim().split('\n').filter(f => f.trim()) : [];
 
       return {
         staged,
         unstaged,
         stagedFiles: this.extractFiles(staged),
         unstagedFiles: this.extractFiles(unstaged),
+        untrackedFiles,
         stats,
       };
     } catch {
@@ -45,7 +48,7 @@ export class CommitGeneratorService {
     if (!diffInfo) return null;
 
     const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
-    const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles];
+    const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles, ...diffInfo.untrackedFiles];
     const scope = this.monorepoDetector.determineScope(allFiles, monorepoInfo);
 
     const llm = this.multiLlmService.createModel('cheap');
@@ -65,7 +68,7 @@ export class CommitGeneratorService {
     if (!diffInfo) return null;
 
     const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
-    const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles];
+    const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles, ...diffInfo.untrackedFiles];
 
     const llm = this.multiLlmService.createModel('cheap');
     const splitPrompt = this.buildSplitPrompt(diffInfo, allFiles);
@@ -207,11 +210,9 @@ export class CommitGeneratorService {
   }
 
   private cleanCommitMessage(message: string): string {
-    return message
-      .trim()
-      .replace(/^["']|["']$/g, '')
-      .replace(/\n/g, ' ')
-      .trim();
+    const lines = message.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const firstCommitLine = lines.find(l => l.includes(':')) || lines[0] || '';
+    return firstCommitLine.replace(/^["']|["']$/g, '').trim();
   }
 
   private buildCommitPrompt(diffInfo: GitDiffInfo, scope?: string): string {
@@ -225,12 +226,16 @@ export class CommitGeneratorService {
       fullDiff += `=== Unstaged changes ===\n${diffInfo.unstaged}\n\n`;
     }
 
+    const untrackedHint = diffInfo.untrackedFiles.length > 0
+      ? `\nNew untracked files (will also be committed): ${diffInfo.untrackedFiles.join(', ')}\n`
+      : '';
+
     const maxLength = 10000;
     if (fullDiff.length > maxLength) {
       fullDiff = fullDiff.slice(0, maxLength) + '\n\n... (truncated)';
     }
 
-    return `Generate a conventional commit message for the following changes.${scopeHint}\n\nFiles changed:\n${diffInfo.stats}\n\n${fullDiff}`;
+    return `Generate a single conventional commit message for ALL of the following changes.${scopeHint}\n\nFiles changed:\n${diffInfo.stats}${untrackedHint}\n\n${fullDiff}`;
   }
 
   private buildSplitPrompt(diffInfo: GitDiffInfo, files: string[]): string {
@@ -242,12 +247,17 @@ export class CommitGeneratorService {
       fullDiff += `=== Unstaged changes ===\n${diffInfo.unstaged}\n\n`;
     }
 
+    const allFiles = [...files, ...diffInfo.untrackedFiles.filter(f => !files.includes(f))];
+    const untrackedHint = diffInfo.untrackedFiles.length > 0
+      ? `\nNew untracked files (must be included in commits): ${diffInfo.untrackedFiles.join(', ')}\n`
+      : '';
+
     const maxLength = 8000;
     if (fullDiff.length > maxLength) {
       fullDiff = fullDiff.slice(0, maxLength) + '\n\n... (truncated)';
     }
 
-    return `Analyze all the files below and group them into logical commits.\n\nFiles: ${files.join(', ')}\n\nStats:\n${diffInfo.stats}\n\n${fullDiff}`;
+    return `Analyze all the files below and group them into logical commits. Include ALL files in the result.\n\nFiles: ${allFiles.join(', ')}${untrackedHint}\n\nStats:\n${diffInfo.stats}\n\n${fullDiff}`;
   }
 
   private async generateMessageForGroup(group: CommitGroup, diffInfo: GitDiffInfo): Promise<string> {

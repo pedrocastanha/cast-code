@@ -22,7 +22,7 @@ export class LlmService {
     return new ChatOpenAI({
       modelName: this.configService.getModel(),
       temperature: this.configService.getTemperature(),
-      openAIApiKey: this.configService.getApiKey(),
+      apiKey: this.configService.getApiKey(),
       streaming,
     });
   }
