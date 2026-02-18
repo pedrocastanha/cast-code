@@ -47,11 +47,6 @@ export class ConfigService {
       };
     }
 
-    if (this.config.provider === 'openai' && !this.config.apiKey) {
-      throw new Error(
-        'OPENAI_API_KEY not configured. Set it in environment or ~/.cast/config.md',
-      );
-    }
   }
 
   getConfig(): GlobalConfig {
