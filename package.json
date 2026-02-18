@@ -11,7 +11,7 @@
     "templates"
   ],
   "scripts": {
-    "build": "nest build",
+    "build": "nest build && chmod +x dist/main.js",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
@@ -28,11 +28,11 @@
     "deepagents",
     "multi-agent"
   ],
-  "author": "",
+  "author": "pedrocastanha",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/pedrocastanha/cast-code"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.2.0",

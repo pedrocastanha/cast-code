@@ -19,7 +19,42 @@ Typical target workflow:
 - npm
 - At least one LLM provider configured (`/config init`)
 
-## Install
+## Install (global, from npm)
+
+```bash
+npm install -g cast-code
+cast
+```
+
+> Requires Node.js >= 20. Works on any Linux/macOS terminal: bash, zsh, fish, dash, ksh, and others.
+
+### If `cast` is not found after install
+
+The npm global bin directory may not be in your PATH. Run `npm prefix -g` to find it, then add `<prefix>/bin` to your shell:
+
+**bash** (`~/.bashrc` or `~/.bash_profile`):
+```bash
+export PATH="$(npm prefix -g)/bin:$PATH"
+```
+
+**zsh** (`~/.zshrc`):
+```zsh
+export PATH="$(npm prefix -g)/bin:$PATH"
+```
+
+**fish** (`~/.config/fish/config.fish`):
+```fish
+fish_add_path (npm prefix -g)/bin
+```
+
+**dash / ksh / others** (`~/.profile`):
+```sh
+export PATH="$(npm prefix -g)/bin:$PATH"
+```
+
+After editing, reload your shell (`source ~/.zshrc`, `source ~/.bashrc`, or open a new terminal), then run `cast`.
+
+## Install (local development)
 
 ```bash
 npm install
@@ -161,3 +196,22 @@ This enables cost/performance tuning by task type.
 - Keep `.cast/context.md` updated for better answers.
 - For MCP servers requiring OAuth (like Figma), authenticate after adding and restarting Cast.
 - If no agents/skills appear, run `/context` and verify project-level `.cast/agents` and `.cast/skills`.
+
+## Environment Variables
+
+Before running, configure at least one LLM provider via `/config init` or set the relevant environment variables:
+
+| Variable | Provider |
+|---|---|
+| `ANTHROPIC_API_KEY` | Anthropic / Claude |
+| `OPENAI_API_KEY` | OpenAI |
+| `GOOGLE_API_KEY` | Google Gemini |
+
+Example:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+cast
+```
+
+Or create a `.env` file in your working directory with the keys above.
