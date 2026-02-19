@@ -439,8 +439,15 @@ export class ReplService {
 
   private startSpinner(label: string): void {
     let i = 0;
+    let dotCount = 0;
     this.spinnerTimer = setInterval(() => {
-      process.stdout.write(`\r${Colors.cyan}${Icons.thinkingChestnut[i++ % Icons.thinkingChestnut.length]}${Colors.reset} ${Colors.dim}${label}...${Colors.reset}`);
+      const chestnut = Icons.thinkingChestnut[i % Icons.thinkingChestnut.length];
+      const spinner = Icons.spinner[i % Icons.spinner.length];
+      const dots = '.'.repeat((dotCount++ % 3) + 1);
+      i++;
+      process.stdout.write(
+        `\r${Colors.cyan}${chestnut} ${spinner}${Colors.reset} ${Colors.dim}${label}${dots}${Colors.reset}`
+      );
     }, 80);
   }
 
