@@ -47,6 +47,7 @@ export class ReplCommandsService {
     process.stdout.write(cmd('/up', 'Smart commit & push'));
     process.stdout.write(cmd('/split-up', 'Split into multiple commits'));
     process.stdout.write(cmd('/pr', 'Create PR with AI description'));
+    process.stdout.write(cmd('/unit-test', 'Generate unit tests for branch changes'));
     process.stdout.write(cmd('/review [files]', 'Code review'));
     process.stdout.write(cmd('/fix <file>', 'Auto-fix code issues'));
     process.stdout.write(cmd('/ident', 'Format all code files'));

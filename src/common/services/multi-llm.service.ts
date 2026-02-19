@@ -56,6 +56,18 @@ export class MultiLlmService {
   ): BaseChatModel {
     switch (provider) {
       case 'openai':
+        return new ChatOpenAI({
+          modelName: model,
+          ...(temperature !== undefined ? { temperature } : {}),
+          apiKey: config.apiKey,
+          configuration: {
+            baseURL: config.baseUrl,
+          },
+          ...(this.requiresResponsesApi(model) ? { useResponsesApi: true } : {}),
+          streaming,
+          streamUsage: streaming,
+        });
+
       case 'deepseek':
       case 'openrouter':
         return new ChatOpenAI({
@@ -108,5 +120,10 @@ export class MultiLlmService {
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
+  }
+
+  private requiresResponsesApi(model: string): boolean {
+    const normalized = (model || '').toLowerCase();
+    return normalized.startsWith('gpt-5') || normalized.includes('codex');
   }
 }
