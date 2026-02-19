@@ -793,15 +793,22 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     try {
       for await (const event of stream) {
         if (event.event === 'on_chat_model_stream' && event.data?.chunk?.content) {
-          const content = event.data.chunk.content;
-          if (typeof content === 'string' && content) {
-            yield content;
-            fullResponse += content;
+          const text = this.extractTextFromModelContent(event.data.chunk.content);
+          if (text) {
+            yield text;
+            fullResponse += text;
           }
         }
 
         if (event.event === 'on_chat_model_end') {
           const output = event.data?.output;
+          if (!fullResponse && output?.content) {
+            const fallbackText = this.extractTextFromModelContent(output.content);
+            if (fallbackText) {
+              yield fallbackText;
+              fullResponse += fallbackText;
+            }
+          }
           const usage = output?.usage_metadata
             || output?.response_metadata?.usage;
           if (usage) {
@@ -858,6 +865,44 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
   clearHistory() {
     this.messages = [];
     this.tokenCount = 0;
+  }
+
+  private extractTextFromModelContent(content: unknown): string {
+    if (!content) return '';
+
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      let combined = '';
+      for (const item of content) {
+        combined += this.extractTextFromModelContent(item);
+      }
+      return combined;
+    }
+
+    if (typeof content === 'object') {
+      const record = content as Record<string, unknown>;
+
+      if (typeof record.text === 'string') {
+        return record.text;
+      }
+
+      if (typeof record.content === 'string') {
+        return record.content;
+      }
+
+      if (record.content) {
+        return this.extractTextFromModelContent(record.content);
+      }
+
+      if (record.delta) {
+        return this.extractTextFromModelContent(record.delta);
+      }
+    }
+
+    return '';
   }
 
   async compactHistory(): Promise<{ compacted: boolean; messagesBefore: number; messagesAfter: number }> {

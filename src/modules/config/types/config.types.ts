@@ -47,6 +47,7 @@ export type ModelPurpose =
   | 'architect' 
   | 'reviewer' 
   | 'planner' 
+  | 'tester'
   | 'cheap';
 
 export type ModelsConfig = Partial<Record<ModelPurpose, ModelConfig>>;
@@ -172,5 +173,6 @@ export const MODEL_PURPOSES: { value: ModelPurpose; label: string; description: 
   { value: 'architect', label: 'Architect', description: 'Modelo para design de sistemas e arquitetura' },
   { value: 'reviewer', label: 'Reviewer', description: 'Modelo para revisão de código' },
   { value: 'planner', label: 'Planner', description: 'Modelo para planejamento de tarefas' },
+  { value: 'tester', label: 'Tester', description: 'Modelo para geração e atualização de testes' },
   { value: 'cheap', label: 'Econômico', description: 'Modelo barato para tarefas simples' },
 ];

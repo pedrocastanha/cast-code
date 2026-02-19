@@ -81,6 +81,7 @@ export class ReplService {
       { text: '/up', display: '/up', description: 'Smart commit & push' },
       { text: '/split-up', display: '/split-up', description: 'Split commits' },
       { text: '/pr', display: '/pr', description: 'Create Pull Request' },
+      { text: '/unit-test', display: '/unit-test', description: 'Generate unit tests' },
       { text: '/review', display: '/review', description: 'Code review' },
       { text: '/fix', display: '/fix', description: 'Auto-fix code' },
       { text: '/ident', display: '/ident', description: 'Format code' },
@@ -235,6 +236,9 @@ export class ReplService {
         break;
       case 'pr': 
         await this.gitCommands.cmdPr(this.smartInput!); 
+        break;
+      case 'unit-test':
+        await this.gitCommands.cmdUnitTest(this.smartInput!);
         break;
       case 'review': await this.gitCommands.cmdReview(args); break;
       case 'fix': await this.gitCommands.cmdFix(args); break;
@@ -436,7 +440,11 @@ export class ReplService {
   private startSpinner(label: string): void {
     let i = 0;
     this.spinnerTimer = setInterval(() => {
-      process.stdout.write(`\r${Colors.cyan}${Icons.thinkingChestnut[i++ % Icons.thinkingChestnut.length]}${Colors.reset} ${Colors.dim}${label}...${Colors.reset}`);
+      const spinner = Icons.spinner[i % Icons.spinner.length];
+      i++;
+      process.stdout.write(
+        `\r${Colors.cyan}${spinner}${Colors.reset} ${Colors.dim}${label}...${Colors.reset}`
+      );
     }, 80);
   }
 

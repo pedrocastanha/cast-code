@@ -5,6 +5,7 @@ import { MonorepoDetectorService } from '../../../git/services/monorepo-detector
 import { PrGeneratorService } from '../../../git/services/pr-generator.service';
 import { CodeReviewService } from '../../../git/services/code-review.service';
 import { ReleaseNotesService } from '../../../git/services/release-notes.service';
+import { UnitTestGeneratorService } from '../../../git/services/unit-test-generator.service';
 
 interface SmartInput {
   askChoice: (question: string, choices: { key: string; label: string; description: string }[]) => Promise<string>;
@@ -19,6 +20,7 @@ export class GitCommandsService {
     private readonly prGenerator: PrGeneratorService,
     private readonly codeReviewService: CodeReviewService,
     private readonly releaseNotesService: ReleaseNotesService,
+    private readonly unitTestGenerator: UnitTestGeneratorService,
   ) {}
 
   runGit(cmd: string): void {
@@ -489,5 +491,96 @@ export class GitCommandsService {
     } else {
       w(`${Colors.red}  ✗ Failed: ${result.error}${Colors.reset}\r\n\r\n`);
     }
+  }
+
+  async cmdUnitTest(smartInput: SmartInput): Promise<void> {
+    const w = (s: string) => process.stdout.write(s);
+
+    const detectedBase = this.unitTestGenerator.detectDefaultBaseBranch();
+    const baseInput = await smartInput.question(colorize(`  Base branch (default: ${detectedBase}): `, 'cyan'));
+    const baseBranch = baseInput.trim() || detectedBase;
+
+    w(`\r\n${Colors.cyan}🔍 Analyzing branch changes...${Colors.reset}\r\n`);
+    const changedFiles = this.unitTestGenerator.getChangedFiles(baseBranch);
+    if (changedFiles.length === 0) {
+      w(`${Colors.yellow}  No changes found between HEAD and ${baseBranch}${Colors.reset}\r\n\r\n`);
+      return;
+    }
+
+    w(`\r\n${Colors.cyan}🤖 Generating unit tests...${Colors.reset}\r\n`);
+    const frames = ['◐', '◓', '◑', '◒'];
+    let frame = 0;
+    let progressText = 'Starting...';
+    const spinner = setInterval(() => {
+      const icon = frames[frame++ % frames.length];
+      w(`\r  ${colorize(icon, 'cyan')} ${colorize(progressText, 'muted')}`);
+    }, 90);
+
+    let result;
+    try {
+      result = await this.unitTestGenerator.generateUnitTests(
+        baseBranch,
+        ({ current, total, sourcePath }) => {
+          const shortPath = sourcePath.length > 64 ? `...${sourcePath.slice(-61)}` : sourcePath;
+          progressText = `[${current}/${total}] ${shortPath}`;
+        },
+      );
+    } catch (error: any) {
+      const message = error?.message || 'unknown error';
+      clearInterval(spinner);
+      w('\r\x1b[K');
+      w(`${Colors.red}  Failed to generate unit tests: ${message}${Colors.reset}\r\n\r\n`);
+      return;
+    } finally {
+      clearInterval(spinner);
+      w('\r\x1b[K');
+    }
+
+    if (!result.files.length) {
+      w(`${Colors.yellow}  No unit tests generated${Colors.reset}\r\n`);
+      if (result.notes.length > 0) {
+        for (const note of result.notes) {
+          w(`  ${colorize(note, 'muted')}\r\n`);
+        }
+      }
+      w('\r\n');
+      return;
+    }
+
+    w(`\r\n${Colors.green}✓ Generated ${result.files.length} test file(s)${Colors.reset}\r\n`);
+    for (const file of result.files) {
+      const reason = file.reason ? ` - ${file.reason}` : '';
+      w(`  ${colorize(file.path, 'cyan')}${colorize(reason, 'muted')}\r\n`);
+    }
+
+    if (result.notes.length > 0) {
+      w(`\r\n${colorize('Coverage notes:', 'bold')}\r\n`);
+      for (const note of result.notes) {
+        w(`  ${colorize('- ' + note, 'muted')}\r\n`);
+      }
+    }
+
+    const confirm = await smartInput.askChoice('Write unit tests to disk?', [
+      { key: 'y', label: 'yes', description: 'Create and update test files' },
+      { key: 'n', label: 'no', description: 'Cancel' },
+    ]);
+    if (confirm === 'n') {
+      w(colorize('  Cancelled\r\n\r\n', 'muted'));
+      return;
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    let written = 0;
+    for (const file of result.files) {
+      try {
+        const dir = path.dirname(file.path);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(file.path, file.content + '\n', 'utf-8');
+        written++;
+      } catch {}
+    }
+
+    w(`\r\n${Colors.green}✓ Wrote ${written} test file(s)${Colors.reset}\r\n\r\n`);
   }
 }
