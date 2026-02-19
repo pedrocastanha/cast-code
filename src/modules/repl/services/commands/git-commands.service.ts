@@ -508,7 +508,33 @@ export class GitCommandsService {
     }
 
     w(`\r\n${Colors.cyan}🤖 Generating unit tests...${Colors.reset}\r\n`);
-    const result = await this.unitTestGenerator.generateUnitTests(baseBranch);
+    const frames = ['◐', '◓', '◑', '◒'];
+    let frame = 0;
+    let progressText = 'Starting...';
+    const spinner = setInterval(() => {
+      const icon = frames[frame++ % frames.length];
+      w(`\r  ${colorize(icon, 'cyan')} ${colorize(progressText, 'muted')}`);
+    }, 90);
+
+    let result;
+    try {
+      result = await this.unitTestGenerator.generateUnitTests(
+        baseBranch,
+        ({ current, total, sourcePath }) => {
+          const shortPath = sourcePath.length > 64 ? `...${sourcePath.slice(-61)}` : sourcePath;
+          progressText = `[${current}/${total}] ${shortPath}`;
+        },
+      );
+    } catch (error: any) {
+      const message = error?.message || 'unknown error';
+      clearInterval(spinner);
+      w('\r\x1b[K');
+      w(`${Colors.red}  Failed to generate unit tests: ${message}${Colors.reset}\r\n\r\n`);
+      return;
+    } finally {
+      clearInterval(spinner);
+      w('\r\x1b[K');
+    }
 
     if (!result.files.length) {
       w(`${Colors.yellow}  No unit tests generated${Colors.reset}\r\n`);

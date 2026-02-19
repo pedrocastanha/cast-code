@@ -15,6 +15,12 @@ export interface UnitTestGenerationResult {
   notes: string[];
 }
 
+interface UnitTestProgress {
+  current: number;
+  total: number;
+  sourcePath: string;
+}
+
 interface SourceTestPlan {
   sourcePath: string;
   testPath: string;
@@ -34,6 +40,9 @@ interface TestValidationResult {
 
 @Injectable()
 export class UnitTestGeneratorService {
+  private readonly MAX_FILES_PER_RUN = 12;
+  private readonly LLM_TIMEOUT_MS = 70000;
+
   constructor(private readonly multiLlmService: MultiLlmService) {}
 
   detectDefaultBaseBranch(): string {
@@ -89,7 +98,10 @@ export class UnitTestGeneratorService {
     }
   }
 
-  async generateUnitTests(baseBranch: string): Promise<UnitTestGenerationResult> {
+  async generateUnitTests(
+    baseBranch: string,
+    onProgress?: (progress: UnitTestProgress) => void,
+  ): Promise<UnitTestGenerationResult> {
     const changedFiles = this.getChangedFiles(baseBranch);
     const relevantFiles = this.filterRelevantFiles(changedFiles);
 
@@ -102,13 +114,27 @@ export class UnitTestGeneratorService {
       return { files: [], framework: this.detectTestFramework(), notes: ['No valid source files available for test generation.'] };
     }
 
+    let selectedPlans = plans;
+    const notes: string[] = [];
+    if (plans.length > this.MAX_FILES_PER_RUN) {
+      selectedPlans = plans.slice(0, this.MAX_FILES_PER_RUN);
+      notes.push(
+        `Generation limited to ${this.MAX_FILES_PER_RUN} files (from ${plans.length}). Run /unit-test again after staging smaller batches.`
+      );
+    }
+
     const llm = this.createTestModel();
     const generatedFiles: GeneratedTestFile[] = [];
-    const notes: string[] = [];
 
-    for (const plan of plans) {
+    for (let idx = 0; idx < selectedPlans.length; idx++) {
+      const plan = selectedPlans[idx];
+      onProgress?.({
+        current: idx + 1,
+        total: selectedPlans.length,
+        sourcePath: plan.sourcePath,
+      });
       try {
-        const firstResponse = await llm.invoke([
+        const firstResponse = await this.invokeWithTimeout(llm, [
           new SystemMessage(this.getSystemPrompt()),
           new HumanMessage(this.buildFilePrompt(plan)),
         ]);
@@ -145,12 +171,13 @@ export class UnitTestGeneratorService {
           content: generated,
           reason: firstParsed.reason ? String(firstParsed.reason) : undefined,
         });
-      } catch {
-        notes.push(`Failed to generate tests for ${plan.sourcePath}.`);
+      } catch (error: any) {
+        const message = typeof error?.message === 'string' ? error.message : 'unknown error';
+        notes.push(`Failed to generate tests for ${plan.sourcePath}: ${message}`);
       }
     }
 
-    const missingPlans = plans.filter((plan) => !generatedFiles.some((file) => file.path === plan.testPath));
+    const missingPlans = selectedPlans.filter((plan) => !generatedFiles.some((file) => file.path === plan.testPath));
     for (const missing of missingPlans) {
       notes.push(`No generated test file for ${missing.sourcePath} (${missing.testPath}).`);
     }
@@ -300,7 +327,7 @@ OUTPUT FORMAT (JSON):
     issues: string[],
   ): Promise<string | null> {
     try {
-      const response = await llm.invoke([
+      const response = await this.invokeWithTimeout(llm, [
         new SystemMessage(this.getSystemPrompt()),
         new HumanMessage(this.buildRevisionPrompt(plan, previousContent, issues)),
       ]);
@@ -370,6 +397,15 @@ OUTPUT FORMAT (JSON):
     } catch {
       return this.multiLlmService.createModel('cheap');
     }
+  }
+
+  private async invokeWithTimeout(llm: any, messages: any[]): Promise<any> {
+    return Promise.race([
+      llm.invoke(messages),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`LLM timeout after ${this.LLM_TIMEOUT_MS / 1000}s`)), this.LLM_TIMEOUT_MS)
+      ),
+    ]);
   }
 
   private getLanguageForFile(file: string): 'javascript' | 'java' | 'python' | null {
