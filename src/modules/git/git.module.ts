@@ -5,6 +5,7 @@ import { MonorepoDetectorService } from './services/monorepo-detector.service';
 import { PrGeneratorService } from './services/pr-generator.service';
 import { CodeReviewService } from './services/code-review.service';
 import { ReleaseNotesService } from './services/release-notes.service';
+import { UnitTestGeneratorService } from './services/unit-test-generator.service';
 
 @Module({
   imports: [CommonModule],
@@ -14,6 +15,7 @@ import { ReleaseNotesService } from './services/release-notes.service';
     PrGeneratorService,
     CodeReviewService,
     ReleaseNotesService,
+    UnitTestGeneratorService,
   ],
   exports: [
     CommitGeneratorService, 
@@ -21,6 +23,7 @@ import { ReleaseNotesService } from './services/release-notes.service';
     PrGeneratorService,
     CodeReviewService,
     ReleaseNotesService,
+    UnitTestGeneratorService,
   ],
 })
 export class GitModule {}
