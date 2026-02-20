@@ -250,7 +250,7 @@ export class TaskToolsService {
     return tool(
       async ({ tasks }) => {
         try {
-          const approved = await this.planModeService.exitPlanMode(
+          const approval = await this.planModeService.exitPlanMode(
             tasks.map((t) => ({
               subject: t.subject,
               description: t.description,
@@ -261,8 +261,8 @@ export class TaskToolsService {
 
           return JSON.stringify({
             success: true,
-            approved,
-            message: approved
+            approved: approval,
+            message: approval.approved
               ? 'Plan approved! You can now execute the tasks.'
               : 'Plan was not approved. Ask the user what they want to change.',
           });
