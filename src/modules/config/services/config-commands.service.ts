@@ -32,7 +32,7 @@ export class ConfigCommandsService {
 
   async handleConfigCommand(args: string[], smartInput?: SmartInput): Promise<void> {
     const subcommand = args[0];
-    const useInquirerFlow = ['init', 'setup', 'add-provider', 'set-model', 'remove-provider'].includes(subcommand || '');
+    const useInquirerFlow = ['init', 'setup', 'add-provider', 'set-model', 'set-api-key', 'remove-provider'].includes(subcommand || '');
 
     if (useInquirerFlow) {
       smartInput?.pause();
@@ -55,6 +55,10 @@ export class ConfigCommandsService {
 
       case 'set-model':
         await this.withEscHandler(() => this.setModelInteractive());
+        break;
+
+      case 'set-api-key':
+        await this.withEscHandler(() => this.setApiKeyInteractive());
         break;
 
       case 'remove-provider':
@@ -109,8 +113,9 @@ export class ConfigCommandsService {
         { key: '3', label: 'Adicionar provedor', description: 'Novo serviço de IA' },
         { key: '4', label: 'Remover provedor', description: 'Remover serviço' },
         { key: '5', label: 'Configurar modelo', description: 'Definir modelo para finalidade' },
-        { key: '6', label: 'Ver caminho do arquivo', description: 'Local do config.yaml' },
-        { key: '7', label: 'Sair', description: 'Voltar ao chat' },
+        { key: '6', label: 'Alterar API key', description: 'Atualizar credencial de um provedor' },
+        { key: '7', label: 'Ver caminho do arquivo', description: 'Local do config.yaml' },
+        { key: '8', label: 'Sair', description: 'Voltar ao chat' },
       ]));
 
       if (action === null) {
@@ -123,23 +128,35 @@ export class ConfigCommandsService {
           await this.showConfig();
           break;
         case '2':
-          await this.withEscHandler(() => this.initService.runInitialSetup());
+          await this.runInquirerFlow(smartInput, () => this.initService.runInitialSetup());
           return;
         case '3':
-          await this.withEscHandler(() => this.addProviderInteractive());
+          await this.runInquirerFlow(smartInput, () => this.addProviderInteractive());
           break;
         case '4':
-          await this.withEscHandler(() => this.removeProviderInteractive());
+          await this.runInquirerFlow(smartInput, () => this.removeProviderInteractive());
           break;
         case '5':
-          await this.withEscHandler(() => this.setModelInteractive());
+          await this.runInquirerFlow(smartInput, () => this.setModelInteractive());
           break;
         case '6':
-          console.log(`\n📁 ${this.configManager.getConfigPath()}\n`);
+          await this.runInquirerFlow(smartInput, () => this.setApiKeyInteractive());
           break;
         case '7':
+          console.log(`\n📁 ${this.configManager.getConfigPath()}\n`);
+          break;
+        case '8':
           return;
       }
+    }
+  }
+
+  private async runInquirerFlow(smartInput: SmartInput, fn: () => Promise<void>): Promise<void> {
+    smartInput.pause();
+    try {
+      await this.withEscHandler(fn);
+    } finally {
+      smartInput.resume();
     }
   }
 
@@ -418,5 +435,80 @@ export class ConfigCommandsService {
     console.log(
       chalk.green(`\n✓ Modelo para "${purposeLabel}" configurado: ${model}\n`)
     );
+  }
+
+  private async setApiKeyInteractive(): Promise<void> {
+    await this.configManager.loadConfig();
+
+    const configuredProviders = this.configManager
+      .getConfiguredProviders()
+      .filter((p) => p !== 'ollama');
+
+    if (configuredProviders.length === 0) {
+      console.log(chalk.yellow('\n⚠️  Nenhum provedor com API key configurável encontrado.\n'));
+      return;
+    }
+
+    console.log(chalk.cyan('\n🔑 Alterar API Key'));
+    console.log(chalk.gray('(pressione ESC para cancelar)\n'));
+
+    const provider = await selectWithEsc<ProviderType>({
+      message: 'Qual provedor deseja atualizar?',
+      choices: configuredProviders.map((p) => ({
+        name: PROVIDER_METADATA[p].name,
+        value: p,
+      })),
+    });
+
+    if (provider === null) {
+      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      return;
+    }
+
+    const currentConfig = this.configManager.getProviderConfig(provider) as { baseUrl?: string } | undefined;
+    const apiKeyRaw = await inputWithEsc({
+      message: `Nova API key para ${PROVIDER_METADATA[provider].name}:`,
+      validate: (v) => {
+        const clean = v.trim();
+        if (clean.length <= 5) return 'API key muito curta';
+        if (/[\s%]/.test(clean)) return 'API key contém caracteres inválidos (espaços ou %)';
+        return true;
+      },
+    });
+
+    if (apiKeyRaw === null) {
+      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      return;
+    }
+
+    let baseUrl = currentConfig?.baseUrl;
+    const changeBaseUrl = await confirmWithEsc({
+      message: 'Deseja alterar a base URL também?',
+      default: false,
+    });
+
+    if (changeBaseUrl === null) {
+      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      return;
+    }
+
+    if (changeBaseUrl) {
+      const newBaseUrl = await inputWithEsc({
+        message: 'Nova base URL:',
+        default: baseUrl || PROVIDER_METADATA[provider].defaultBaseUrl,
+      });
+      if (newBaseUrl === null) {
+        console.log(chalk.yellow('\n❌ Cancelado.\n'));
+        return;
+      }
+      baseUrl = newBaseUrl;
+    }
+
+    await this.configManager.addProvider(provider, {
+      apiKey: apiKeyRaw.trim(),
+      baseUrl,
+    });
+
+    console.log(chalk.green(`\n✓ API key de ${PROVIDER_METADATA[provider].name} atualizada.\n`));
   }
 }
