@@ -17,6 +17,7 @@ export interface Task {
   updatedAt: number;
   dependencies: string[];
   blocks: string[];
+  assignedAgent?: string;
   metadata?: Record<string, any>;
 }
 
@@ -44,6 +45,7 @@ export interface UpdateTaskOptions {
   activeForm?: string;
   addDependencies?: string[];
   removeDependencies?: string[];
+  assignedAgent?: string;
   metadata?: Record<string, any>;
 }
 
