@@ -22,8 +22,14 @@ export class PlanModeService {
       throw new Error('Already in plan mode');
     }
 
+    if (this.taskService.getExecutionContext()) {
+      throw new Error('Cannot enter plan mode while executing an approved plan');
+    }
+
     this.inPlanMode = true;
     this.planContext.clear();
+    this.planContext.set('title', title);
+    this.planContext.set('description', description);
 
     console.log('');
     console.log('━'.repeat(60));
@@ -42,40 +48,42 @@ export class PlanModeService {
       throw new Error('Not in plan mode');
     }
 
-    console.log('');
-    console.log('━'.repeat(60));
-    this.promptService.info('📋 Saindo do MODO PLANEJAMENTO - Apresentando Plano');
-    console.log('━'.repeat(60));
-    console.log('');
+    try {
+      console.log('');
+      console.log('━'.repeat(60));
+      this.promptService.info('📋 Saindo do MODO PLANEJAMENTO - Apresentando Plano');
+      console.log('━'.repeat(60));
+      console.log('');
 
-    const planTitle = this.planContext.get('title') || 'Plano de Execução';
-    const planDescription = this.planContext.get('description') || '';
+      const planTitle = this.planContext.get('title') || 'Plano de Execução';
+      const planDescription = this.planContext.get('description') || '';
 
-    const plan = this.taskService.createPlan(planTitle, planDescription, tasks);
-    this.currentPlan = plan;
+      const plan = this.taskService.createPlan(planTitle, planDescription, tasks);
+      this.currentPlan = plan;
 
-    const result = await this.taskService.approvePlan(plan.id);
+      const result = await this.taskService.approvePlan(plan.id);
 
-    if (result.approved) {
-      // Configurar contexto de execução
-      this.taskService.setExecutionContext({
-        planId: plan.id,
+      if (result.approved) {
+        // Configurar contexto de execução
+        this.taskService.setExecutionContext({
+          planId: plan.id,
+          autoApprove: result.autoApprove,
+          currentTaskIndex: 0,
+          startedAt: Date.now(),
+        });
+
+        // Executar plano usando PlanExecutorService
+        await this.planExecutor.executePlan(plan.id, result.autoApprove);
+      }
+
+      return {
+        approved: result.approved,
         autoApprove: result.autoApprove,
-        currentTaskIndex: 0,
-        startedAt: Date.now(),
-      });
-
-      // Executar plano usando PlanExecutorService
-      await this.planExecutor.executePlan(plan.id, result.autoApprove);
+        modification: result.modificationRequested,
+      };
+    } finally {
+      this.inPlanMode = false;
     }
-
-    this.inPlanMode = false;
-
-    return {
-      approved: result.approved,
-      autoApprove: result.autoApprove,
-      modification: result.modificationRequested,
-    };
   }
 
   isInPlanMode(): boolean {

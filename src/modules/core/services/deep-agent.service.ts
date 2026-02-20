@@ -932,7 +932,12 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
   async executeTask(task: Task): Promise<{ success: boolean; error?: string }> {
     try {
-      const message = `Execute a seguinte tarefa:\n\n**${task.subject}**\n\n${task.description}\n\nCertifique-se de completar a tarefa totalmente e verificar o resultado.`;
+      const message = [
+        'Voce esta executando uma tarefa de um plano ja aprovado.',
+        'NAO use enter_plan_mode nem exit_plan_mode nesta tarefa.',
+        `Tarefa:\n**${task.subject}**\n\n${task.description}`,
+        'Implemente diretamente o que foi pedido e valide o resultado.',
+      ].join('\n\n');
 
       let fullResponse = '';
       for await (const chunk of this.chat(message)) {
