@@ -1,9 +1,69 @@
 import { Injectable } from '@nestjs/common';
+import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
-import { GitDiffInfo, SplitCommit, CommitGroup, MonorepoInfo } from '../types/git.types';
+import { GitDiffInfo, SplitCommit, CommitGroup, ConventionalCommitType } from '../types/git.types';
+
+const COMMIT_TYPES: ConventionalCommitType[] = [
+  'feat',
+  'fix',
+  'docs',
+  'style',
+  'refactor',
+  'perf',
+  'test',
+  'build',
+  'ci',
+  'chore',
+];
+
+const COMMIT_TYPE_SET = new Set<string>(COMMIT_TYPES);
+
+const COMMIT_TYPE_ALIASES: Record<string, ConventionalCommitType> = {
+  feature: 'feat',
+  features: 'feat',
+  bug: 'fix',
+  bugfix: 'fix',
+  documentation: 'docs',
+  docs: 'docs',
+  test: 'test',
+  tests: 'test',
+  testing: 'test',
+  performance: 'perf',
+  optimize: 'perf',
+  optimization: 'perf',
+  dependency: 'build',
+  dependencies: 'build',
+  maintenance: 'chore',
+  housekeeping: 'chore',
+  cleanup: 'chore',
+  remove: 'refactor',
+};
+
+const LEADING_VERB_TRANSLATIONS: Record<string, string> = {
+  add: 'adiciona',
+  adds: 'adiciona',
+  update: 'atualiza',
+  updates: 'atualiza',
+  upgrade: 'atualiza',
+  upgrades: 'atualiza',
+  fix: 'corrige',
+  fixes: 'corrige',
+  remove: 'remove',
+  removes: 'remove',
+  refactor: 'refatora',
+  refactors: 'refatora',
+  improve: 'melhora',
+  improves: 'melhora',
+  create: 'cria',
+  creates: 'cria',
+  implement: 'implementa',
+  implements: 'implementa',
+  rename: 'renomeia',
+  renames: 'renomeia',
+};
 
 @Injectable()
 export class CommitGeneratorService {
@@ -15,9 +75,11 @@ export class CommitGeneratorService {
   getDiffInfo(): GitDiffInfo | null {
     try {
       const cwd = process.cwd();
-      const staged = execSync('git diff --cached', { cwd, encoding: 'utf-8' });
-      const unstaged = execSync('git diff', { cwd, encoding: 'utf-8' });
-      const stats = execSync('git diff --stat', { cwd, encoding: 'utf-8' });
+      const staged = execSync('git diff --cached --unified=1 --no-ext-diff', { cwd, encoding: 'utf-8' });
+      const unstaged = execSync('git diff --unified=1 --no-ext-diff', { cwd, encoding: 'utf-8' });
+      const stagedStats = execSync('git diff --cached --stat', { cwd, encoding: 'utf-8' });
+      const unstagedStats = execSync('git diff --stat', { cwd, encoding: 'utf-8' });
+      const statusShort = execSync('git status --short', { cwd, encoding: 'utf-8' });
       const untrackedRaw = execSync('git ls-files --others --exclude-standard', { cwd, encoding: 'utf-8' });
       const untrackedFiles = untrackedRaw.trim() ? untrackedRaw.trim().split('\n').filter(f => f.trim()) : [];
 
@@ -27,7 +89,7 @@ export class CommitGeneratorService {
         stagedFiles: this.extractFiles(staged),
         unstagedFiles: this.extractFiles(unstaged),
         untrackedFiles,
-        stats,
+        stats: this.buildStatsSummary(stagedStats, unstagedStats, statusShort, untrackedFiles),
       };
     } catch {
       return null;
@@ -60,7 +122,7 @@ export class CommitGeneratorService {
     ]);
 
     const message = this.extractContent(response.content);
-    return this.cleanCommitMessage(message);
+    return this.normalizeCommitMessage(message, 'chore', scope);
   }
 
   async splitCommits(): Promise<SplitCommit[] | null> {
@@ -80,21 +142,20 @@ export class CommitGeneratorService {
 
     const splitContent = this.extractContent(splitResponse.content);
     const commitGroups = this.parseCommitGroups(splitContent);
-
     if (!commitGroups?.length) return null;
 
-    const validGroups = commitGroups.filter((group) => Array.isArray(group.files) && group.files.length > 0);
-    if (validGroups.length === 0) return null;
+    const normalizedGroups = this.normalizeCommitGroups(commitGroups, allFiles);
+    if (normalizedGroups.length === 0) return null;
 
-    for (const group of validGroups) {
+    for (const group of normalizedGroups) {
       if (!group.scope) {
         group.scope = this.monorepoDetector.determineScope(group.files, monorepoInfo);
       }
     }
 
     const splitCommits: SplitCommit[] = [];
-    for (const group of validGroups) {
-      const message = await this.generateMessageForGroup(group, diffInfo);
+    for (const group of normalizedGroups) {
+      const message = await this.generateMessageForGroup(group);
       splitCommits.push({ ...group, message });
     }
 
@@ -140,9 +201,9 @@ export class CommitGeneratorService {
       for (const commit of commits) {
         execSync('git reset', { cwd });
 
-        for (const file of commit.files) {
+        for (const file of this.normalizeFiles(commit.files)) {
           try {
-            execSync(`git add "${file}"`, { cwd });
+            execSync(`git add -- ${this.escapeShellArg(file)}`, { cwd });
           } catch {}
         }
 
@@ -170,8 +231,20 @@ export class CommitGeneratorService {
     diffInfo: GitDiffInfo,
   ): Promise<string> {
     const llm = this.multiLlmService.createModel('cheap');
+    const context = this.buildDiffContext(diffInfo, {
+      maxLength: 6000,
+      maxCharsPerFile: 1200,
+      maxUntrackedFiles: 3,
+      maxUntrackedLines: 40,
+    });
+    const currentMetadata = this.extractTypeAndScope(currentMessage);
 
-    const prompt = `Current commit message: ${currentMessage}\n\nUser suggestion: ${userSuggestion}\n\nDiff:\n${diffInfo.staged.slice(0, 3000)}`;
+    const prompt = `Mensagem atual: ${currentMessage}
+
+Sugestão do usuário: ${userSuggestion}
+
+Contexto do diff:
+${context}`;
 
     const response = await llm.invoke([
       new SystemMessage(this.getRefineSystemPrompt()),
@@ -179,7 +252,13 @@ export class CommitGeneratorService {
     ]);
 
     const message = this.extractContent(response.content);
-    return this.cleanCommitMessage(message);
+    return this.normalizeCommitMessage(
+      message,
+      currentMetadata.type ?? 'chore',
+      currentMetadata.scope,
+      'atualiza código',
+      currentMetadata.breaking ?? false,
+    );
   }
 
   private extractFiles(diff: string): string[] {
@@ -209,78 +288,81 @@ export class CommitGeneratorService {
     return String(content);
   }
 
-  private cleanCommitMessage(message: string): string {
-    const lines = message.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const firstCommitLine = lines.find(l => l.includes(':')) || lines[0] || '';
-    return firstCommitLine.replace(/^["']|["']$/g, '').trim();
-  }
-
   private buildCommitPrompt(diffInfo: GitDiffInfo, scope?: string): string {
-    const scopeHint = scope ? `\n\nThis is a monorepo. The changes are primarily in the "${scope}" module.` : '';
+    const scopeHint = scope
+      ? `Escopo provável do monorepo: "${scope}".`
+      : 'Escopo do monorepo não identificado automaticamente.';
+    const fullDiff = this.buildDiffContext(diffInfo, {
+      maxLength: 12000,
+      maxCharsPerFile: 1800,
+      maxUntrackedFiles: 4,
+      maxUntrackedLines: 60,
+    });
 
-    let fullDiff = '';
-    if (diffInfo.staged) {
-      fullDiff += `=== Staged changes ===\n${diffInfo.staged}\n\n`;
-    }
-    if (diffInfo.unstaged) {
-      fullDiff += `=== Unstaged changes ===\n${diffInfo.unstaged}\n\n`;
-    }
+    return `Analise TODO o contexto de mudanças e gere UMA mensagem de commit no padrão Conventional Commits.
 
-    const untrackedHint = diffInfo.untrackedFiles.length > 0
-      ? `\nNew untracked files (will also be committed): ${diffInfo.untrackedFiles.join(', ')}\n`
-      : '';
+${scopeHint}
 
-    const maxLength = 10000;
-    if (fullDiff.length > maxLength) {
-      fullDiff = fullDiff.slice(0, maxLength) + '\n\n... (truncated)';
-    }
+Regras obrigatórias:
+- Formato: "type(scope): descrição", "type: descrição" ou com breaking "type(scope)!: descrição"
+- Tipos permitidos: ${COMMIT_TYPES.join(', ')}
+- Descrição em português (pt-BR), objetiva, no imperativo e sem ponto final
+- Máximo de 72 caracteres no assunto completo
+- A mensagem deve refletir a intenção principal do conjunto total de mudanças
+- Se for breaking change, inclua "!" após o type/scope
+- Considere staged, unstaged e arquivos novos
 
-    return `Generate a single conventional commit message for ALL of the following changes.${scopeHint}\n\nFiles changed:\n${diffInfo.stats}${untrackedHint}\n\n${fullDiff}`;
+Contexto do diff:
+${fullDiff}`;
   }
 
   private buildSplitPrompt(diffInfo: GitDiffInfo, files: string[]): string {
-    let fullDiff = '';
-    if (diffInfo.staged) {
-      fullDiff += `=== Staged changes ===\n${diffInfo.staged}\n\n`;
-    }
-    if (diffInfo.unstaged) {
-      fullDiff += `=== Unstaged changes ===\n${diffInfo.unstaged}\n\n`;
-    }
+    const allFiles = this.normalizeFiles([...files, ...diffInfo.untrackedFiles]);
+    const fullDiff = this.buildDiffContext(diffInfo, {
+      maxLength: 15000,
+      maxCharsPerFile: 1600,
+      maxUntrackedFiles: 6,
+      maxUntrackedLines: 80,
+    });
 
-    const allFiles = [...files, ...diffInfo.untrackedFiles.filter(f => !files.includes(f))];
-    const untrackedHint = diffInfo.untrackedFiles.length > 0
-      ? `\nNew untracked files (must be included in commits): ${diffInfo.untrackedFiles.join(', ')}\n`
-      : '';
+    return `Analise o diff completo e divida em commits lógicos no padrão Conventional Commits.
 
-    const maxLength = 8000;
-    if (fullDiff.length > maxLength) {
-      fullDiff = fullDiff.slice(0, maxLength) + '\n\n... (truncated)';
-    }
+Regras obrigatórias:
+- Cada arquivo da lista deve aparecer exatamente uma vez no resultado
+- Inclua TODOS os arquivos listados
+- Separe mudanças por coesão funcional (feature, fix, docs, refactor etc.)
+- Evite misturar objetivos diferentes no mesmo commit
+- Tipos permitidos: ${COMMIT_TYPES.join(', ')}
+- Descrição em português (pt-BR), no imperativo e sem ponto final
 
-    return `Analyze all the files below and group them into logical commits. Include ALL files in the result.\n\nFiles: ${allFiles.join(', ')}${untrackedHint}\n\nStats:\n${diffInfo.stats}\n\n${fullDiff}`;
+Arquivos esperados:
+${allFiles.join(', ') || '(nenhum arquivo detectado)'}
+
+Contexto do diff:
+${fullDiff}`;
   }
 
-  private async generateMessageForGroup(group: CommitGroup, diffInfo: GitDiffInfo): Promise<string> {
+  private async generateMessageForGroup(group: CommitGroup): Promise<string> {
     const llm = this.multiLlmService.createModel('cheap');
-
     const scopePart = group.scope ? `(${group.scope})` : '';
+    const prompt = `Gere uma mensagem Conventional Commit (máximo 72 caracteres) para este grupo:
 
-    const prompt = `Generate a conventional commit message (max 72 chars) for:\n\nType: ${group.type}${scopePart}\nFiles: ${group.files.join(', ')}\nDescription: ${group.description}\n\nIMPORTANT: Return ONLY the commit message in format: "type(scope): description" or "type: description"\nThe message MUST be in English.`;
+Tipo: ${group.type}${scopePart}
+Arquivos: ${group.files.join(', ')}
+Resumo: ${group.description}
+
+Retorne APENAS uma linha no formato:
+"type(scope): descrição", "type: descrição" ou "type(scope)!: descrição"
+
+Descrição obrigatoriamente em português (pt-BR).`;
 
     const response = await llm.invoke([
       new SystemMessage(this.getCommitSystemPrompt()),
       new HumanMessage(prompt),
     ]);
 
-    let message = this.extractContent(response.content);
-    message = this.cleanCommitMessage(message);
-
-    if (!message.includes(':')) {
-      const scope = group.scope ? `(${group.scope})` : '';
-      message = `${group.type}${scope}: ${message}`;
-    }
-
-    return message;
+    const message = this.extractContent(response.content);
+    return this.normalizeCommitMessage(message, group.type, group.scope, group.description);
   }
 
   private parseCommitGroups(content: string): CommitGroup[] | null {
@@ -305,89 +387,461 @@ export class CommitGeneratorService {
   }
 
   private getCommitSystemPrompt(): string {
-    return `You are a Git commit message expert. Generate concise commit messages following Conventional Commits.
+    return `Você é especialista em mensagens de commit no padrão Conventional Commits.
 
-**Available types:**
-- feat: new feature
-- fix: bug fix
-- docs: documentation
-- style: formatting (no logic change)
-- refactor: refactoring (no functionality change)
-- perf: performance improvement
-- test: tests
-- build: build/dependencies
-- ci: continuous integration
-- chore: general tasks
-- cleanup: code cleanup
-- remove: code removal
+Tipos permitidos:
+${COMMIT_TYPES.join(', ')}
 
-**Format:**
-- With scope: <type>(<scope>): <description>
-- Without scope: <type>: <description>
+Formato obrigatório:
+- Com escopo: <type>(<scope>): <descrição>
+- Sem escopo: <type>: <descrição>
+- Breaking change no assunto: <type>(<scope>)!: <descrição> (ou <type>!: <descrição>)
 
-**Rules:**
-- Maximum 72 characters for the subject line
-- Description in English
-- No period at the end
-- Use imperative mood ("add" not "added")
-- Be specific but concise
+Regras:
+- Assunto completo com no máximo 72 caracteres
+- Descrição em português (pt-BR)
+- Verbo no imperativo
+- Sem ponto final
+- Seja específico e evite mensagens genéricas
+- Use escopo quando ele estiver claro
+- Tipos feat e fix devem ser usados de forma semântica (feature e correção)
 
-If this is a monorepo and you can identify the module, include the scope.
-
-Return ONLY the commit message, nothing else.`;
+Retorne SOMENTE a linha do commit, sem explicações.`;
   }
 
   private getSplitSystemPrompt(): string {
-    return `You are a Git commit organization expert. Analyze the changes and divide them into logical commits.
+    return `Você é especialista em organizar diffs em commits lógicos.
 
-**YOUR TASK:**
-Group changes into logical commits based on:
-1. **Functional cohesion**: Changes that make sense together
-2. **Change type**: features, fixes, docs, refactorings separated
-3. **Related files**: Files that work together
+Tarefa:
+- Agrupar mudanças por coesão funcional
+- Separar corretamente feature, fix, docs, refactor etc.
+- Garantir que todos os arquivos apareçam exatamente uma vez
 
-**RETURN FORMAT (JSON):**
-Return ONLY valid JSON in this format:
+Formato de resposta:
+Retorne SOMENTE JSON válido:
 \`\`\`json
 {
   "commits": [
     {
       "type": "feat",
-      "files": ["src/auth.ts", "src/models/user.ts"],
-      "description": "add user authentication"
+      "files": ["src/chatbot/service.ts"],
+      "description": "adiciona service de chatbot"
     },
     {
       "type": "docs",
       "files": ["README.md"],
-      "description": "update documentation"
+      "description": "atualiza documentação de uso"
     }
   ]
 }
 \`\`\`
 
-**AVAILABLE TYPES:**
-feat, fix, docs, style, refactor, perf, test, build, ci, chore
+Regras:
+- Tipos permitidos: ${COMMIT_TYPES.join(', ')}
+- Cada commit com propósito claro
+- Descrição em português (pt-BR), no imperativo, sem ponto final
+- Máximo recomendado de 5 arquivos por commit
+- Pode retornar 1 commit apenas se o diff for pequeno e coeso
 
-**RULES:**
-- Each commit should have a clear purpose
-- Group functionally related files
-- Separate features from fixes from documentation
-- Maximum 5 files per commit (ideally fewer)
-- If diff is small (<3 files), can be 1 commit only
-- Description must ALWAYS be in English
-- Include ALL files in the result
-
-**IMPORTANT:** Return ONLY the JSON, no additional text.`;
+Retorne SOMENTE o JSON, sem texto adicional.`;
   }
 
   private getRefineSystemPrompt(): string {
-    return `You are refining a commit message based on user feedback.
+    return `Você está refinando uma mensagem de commit a partir do feedback do usuário.
 
-**Instructions:**
-- Keep the message concise (max 72 characters)
-- Follow Conventional Commits format
-- Incorporate the user's suggestion
-- Return ONLY the new commit message, without explanations
-- Message MUST be in English`;
+Instruções:
+- Respeite Conventional Commits
+- Mantenha no máximo 72 caracteres
+- Mensagem em português (pt-BR), no imperativo e sem ponto final
+- Incorpore a sugestão do usuário sem perder precisão técnica
+
+Retorne SOMENTE a nova linha de commit.`;
+  }
+
+  private normalizeCommitGroups(commitGroups: CommitGroup[], files: string[]): CommitGroup[] {
+    const expectedFiles = new Set(this.normalizeFiles(files));
+    const usedFiles = new Set<string>();
+    const normalizedGroups: CommitGroup[] = [];
+
+    for (const group of commitGroups) {
+      const filesFromGroup = this.normalizeFiles(Array.isArray(group.files) ? group.files : [])
+        .filter((file) => expectedFiles.has(file))
+        .filter((file) => {
+          if (usedFiles.has(file)) {
+            return false;
+          }
+          usedFiles.add(file);
+          return true;
+        });
+
+      if (filesFromGroup.length === 0) continue;
+
+      normalizedGroups.push({
+        type: this.normalizeCommitType(group.type, this.inferTypeFromFiles(filesFromGroup)),
+        files: filesFromGroup,
+        description: this.normalizeDescription(group.description, 'organiza mudanças relacionadas'),
+        scope: this.normalizeScope(group.scope),
+      });
+    }
+
+    const missingFiles = this.normalizeFiles(files).filter((file) => !usedFiles.has(file));
+    if (missingFiles.length > 0) {
+      normalizedGroups.push({
+        type: this.inferTypeFromFiles(missingFiles),
+        files: missingFiles,
+        description: 'organiza arquivos restantes do diff',
+      });
+    }
+
+    return normalizedGroups;
+  }
+
+  private normalizeCommitMessage(
+    rawMessage: string,
+    fallbackType: ConventionalCommitType,
+    fallbackScope?: string,
+    fallbackDescription = 'atualiza código',
+    fallbackBreaking = false,
+  ): string {
+    const candidateLine = this.extractCandidateCommitLine(rawMessage);
+    const match = candidateLine.match(/^([a-zA-Z-]+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/);
+
+    const type = this.normalizeCommitType(match?.[1], fallbackType);
+    const scope = this.normalizeScope(match?.[2] ?? fallbackScope);
+    const breaking = Boolean(match?.[3]) || fallbackBreaking;
+    const rawDescription = match?.[4] ?? candidateLine;
+    const description = this.normalizeDescription(rawDescription, fallbackDescription);
+
+    const breakingFlag = breaking ? '!' : '';
+    const prefix = scope
+      ? `${type}(${scope})${breakingFlag}: `
+      : `${type}${breakingFlag}: `;
+    const maxDescriptionLength = Math.max(12, 72 - prefix.length);
+    const truncatedDescription = this.truncateText(description, maxDescriptionLength);
+
+    return `${prefix}${truncatedDescription}`;
+  }
+
+  private extractTypeAndScope(message: string): {
+    type?: ConventionalCommitType;
+    scope?: string;
+    breaking?: boolean;
+  } {
+    const candidateLine = this.extractCandidateCommitLine(message);
+    const match = candidateLine.match(/^([a-zA-Z-]+)(?:\(([^)]+)\))?(!)?:\s*.+$/);
+    if (!match) return {};
+
+    return {
+      type: this.normalizeCommitType(match[1], 'chore'),
+      scope: this.normalizeScope(match[2]),
+      breaking: Boolean(match[3]),
+    };
+  }
+
+  private extractCandidateCommitLine(rawMessage: string): string {
+    const withoutCodeBlock = rawMessage.replace(/```(?:[\w-]+)?/g, '');
+    const lines = withoutCodeBlock
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => line.replace(/^[-*]\s+/, ''));
+
+    if (lines.length === 0) return '';
+
+    const conventionalLine = lines.find((line) => /^[a-zA-Z-]+(?:\([^)]+\))?!?:\s+/.test(line));
+    if (conventionalLine) {
+      return conventionalLine.replace(/^["'`]|["'`]$/g, '').trim();
+    }
+
+    const prefixedLine = lines.find((line) => /^commit\s*:/i.test(line));
+    if (prefixedLine) {
+      return prefixedLine.replace(/^commit\s*:/i, '').replace(/^["'`]|["'`]$/g, '').trim();
+    }
+
+    return lines[0].replace(/^["'`]|["'`]$/g, '').trim();
+  }
+
+  private normalizeCommitType(
+    type: string | undefined,
+    fallbackType: ConventionalCommitType,
+  ): ConventionalCommitType {
+    const normalized = (type || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z]/g, '');
+
+    if (!normalized) return fallbackType;
+    if (COMMIT_TYPE_SET.has(normalized)) return normalized as ConventionalCommitType;
+    if (COMMIT_TYPE_ALIASES[normalized]) return COMMIT_TYPE_ALIASES[normalized];
+
+    return fallbackType;
+  }
+
+  private normalizeScope(scope?: string): string | undefined {
+    if (!scope) return undefined;
+
+    const normalized = scope
+      .trim()
+      .replace(/^["'`]|["'`]$/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9/_-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    return normalized || undefined;
+  }
+
+  private normalizeDescription(description: string, fallback: string): string {
+    let normalized = description
+      .replace(/^["'`]|["'`]$/g, '')
+      .replace(/^([a-zA-Z-]+)(?:\([^)]+\))?!?:\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    normalized = normalized.replace(/[.;:!?]+$/, '').trim();
+    if (!normalized) normalized = fallback;
+
+    normalized = this.translateLeadingVerb(normalized);
+
+    if (/^[A-ZÀ-Ý]/.test(normalized)) {
+      normalized = normalized.charAt(0).toLowerCase() + normalized.slice(1);
+    }
+
+    return normalized;
+  }
+
+  private translateLeadingVerb(description: string): string {
+    const match = description.match(/^([a-zA-Z]+)(\b.*)$/);
+    if (!match) return description;
+
+    const translated = LEADING_VERB_TRANSLATIONS[match[1].toLowerCase()];
+    if (!translated) return description;
+
+    return `${translated}${match[2]}`;
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (text.length <= maxLength) return text;
+
+    const truncated = text.slice(0, maxLength).trimEnd();
+    const lastSpace = truncated.lastIndexOf(' ');
+    if (lastSpace > maxLength * 0.6) {
+      return truncated.slice(0, lastSpace).trimEnd();
+    }
+
+    return truncated;
+  }
+
+  private normalizeFiles(files: string[]): string[] {
+    const unique = new Set<string>();
+
+    for (const file of files) {
+      if (typeof file !== 'string') continue;
+      const normalized = file.trim().replace(/^["']|["']$/g, '');
+      if (!normalized) continue;
+      unique.add(normalized);
+    }
+
+    return Array.from(unique);
+  }
+
+  private buildStatsSummary(
+    stagedStats: string,
+    unstagedStats: string,
+    statusShort: string,
+    untrackedFiles: string[],
+  ): string {
+    const sections: string[] = [];
+
+    if (statusShort.trim()) {
+      sections.push(`Git status (--short):\n${statusShort.trim()}`);
+    }
+    if (stagedStats.trim()) {
+      sections.push(`Diff staged (--cached --stat):\n${stagedStats.trim()}`);
+    }
+    if (unstagedStats.trim()) {
+      sections.push(`Diff unstaged (--stat):\n${unstagedStats.trim()}`);
+    }
+    if (untrackedFiles.length > 0) {
+      sections.push(`Arquivos novos (${untrackedFiles.length}): ${untrackedFiles.join(', ')}`);
+    }
+
+    return sections.join('\n\n');
+  }
+
+  private buildDiffContext(
+    diffInfo: GitDiffInfo,
+    options: {
+      maxLength: number;
+      maxCharsPerFile: number;
+      maxUntrackedFiles: number;
+      maxUntrackedLines: number;
+    },
+  ): string {
+    const sections: string[] = [];
+
+    if (diffInfo.stats.trim()) {
+      sections.push(`Resumo:\n${diffInfo.stats.trim()}`);
+    }
+
+    sections.push(this.buildFilesSummary(diffInfo));
+
+    const stagedByFile = this.limitDiffByFile(diffInfo.staged, options.maxCharsPerFile);
+    if (stagedByFile) {
+      sections.push(`=== STAGED ===\n${stagedByFile}`);
+    }
+
+    const unstagedByFile = this.limitDiffByFile(diffInfo.unstaged, options.maxCharsPerFile);
+    if (unstagedByFile) {
+      sections.push(`=== UNSTAGED ===\n${unstagedByFile}`);
+    }
+
+    const untrackedPreview = this.buildUntrackedPreview(
+      diffInfo.untrackedFiles,
+      options.maxUntrackedFiles,
+      options.maxUntrackedLines,
+    );
+    if (untrackedPreview) {
+      sections.push(`=== PREVIEW ARQUIVOS NOVOS ===\n${untrackedPreview}`);
+    }
+
+    let combined = sections.filter(Boolean).join('\n\n');
+    if (combined.length > options.maxLength) {
+      combined = `${combined.slice(0, options.maxLength).trimEnd()}\n\n... (contexto truncado)`;
+    }
+
+    return combined;
+  }
+
+  private buildFilesSummary(diffInfo: GitDiffInfo): string {
+    const lines: string[] = [];
+
+    const stagedFiles = this.normalizeFiles(diffInfo.stagedFiles);
+    const unstagedFiles = this.normalizeFiles(diffInfo.unstagedFiles);
+    const untrackedFiles = this.normalizeFiles(diffInfo.untrackedFiles);
+
+    if (stagedFiles.length > 0) {
+      lines.push(`Staged (${stagedFiles.length}): ${this.summarizeFileList(stagedFiles)}`);
+    }
+    if (unstagedFiles.length > 0) {
+      lines.push(`Unstaged (${unstagedFiles.length}): ${this.summarizeFileList(unstagedFiles)}`);
+    }
+    if (untrackedFiles.length > 0) {
+      lines.push(`Novos (${untrackedFiles.length}): ${this.summarizeFileList(untrackedFiles)}`);
+    }
+
+    if (lines.length === 0) {
+      return 'Arquivos afetados: nenhum arquivo identificado';
+    }
+
+    return `Arquivos afetados:\n${lines.join('\n')}`;
+  }
+
+  private summarizeFileList(files: string[], limit = 20): string {
+    if (files.length <= limit) {
+      return files.join(', ');
+    }
+
+    const remaining = files.length - limit;
+    return `${files.slice(0, limit).join(', ')}, ... (+${remaining})`;
+  }
+
+  private limitDiffByFile(diff: string, maxCharsPerFile: number): string {
+    if (!diff.trim()) return '';
+
+    const sections = this.splitDiffByFile(diff);
+    if (sections.length === 0) return '';
+
+    const limitedSections = sections.map((section) => {
+      if (section.length <= maxCharsPerFile) return section.trimEnd();
+      return `${section.slice(0, maxCharsPerFile).trimEnd()}\n... (diff deste arquivo truncado)`;
+    });
+
+    return limitedSections.join('\n\n');
+  }
+
+  private splitDiffByFile(diff: string): string[] {
+    const rawSections = diff
+      .split(/^diff --git /m)
+      .map((section) => section.trim())
+      .filter((section) => section.length > 0);
+
+    return rawSections.map((section) => `diff --git ${section}`);
+  }
+
+  private buildUntrackedPreview(files: string[], maxFiles: number, maxLines: number): string {
+    const selectedFiles = this.normalizeFiles(files).slice(0, maxFiles);
+    const sections: string[] = [];
+
+    for (const file of selectedFiles) {
+      const preview = this.readTextFilePreview(file, maxLines);
+      if (!preview) continue;
+      sections.push(`--- ${file} ---\n${preview}`);
+    }
+
+    if (files.length > maxFiles) {
+      sections.push(`... ${files.length - maxFiles} arquivo(s) novo(s) omitido(s)`);
+    }
+
+    return sections.join('\n\n');
+  }
+
+  private readTextFilePreview(file: string, maxLines: number): string {
+    try {
+      const content = readFileSync(file, 'utf-8');
+      if (content.includes('\u0000')) {
+        return '[arquivo binário omitido]';
+      }
+
+      if (!content.length) {
+        return '[arquivo vazio]';
+      }
+
+      const lines = content.split('\n');
+      const preview = lines.slice(0, maxLines).join('\n');
+      const clippedPreview = preview.length > 2500 ? `${preview.slice(0, 2500)}\n...` : preview;
+
+      if (lines.length > maxLines && !clippedPreview.endsWith('\n...')) {
+        return `${clippedPreview}\n...`;
+      }
+
+      return clippedPreview;
+    } catch {
+      return '';
+    }
+  }
+
+  private inferTypeFromFiles(files: string[]): ConventionalCommitType {
+    if (files.length === 0) return 'chore';
+
+    const onlyDocs = files.every((file) =>
+      /^docs\//i.test(file)
+      || /(^|\/)README\.md$/i.test(file)
+      || /(^|\/)CHANGELOG\.md$/i.test(file)
+      || /\.(md|mdx|txt)$/i.test(file),
+    );
+    if (onlyDocs) return 'docs';
+
+    const onlyTests = files.every((file) =>
+      /(^|\/)__tests__\//.test(file)
+      || /\.(spec|test)\.[cm]?[jt]sx?$/.test(file),
+    );
+    if (onlyTests) return 'test';
+
+    const onlyInfra = files.every((file) =>
+      /(^|\/)package(-lock)?\.json$/.test(file)
+      || /(^|\/)(pnpm-lock\.yaml|yarn\.lock)$/i.test(file)
+      || /(^|\/)Dockerfile/i.test(file)
+      || /(^|\/)docker-compose\.ya?ml$/i.test(file)
+      || /(^|\/)\.github\/workflows\//.test(file),
+    );
+    if (onlyInfra) return 'build';
+
+    return 'chore';
+  }
+
+  private escapeShellArg(value: string): string {
+    return `'${value.replace(/'/g, '\'\\\'\'')}'`;
   }
 }

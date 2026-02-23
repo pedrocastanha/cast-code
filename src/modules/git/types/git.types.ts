@@ -8,9 +8,7 @@ export type ConventionalCommitType =
   | 'test' 
   | 'build' 
   | 'ci' 
-  | 'chore' 
-  | 'cleanup' 
-  | 'remove';
+  | 'chore';
 
 export interface CommitGroup {
   type: ConventionalCommitType;
