@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import {
   Task,
   TaskStatus,
@@ -11,9 +12,9 @@ import {
 import { PromptService } from '../../permissions/services/prompt.service';
 import { Colors } from '../../repl/utils/theme';
 
-
 @Injectable()
 export class TaskManagementService {
+  readonly events = new EventEmitter();
   private tasks: Map<string, Task> = new Map();
   private plans: Map<string, TaskPlan> = new Map();
   private taskCounter = 0;
@@ -47,6 +48,7 @@ export class TaskManagementService {
       }
     }
 
+    this.events.emit('task:created', task);
     return task;
   }
 
@@ -69,11 +71,20 @@ export class TaskManagementService {
       );
     }
 
+    if (options.assignedAgent !== undefined) task.assignedAgent = options.assignedAgent;
+
     if (options.metadata) {
       task.metadata = { ...task.metadata, ...options.metadata };
     }
 
     task.updatedAt = Date.now();
+    this.events.emit('task:updated', task);
+    
+    // Debug log for Kanban updates
+    if (options.status) {
+      process.stdout.write(`\r  Task ${taskId} status updated to: ${options.status}\n`);
+    }
+
     return task;
   }
 
@@ -111,6 +122,7 @@ export class TaskManagementService {
     };
 
     this.plans.set(id, plan);
+    this.events.emit('plan:created', plan);
     return plan;
   }
 
@@ -221,6 +233,7 @@ export class TaskManagementService {
     const rest = subject.slice(firstWord.length);
 
     const gerundMap: Record<string, string> = {
+      // English
       create: 'Creating',
       add: 'Adding',
       implement: 'Implementing',
@@ -232,9 +245,31 @@ export class TaskManagementService {
       test: 'Testing',
       write: 'Writing',
       read: 'Reading',
+      // Portuguese
+      criar: 'Criando',
+      adicionar: 'Adicionando',
+      implementar: 'Implementando',
+      corrigir: 'Corrigindo',
+      atualizar: 'Atualizando',
+      remover: 'Removendo',
+      deletar: 'Deletando',
+      refatorar: 'Refatorando',
+      testar: 'Testando',
+      escrever: 'Escrevendo',
+      ler: 'Lendo',
+      analisar: 'Analisando',
+      fazer: 'Fazendo',
+      crie: 'Criando',
+      adicione: 'Adicionando',
+      implemente: 'Implementando',
+      corrija: 'Corrigindo',
+      atualize: 'Atualizando',
+      remova: 'Removendo',
+      analise: 'Analisando',
+      faça: 'Fazendo',
     };
 
-    const gerund = gerundMap[firstWord] || subject + 'ing';
+    const gerund = gerundMap[firstWord] || (subject.length > 20 ? subject.slice(0, 20) + '...' : subject);
     return gerund + rest;
   }
 

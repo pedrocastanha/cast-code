@@ -80,9 +80,8 @@ export class PlanExecutorService {
         console.log(`  ${Colors.dim}${task.description}${Colors.reset}`);
         console.log('');
 
-        this.taskService.updateTask(task.id, { status: TaskStatus.IN_PROGRESS });
+        this.taskService.updateTask(task.id, { status: TaskStatus.IN_PROGRESS, assignedAgent: 'main' });
 
-        // Executar task via DeepAgent
         const deepAgent = await this.getDeepAgent();
         const result = await deepAgent.executeTask(task);
 
