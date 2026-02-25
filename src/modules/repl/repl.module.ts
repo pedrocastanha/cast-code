@@ -16,9 +16,10 @@ import { McpModule } from '../mcp/mcp.module';
 import { ProjectModule } from '../project/project.module';
 import { MemoryModule } from '../memory/memory.module';
 import { ConfigModule } from '../config';
+import { KanbanModule } from '../kanban/kanban.module';
 
 @Module({
-  imports: [ConfigModule, CoreModule, ToolsModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule, MemoryModule],
+  imports: [ConfigModule, CoreModule, ToolsModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule, MemoryModule, KanbanModule],
   providers: [
     ReplService,
     WelcomeScreenService,

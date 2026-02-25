@@ -16,6 +16,7 @@ import { McpCommandsService } from './commands/mcp-commands.service';
 import { ConfigCommandsService } from '../../config/services/config-commands.service';
 import { ProjectCommandsService } from './commands/project-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
+import { KanbanServerService } from '../../kanban/services/kanban-server.service';
 import { Colors, Icons } from '../utils/theme';
 
 @Injectable()
@@ -42,6 +43,7 @@ export class ReplService {
     private readonly configCommands: ConfigCommandsService,
     private readonly projectCommands: ProjectCommandsService,
     private readonly toolsRegistry: ToolsRegistryService,
+    private readonly kanbanServer: KanbanServerService,
   ) {}
 
   async start(): Promise<void> {
@@ -97,6 +99,7 @@ export class ReplService {
       { text: '/project-deep', display: '/project-deep', description: 'Deep project analysis' },
       { text: '/init', display: '/init', description: 'Analyze project and generate context' },
       { text: '/mcp', display: '/mcp', description: 'MCP servers' },
+      { text: '/kanban', display: '/kanban', description: 'Open kanban board' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -261,6 +264,10 @@ export class ReplService {
         break;
       case 'project-deep':
         await this.projectCommands.cmdProject(['deep'], this.smartInput!);
+        break;
+
+      case 'kanban':
+        this.kanbanServer.start();
         break;
 
       default:
