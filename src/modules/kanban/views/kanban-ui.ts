@@ -84,6 +84,27 @@ export function getKanbanHtml(): string {
     gap: 16px;
   }
 
+  .btn-primary {
+    background: var(--cyan);
+    color: var(--bg);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .task-count {
     color: var(--muted);
     font-size: 12px;
@@ -96,6 +117,89 @@ export function getKanbanHtml(): string {
     padding: 2px 8px;
     border-radius: 4px;
     font-size: 11px;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+  }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 100%;
+    max-width: 450px;
+    padding: 24px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  }
+
+  .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--cyan);
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+
+  .form-group input, .form-group textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+
+  .form-group input:focus, .form-group textarea:focus {
+    border-color: var(--cyan);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--border-hover);
+    color: var(--text);
   }
 
   .board {
@@ -115,6 +219,12 @@ export function getKanbanHtml(): string {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: background 0.2s;
+  }
+
+  .column.drag-over {
+    background: rgba(88, 166, 255, 0.05);
+    border-color: var(--cyan);
   }
 
   .column-header {
@@ -162,6 +272,7 @@ export function getKanbanHtml(): string {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 50px;
   }
 
   .cards::-webkit-scrollbar { width: 4px; }
@@ -173,9 +284,19 @@ export function getKanbanHtml(): string {
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 10px 12px;
-    cursor: default;
+    cursor: grab;
     transition: border-color 0.15s, transform 0.15s;
     animation: cardIn 0.2s ease-out;
+    position: relative;
+  }
+
+  .card:active {
+    cursor: grabbing;
+  }
+
+  .card.dragging {
+    opacity: 0.4;
+    transform: scale(0.95);
   }
 
   @keyframes cardIn {
@@ -185,6 +306,39 @@ export function getKanbanHtml(): string {
 
   .card:hover {
     border-color: var(--border-hover);
+  }
+
+  .card:hover .card-actions {
+    opacity: 1;
+  }
+
+  .card-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .btn-mini {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--cyan);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 9px;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+
+  .btn-mini:hover {
+    border-color: var(--cyan);
+  }
+
+  .btn-mini:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .card.highlight {
@@ -201,6 +355,7 @@ export function getKanbanHtml(): string {
     align-items: flex-start;
     gap: 8px;
     margin-bottom: 6px;
+    padding-right: 40px;
   }
 
   .card-id {
@@ -295,6 +450,14 @@ export function getKanbanHtml(): string {
     padding: 20px;
     text-align: center;
   }
+
+  .thinking-indicator {
+    color: var(--purple);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 </style>
 </head>
 <body>
@@ -302,40 +465,60 @@ export function getKanbanHtml(): string {
 <header>
   <div class="logo">cast <span>·</span> kanban</div>
   <div class="live-dot" id="liveDot"></div>
-  <div class="header-right">
+  <div id="header-right-container" class="header-right">
+    <button class="btn-primary" onclick="showModal()">+ New Task</button>
     <span class="task-count" id="taskCount">0 tasks</span>
     <span class="plan-badge" id="planBadge" style="display:none"></span>
   </div>
 </header>
 
 <div class="board">
-  <div class="column col-pending" id="col-pending">
+  <div class="column col-pending" id="col-pending" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'pending')">
     <div class="column-header">
-      <span class="column-label">Backlog</span>
+      <span class="column-label">To-Do</span>
+      <button id="btn-auto-planner" class="btn-mini" style="margin-left: 10px; border-color: var(--purple); color: var(--purple);" onclick="runAutoPlanner()">⚡ Run</button>
       <span class="column-count" id="count-pending">0</span>
     </div>
     <div class="cards" id="cards-pending"></div>
   </div>
-  <div class="column col-inprogress" id="col-inprogress">
+  <div class="column col-inprogress" id="col-inprogress" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'in_progress')">
     <div class="column-header">
       <span class="column-label">In Progress</span>
       <span class="column-count" id="count-inprogress">0</span>
     </div>
     <div class="cards" id="cards-inprogress"></div>
   </div>
-  <div class="column col-done" id="col-done">
+  <div class="column col-done" id="col-done" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'completed')">
     <div class="column-header">
       <span class="column-label">Done</span>
       <span class="column-count" id="count-done">0</span>
     </div>
     <div class="cards" id="cards-done"></div>
   </div>
-  <div class="column col-failed" id="col-failed">
+  <div class="column col-failed" id="col-failed" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'failed')">
     <div class="column-header">
       <span class="column-label">Failed / Blocked</span>
       <span class="column-count" id="count-failed">0</span>
     </div>
     <div class="cards" id="cards-failed"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-title">Create New Task</div>
+    <div class="form-group">
+      <label>Subject</label>
+      <input type="text" id="taskSubject" placeholder="What needs to be done?">
+    </div>
+    <div class="form-group">
+      <label>Description (Optional)</label>
+      <textarea id="taskDescription" rows="3" placeholder="Add more details..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="hideModal()">Cancel</button>
+      <button class="btn-primary" onclick="createTask()">Create Task</button>
+    </div>
   </div>
 </div>
 
@@ -351,6 +534,135 @@ export function getKanbanHtml(): string {
 
   let tasks = {};
   let sseRetryTimer = null;
+  let isAutoPlanning = false;
+
+  // Drag and Drop State
+  let draggedTaskId = null;
+
+  function handleDragStart(e, taskId) {
+    draggedTaskId = taskId;
+    e.target.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', taskId);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragEnd(e) {
+    e.target.classList.remove('dragging');
+    draggedTaskId = null;
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+    e.dataTransfer.dropEffect = 'move';
+  }
+
+  function handleDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+
+  async function handleDrop(e, targetStatus) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    
+    const taskId = e.dataTransfer.getData('text/plain');
+    const task = tasks[taskId];
+    
+    if (!task || task.status === targetStatus) return;
+
+    // Rules
+    if (task.status === 'completed' && targetStatus === 'in_progress') {
+      const reason = prompt(\`Why are you redoing task "\${task.subject}"?\`);
+      if (!reason) return;
+      
+      await updateTask(taskId, { 
+        status: targetStatus,
+        metadata: { ...task.metadata, redoReason: reason, redoneAt: Date.now() }
+      });
+    } else {
+      await updateTask(taskId, { status: targetStatus });
+    }
+  }
+
+  async function runAutoPlanner() {
+    if (isAutoPlanning) return;
+    isAutoPlanning = true;
+    renderHeaderRight();
+    document.getElementById('btn-auto-planner').disabled = true;
+
+    try {
+      await fetch('/api/tasks/auto-execute', { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to start auto-planner:', err);
+      isAutoPlanning = false;
+      renderHeaderRight();
+      document.getElementById('btn-auto-planner').disabled = false;
+    }
+  }
+
+  function renderHeaderRight() {
+    const container = document.getElementById('header-right-container');
+    const thinking = isAutoPlanning ? '<span class="thinking-indicator"><div class="spinner" style="border-top-color:var(--purple)"></div> Auto-Planner thinking...</span>' : '';
+    
+    container.innerHTML = \`
+      \${thinking}
+      <button class="btn-primary" onclick="showModal()">+ New Task</button>
+      <span class="task-count" id="taskCount">\${Object.keys(tasks).length} tasks</span>
+      <span class="plan-badge" id="planBadge" style="display:none"></span>
+    \`;
+  }
+
+  function showModal() {
+    document.getElementById('modalOverlay').style.display = 'flex';
+    document.getElementById('taskSubject').focus();
+  }
+
+  function hideModal() {
+    document.getElementById('modalOverlay').style.display = 'none';
+    document.getElementById('taskSubject').value = '';
+    document.getElementById('taskDescription').value = '';
+  }
+
+  async function createTask() {
+    const subject = document.getElementById('taskSubject').value.trim();
+    const description = document.getElementById('taskDescription').value.trim();
+
+    if (!subject) return;
+
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, description })
+      });
+      
+      if (res.ok) {
+        hideModal();
+      }
+    } catch (err) {
+      console.error('Failed to create task:', err);
+    }
+  }
+
+  async function updateTask(taskId, updates) {
+    try {
+      await fetch(\`/api/tasks/\${taskId}\`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+    } catch (err) {
+      console.error('Failed to update task:', err);
+    }
+  }
+
+  async function executeTask(taskId) {
+    try {
+      await fetch(\`/api/tasks/\${taskId}/execute\`, { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to execute task:', err);
+    }
+  }
 
   function col(status) {
     return COL_MAP[status] || 'pending';
@@ -359,6 +671,7 @@ export function getKanbanHtml(): string {
   function makeCard(task) {
     const colKey = col(task.status);
     const isInProgress = task.status === 'in_progress';
+    const isPending = task.status === 'pending';
 
     const depBadges = task.dependencies.length > 0
       ? task.dependencies.map(d => '<span class="badge badge-dep">↳ ' + d + '</span>').join('')
@@ -369,9 +682,20 @@ export function getKanbanHtml(): string {
       : '';
 
     const spinner = isInProgress ? '<div class="spinner"></div>' : '';
+    
+    const actionBtn = isPending 
+      ? \`<div class="card-actions"><button class="btn-mini" onclick="executeTask('\${task.id}')">Run</button></div>\` 
+      : '';
 
     return \`
-      <div class="card" id="card-\${task.id}" data-status="\${task.status}">
+      <div class="card" 
+           id="card-\${task.id}" 
+           data-status="\${task.status}" 
+           draggable="true" 
+           onsubmit="return false;"
+           ondragstart="handleDragStart(event, '\${task.id}')"
+           ondragend="handleDragEnd(event)">
+        \${actionBtn}
         <div class="card-top">
           \${spinner}
           <span class="card-id">\${task.id}</span>
@@ -410,13 +734,21 @@ export function getKanbanHtml(): string {
       count.textContent = list.length;
     }
 
-    const total = Object.keys(tasks).length;
-    document.getElementById('taskCount').textContent = total + ' task' + (total !== 1 ? 's' : '');
+    renderHeaderRight();
   }
 
   function upsertTask(task) {
     const existed = !!tasks[task.id];
     tasks[task.id] = task;
+
+    if (task.status === 'in_progress' || task.status === 'completed') {
+        // If we get an update that is progress, stop showing auto-planner thinking
+        if (isAutoPlanning) {
+            isAutoPlanning = false;
+            renderHeaderRight();
+            document.getElementById('btn-auto-planner').disabled = false;
+        }
+    }
 
     if (existed) {
       const card = document.getElementById('card-' + task.id);
@@ -453,8 +785,7 @@ export function getKanbanHtml(): string {
     for (const [key, count] of Object.entries(cols)) {
       document.getElementById('count-' + key).textContent = count;
     }
-    const total = Object.keys(tasks).length;
-    document.getElementById('taskCount').textContent = total + ' task' + (total !== 1 ? 's' : '');
+    renderHeaderRight();
   }
 
   async function loadState() {

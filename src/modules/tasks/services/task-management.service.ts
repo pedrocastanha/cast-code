@@ -79,6 +79,12 @@ export class TaskManagementService {
 
     task.updatedAt = Date.now();
     this.events.emit('task:updated', task);
+    
+    // Debug log for Kanban updates
+    if (options.status) {
+      process.stdout.write(`\r  Task ${taskId} status updated to: ${options.status}\n`);
+    }
+
     return task;
   }
 
@@ -227,6 +233,7 @@ export class TaskManagementService {
     const rest = subject.slice(firstWord.length);
 
     const gerundMap: Record<string, string> = {
+      // English
       create: 'Creating',
       add: 'Adding',
       implement: 'Implementing',
@@ -238,9 +245,31 @@ export class TaskManagementService {
       test: 'Testing',
       write: 'Writing',
       read: 'Reading',
+      // Portuguese
+      criar: 'Criando',
+      adicionar: 'Adicionando',
+      implementar: 'Implementando',
+      corrigir: 'Corrigindo',
+      atualizar: 'Atualizando',
+      remover: 'Removendo',
+      deletar: 'Deletando',
+      refatorar: 'Refatorando',
+      testar: 'Testando',
+      escrever: 'Escrevendo',
+      ler: 'Lendo',
+      analisar: 'Analisando',
+      fazer: 'Fazendo',
+      crie: 'Criando',
+      adicione: 'Adicionando',
+      implemente: 'Implementando',
+      corrija: 'Corrigindo',
+      atualize: 'Atualizando',
+      remova: 'Removendo',
+      analise: 'Analisando',
+      faça: 'Fazendo',
     };
 
-    const gerund = gerundMap[firstWord] || subject + 'ing';
+    const gerund = gerundMap[firstWord] || (subject.length > 20 ? subject.slice(0, 20) + '...' : subject);
     return gerund + rest;
   }
 
