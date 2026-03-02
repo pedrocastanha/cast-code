@@ -44,7 +44,7 @@ export class ReplService {
     private readonly projectCommands: ProjectCommandsService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly kanbanServer: KanbanServerService,
-  ) {}
+  ) { }
 
   async start(): Promise<void> {
     const initResult = await this.deepAgent.initialize();
@@ -122,47 +122,107 @@ export class ReplService {
     return [...gitOpts.filter(o => o.text.startsWith('@' + partial)), ...this.getFileEntries(partial)].slice(0, 30);
   }
 
+  private fileCache: string[] | null = null;
+  private lastCacheTime = 0;
+
+  private getCachedFiles(): string[] {
+    const now = Date.now();
+    if (this.fileCache && now - this.lastCacheTime < 5000) {
+      return this.fileCache;
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const ignore = ['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__'];
+
+    const results: string[] = [];
+    const walk = (dir: string) => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const e of entries) {
+          if (ignore.includes(e.name)) continue;
+          if (e.name.startsWith('.') && e.name !== '.cast' && e.name !== '.claude') continue;
+          const fullPath = path.join(dir, e.name);
+          const relPath = path.relative(process.cwd(), fullPath);
+          if (e.isDirectory()) {
+            walk(fullPath);
+          } else {
+            results.push(relPath);
+          }
+        }
+      } catch { }
+    };
+
+    walk(process.cwd());
+    this.fileCache = results;
+    this.lastCacheTime = now;
+    return results;
+  }
+
   private getFileEntries(partial: string): Array<{ text: string; display: string; description: string }> {
     const fs = require('fs');
     const path = require('path');
 
-    try {
-      let dir: string;
-      let prefix: string;
+    if (partial === '' || partial.includes('/') || partial.startsWith('.')) {
+      try {
+        let dir: string;
+        let prefix: string;
 
-      if (partial.endsWith('/')) {
-        dir = partial.slice(0, -1) || '.';
-        prefix = '';
-      } else if (partial.includes('/')) {
-        dir = path.dirname(partial);
-        prefix = path.basename(partial);
-      } else {
-        dir = '.';
-        prefix = partial;
+        if (partial.endsWith('/')) {
+          dir = partial.slice(0, -1) || '.';
+          prefix = '';
+        } else if (partial.includes('/')) {
+          dir = path.dirname(partial);
+          prefix = path.basename(partial);
+        } else {
+          dir = '.';
+          prefix = partial;
+        }
+
+        const resolved = path.resolve(process.cwd(), dir);
+        if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) return [];
+
+        const entries = fs.readdirSync(resolved, { withFileTypes: true });
+        const ignore = ['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__'];
+
+        return entries
+          .filter(e => !ignore.includes(e.name))
+          .filter(e => !e.name.startsWith('.') || prefix.startsWith('.') || e.name === '.cast' || e.name === '.claude')
+          .filter(e => prefix === '' || e.name.toLowerCase().startsWith(prefix.toLowerCase()))
+          .map(e => {
+            const relDir = dir === '.' ? '' : dir + '/';
+            const isDir = e.isDirectory();
+            return {
+              text: '@' + relDir + e.name + (isDir ? '/' : ''),
+              display: '@' + relDir + e.name + (isDir ? '/' : ''),
+              description: isDir ? 'dir' : '',
+            };
+          })
+          .slice(0, 20);
+      } catch {
+        return [];
       }
+    } else {
+      const allFiles = this.getCachedFiles();
+      const lowerPartial = partial.toLowerCase();
 
-      const resolved = path.resolve(process.cwd(), dir);
-      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) return [];
+      const matched = allFiles
+        .filter(f => f.toLowerCase().includes(lowerPartial))
+        .sort((a, b) => {
+          const aName = path.basename(a).toLowerCase();
+          const bName = path.basename(b).toLowerCase();
+          const aStarts = aName.startsWith(lowerPartial);
+          const bStarts = bName.startsWith(lowerPartial);
+          if (aStarts && !bStarts) return -1;
+          if (!aStarts && bStarts) return 1;
+          return a.length - b.length;
+        });
 
-      const entries = fs.readdirSync(resolved, { withFileTypes: true });
-      const ignore = ['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__'];
-
-      return entries
-        .filter(e => !ignore.includes(e.name))
-        .filter(e => !e.name.startsWith('.') || prefix.startsWith('.'))
-        .filter(e => prefix === '' || e.name.toLowerCase().startsWith(prefix.toLowerCase()))
-        .map(e => {
-          const relDir = dir === '.' ? '' : dir + '/';
-          const isDir = e.isDirectory();
-          return {
-            text: '@' + relDir + e.name + (isDir ? '/' : ''),
-            display: '@' + relDir + e.name + (isDir ? '/' : ''),
-            description: isDir ? 'dir' : '',
-          };
-        })
-        .slice(0, 20);
-    } catch {
-      return [];
+      return matched.slice(0, 20).map(f => ({
+        text: '@' + f,
+        display: '@' + f,
+        description: 'file',
+      }));
     }
   }
 
@@ -228,17 +288,17 @@ export class ReplService {
       case 'status': this.gitCommands.runGit('git status'); break;
       case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
       case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
-      case 'commit': 
-        await this.gitCommands.cmdCommit(args, this.smartInput!); 
+      case 'commit':
+        await this.gitCommands.cmdCommit(args, this.smartInput!);
         break;
-      case 'up': 
-        await this.gitCommands.cmdUp(this.smartInput!); 
+      case 'up':
+        await this.gitCommands.cmdUp(this.smartInput!);
         break;
-      case 'split-up': 
-        await this.gitCommands.cmdSplitUp(this.smartInput!); 
+      case 'split-up':
+        await this.gitCommands.cmdSplitUp(this.smartInput!);
         break;
-      case 'pr': 
-        await this.gitCommands.cmdPr(this.smartInput!); 
+      case 'pr':
+        await this.gitCommands.cmdPr(this.smartInput!);
         break;
       case 'unit-test':
         await this.gitCommands.cmdUnitTest(this.smartInput!);
@@ -248,22 +308,25 @@ export class ReplService {
       case 'ident': await this.gitCommands.cmdIdent(); break;
       case 'release': await this.gitCommands.cmdRelease(args); break;
 
-      case 'agents': 
-        await this.agentCommands.cmdAgents(args, this.smartInput!); 
+      case 'agents':
+        await this.agentCommands.cmdAgents(args, this.smartInput!);
         break;
-      case 'skills': 
-        await this.agentCommands.cmdSkills(args, this.smartInput!); 
+      case 'skills':
+        await this.agentCommands.cmdSkills(args, this.smartInput!);
         break;
 
-      case 'mcp': 
-        await this.mcpCommands.cmdMcp(args, this.smartInput!); 
+      case 'mcp':
+        await this.mcpCommands.cmdMcp(args, this.smartInput!);
         break;
 
       case 'project':
         await this.projectCommands.cmdProject(args, this.smartInput!);
         break;
       case 'project-deep':
-        await this.projectCommands.cmdProject(['deep'], this.smartInput!);
+        const deepResult = await this.projectCommands.cmdProject(['deep'], this.smartInput!);
+        if (typeof deepResult === 'string') {
+          return await this.handleMessage(deepResult);
+        }
         break;
 
       case 'kanban':
@@ -307,7 +370,7 @@ export class ReplService {
             { key: 'n', label: 'no', description: 'Proceed without plan' },
           ]
         );
-        
+
         if (usePlan === 'y') {
           const plannedMessage = await this.runInteractivePlanMode(message);
           if (!plannedMessage) {

@@ -3,6 +3,7 @@ import { TaskManagementService } from './task-management.service';
 import { PlanExecutorService } from './plan-executor.service';
 import { PromptService } from '../../permissions/services/prompt.service';
 import { CreateTaskOptions, TaskPlan } from '../types/task.types';
+import { Colors } from '../../repl/utils/theme';
 
 @Injectable()
 export class PlanModeService {
@@ -15,7 +16,7 @@ export class PlanModeService {
     @Inject(forwardRef(() => PlanExecutorService))
     private planExecutor: PlanExecutorService,
     private promptService: PromptService,
-  ) {}
+  ) { }
 
   async enterPlanMode(title: string, description: string): Promise<void> {
     if (this.inPlanMode) {
@@ -32,14 +33,14 @@ export class PlanModeService {
     this.planContext.set('description', description);
 
     console.log('');
-    console.log('━'.repeat(60));
-    this.promptService.info('📋 Entering PLAN MODE');
-    console.log('━'.repeat(60));
+    console.log(`${Colors.dim}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${Colors.reset}`);
+    this.promptService.info(`${Colors.bold}📋 Entering PLAN MODE${Colors.reset}`);
+    console.log(`${Colors.dim}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${Colors.reset}`);
     console.log('');
-    console.log(`Planning: ${title}`);
-    console.log(description);
+    console.log(`${Colors.bold}Planning:${Colors.reset} ${title}`);
+    console.log(`${Colors.dim}${description}${Colors.reset}`);
     console.log('');
-    this.promptService.info('I will ask you some questions and create an execution plan.');
+    this.promptService.info('I will explore the codebase and create an execution plan.');
     console.log('');
   }
 
@@ -50,12 +51,12 @@ export class PlanModeService {
 
     try {
       console.log('');
-      console.log('━'.repeat(60));
-      this.promptService.info('📋 Saindo do MODO PLANEJAMENTO - Apresentando Plano');
-      console.log('━'.repeat(60));
+      console.log(`${Colors.dim}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${Colors.reset}`);
+      this.promptService.info(`${Colors.bold}📋 Exiting PLAN MODE - Presenting Plan${Colors.reset}`);
+      console.log(`${Colors.dim}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${Colors.reset}`);
       console.log('');
 
-      const planTitle = this.planContext.get('title') || 'Plano de Execução';
+      const planTitle = this.planContext.get('title') || 'Execution Plan';
       const planDescription = this.planContext.get('description') || '';
 
       const plan = this.taskService.createPlan(planTitle, planDescription, tasks);

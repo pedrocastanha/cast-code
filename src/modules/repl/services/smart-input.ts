@@ -227,12 +227,12 @@ export class SmartInput {
       if (data[i] === '\x1b' && data[i + 1] === '[') {
         const rest = data.slice(i);
 
-        if (rest.startsWith('\x1b[A'))  { this.keyUp();    i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[B'))  { this.keyDown();  i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[C'))  { this.keyRight(); i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[D'))  { this.keyLeft();  i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[H'))  { this.cursor = 0; i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[F'))  { this.cursor = this.buffer.length; i += 3; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[A')) { this.keyUp(); i += 3; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[B')) { this.keyDown(); i += 3; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[C')) { this.keyRight(); i += 3; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[D')) { this.keyLeft(); i += 3; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[H')) { this.cursor = 0; i += 3; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[F')) { this.cursor = this.buffer.length; i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[3~')) { this.keyDelete(); i += 4; needsRender = true; bufferChanged = true; continue; }
 
         i++;
@@ -376,7 +376,7 @@ export class SmartInput {
     }
   }
 
-  private keyLeft()  { if (this.cursor > 0) this.cursor--; }
+  private keyLeft() { if (this.cursor > 0) this.cursor--; }
   private keyRight() { if (this.cursor < this.buffer.length) this.cursor++; }
 
   private keyBackspace() {
@@ -486,7 +486,7 @@ export class SmartInput {
       this.buffer = s.text;
       this.cursor = this.buffer.length;
     } else {
-      const atMatch = this.buffer.match(/@[\w./:~\-]*$/);
+      const atMatch = this.buffer.match(/@\[?[\w./:~\-]*\]?$/);
       if (atMatch && atMatch.index !== undefined) {
         this.buffer = this.buffer.slice(0, atMatch.index) + s.text;
         this.cursor = this.buffer.length;
@@ -508,7 +508,7 @@ export class SmartInput {
       return;
     }
 
-    const atMatch = this.buffer.match(/@([\w./:~\-]*)$/);
+    const atMatch = this.buffer.match(/@\[?([\w./:~\-]*)\]?$/);
     if (atMatch) {
       this.suggestions = this.opts.getMentionSuggestions(atMatch[1]);
       return;

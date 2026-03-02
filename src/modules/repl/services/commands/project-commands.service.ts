@@ -14,11 +14,11 @@ interface SmartInput {
 export class ProjectCommandsService {
   constructor(
     private readonly projectAnalyzer: ProjectAnalyzerService,
-  ) {}
+  ) { }
 
-  async cmdProject(args: string[], smartInput: SmartInput): Promise<void> {
+  async cmdProject(args: string[], smartInput: SmartInput): Promise<string | void> {
     const sub = args[0] || 'analyze';
-    
+
     switch (sub) {
       case 'analyze':
       case 'generate':
@@ -27,29 +27,28 @@ export class ProjectCommandsService {
 
       case 'deep':
       case 'project-deep':
-        await this.generateContext(smartInput, true);
-        break;
+        return await this.generateContext(smartInput, true);
 
       case 'show':
         await this.showContext();
-        break;
+        return;
 
       case 'edit':
         await this.editContext();
-        break;
+        return;
 
       case 'help':
       default:
         this.printProjectHelp();
-        break;
+        return;
     }
   }
 
-  private async generateContext(smartInput: SmartInput, useAgent: boolean): Promise<void> {
+  private async generateContext(smartInput: SmartInput, useAgent: boolean): Promise<string | void> {
     smartInput.pause();
-    
+
     const w = (s: string) => process.stdout.write(s);
-    
+
     w('\r\n');
     w(colorize(Icons.folder + ' ', 'accent') + colorize('Análise de Projeto', 'bold') + '\r\n');
     w(colorize(Box.horizontal.repeat(30), 'subtle') + '\r\n\r\n');
@@ -60,13 +59,13 @@ export class ProjectCommandsService {
 
     try {
       await fs.mkdir(castDir, { recursive: true });
-    } catch {}
+    } catch { }
 
     w(colorize('  🔍 Analisando estrutura do projeto...\r\n', 'info'));
 
     try {
       const context = await this.projectAnalyzer.analyze();
-      
+
       w(colorize(`  ✓ Linguagem principal: ${context.primaryLanguage}\r\n`, 'success'));
       if (context.languages.length > 1) {
         w(colorize(`  ✓ Outras linguagens: ${context.languages.slice(1).join(', ')}\r\n`, 'success'));
@@ -85,23 +84,23 @@ export class ProjectCommandsService {
 
       if (useAgent) {
         w(colorize('  🤖 Gerando instruções para análise profunda...\r\n\r\n', 'info'));
-        
+
         const agentInstructions = this.projectAnalyzer.generateAgentInstructions(context);
         await fs.writeFile(agentInstructionsPath, agentInstructions, 'utf-8');
-        
+
         w(`${colorize('✓', 'success')} Instruções para agente: ${colorize(agentInstructionsPath, 'accent')}\r\n\r\n`);
-        
-        w(colorize('📋 Para análise profunda, você pode:\r\n', 'bold'));
-        w(colorize('  1. Copiar as instruções de ' + agentInstructionsPath + '\r\n', 'muted'));
-        w(colorize('  2. Colar em uma nova conversa com um agente especialista\r\n', 'muted'));
-        w(colorize('  3. O agente analisará profundamente o projeto\r\n\r\n', 'muted'));
+
+        const mentionText = `@[${agentInstructionsPath}]`;
+        w(colorize(`  Iniciando agente com ${mentionText}...\r\n`, 'bold'));
+
+        return mentionText;
       }
 
       const showPreview = await confirmWithEsc({
         message: 'Deseja ver um preview do contexto gerado?',
         default: true,
       });
-      
+
       if (showPreview === true) {
         w('\r\n');
         w(colorize('─'.repeat(60), 'subtle') + '\r\n');
@@ -143,16 +142,16 @@ export class ProjectCommandsService {
 
   private async editContext(): Promise<void> {
     const contextPath = path.join(process.cwd(), '.cast', 'context.md');
-    
+
     const { spawn } = require('child_process');
     const editor = process.env.EDITOR || 'code';
 
     try {
-      spawn(editor, [contextPath], { 
-        detached: true, 
+      spawn(editor, [contextPath], {
+        detached: true,
         stdio: 'ignore'
       }).unref();
-      
+
       console.log(`\r\n  ${colorize('✓', 'success')} Abrindo ${contextPath} no editor...\r\n`);
     } catch {
       console.log(`\r\n  ${colorize('✗', 'error')} Não foi possível abrir o editor.\r\n`);
@@ -176,14 +175,14 @@ export class ProjectCommandsService {
     w(`  ${colorize('/project edit', 'cyan')}       → Abre no editor\r\n\r\n`);
 
     w(colorize('Modo Rápido vs Profundo:', 'bold') + '\r\n\r\n');
-    
+
     w(colorize('⚡ Modo Rápido (/project):', 'accent') + '\r\n');
     w(`  • Detecta linguagem (TypeScript, Python, Go, Rust, Java, etc.)\r\n`);
     w(`  • Identifica arquitetura (MVC, Clean, Hexagonal, DDD, etc.)\r\n`);
     w(`  • Lista módulos e suas responsabilidades\r\n`);
     w(`  • Extrai dependências principais\r\n`);
     w(`  • Funciona com QUALQUER linguagem/framework\r\n\r\n`);
-    
+
     w(colorize('🤖 Modo Profundo (/project-deep):', 'accent') + '\r\n');
     w(`  • Faz tudo do modo rápido\r\n`);
     w(`  • Gera instruções para um agente especialista\r\n`);

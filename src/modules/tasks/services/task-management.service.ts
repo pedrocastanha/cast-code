@@ -21,7 +21,7 @@ export class TaskManagementService {
   private planCounter = 0;
   private executionContext: PlanExecutionContext | null = null;
 
-  constructor(private promptService: PromptService) {}
+  constructor(private promptService: PromptService) { }
 
   createTask(options: CreateTaskOptions): Task {
     const id = `task-${++this.taskCounter}`;
@@ -79,7 +79,7 @@ export class TaskManagementService {
 
     task.updatedAt = Date.now();
     this.events.emit('task:updated', task);
-    
+
     // Debug log for Kanban updates
     if (options.status) {
       process.stdout.write(`\r  Task ${taskId} status updated to: ${options.status}\n`);
@@ -134,68 +134,68 @@ export class TaskManagementService {
     }
 
     // Renderizar plano
-    console.log('\n' + '='.repeat(60));
-    this.promptService.info(`📋 PLANO: ${plan.title}`);
-    console.log('='.repeat(60));
+    console.log(`\n${Colors.dim}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${Colors.reset}`);
+    this.promptService.info(`${Colors.bold}📋 PLAN: ${plan.title}${Colors.reset}`);
+    console.log(`${Colors.dim}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${Colors.reset}`);
     console.log('');
     console.log(plan.description);
     console.log('');
-    console.log(`${Colors.bold}Tarefas (${plan.tasks.length}):${Colors.reset}`);
+    console.log(`${Colors.bold}Tasks (${plan.tasks.length}):${Colors.reset}`);
     console.log('');
 
     plan.tasks.forEach((task, index) => {
       const depInfo =
         task.dependencies.length > 0
-          ? ` ${Colors.muted}(depende de: ${task.dependencies.join(', ')})${Colors.reset}`
+          ? ` ${Colors.muted}(depends on: ${task.dependencies.join(', ')})${Colors.reset}`
           : '';
       console.log(`  ${Colors.primary}${index + 1}.${Colors.reset} ${Colors.bold}${task.subject}${Colors.reset}${depInfo}`);
       console.log(`     ${Colors.dim}${task.description}${Colors.reset}`);
       console.log('');
     });
 
-    console.log('='.repeat(60));
+    console.log(`${Colors.dim}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${Colors.reset}`);
     console.log('');
 
     // Opções aprimoradas
     const choices = [
       {
         key: 'approve',
-        label: '1 - Sim',
-        description: 'Executar o plano'
+        label: 'Approve',
+        description: 'Execute the plan'
       },
       {
         key: 'auto-approve',
-        label: '2 - Sim com auto-approve',
-        description: 'Executar sem pedir aprovação em cada etapa'
+        label: 'Auto-approve',
+        description: 'Execute without asking for approval on each step'
       },
       {
         key: 'modify',
-        label: '4 - Digite algo',
-        description: 'Modificar o plano antes de executar'
+        label: 'Modify',
+        description: 'Modify the plan before executing'
       },
       {
         key: 'cancel',
-        label: '3 - Não',
-        description: 'Cancelar e não executar'
+        label: 'Cancel',
+        description: 'Cancel and do not execute'
       },
     ];
 
-    const choice = await this.promptService.choice('O que você deseja fazer?', choices);
+    const choice = await this.promptService.choice('What do you want to do?', choices);
 
     switch (choice) {
       case 'approve':
         plan.status = 'approved';
-        this.promptService.success('✓ Plano aprovado! Iniciando execução...');
+        this.promptService.success('✓ Plan approved! Starting execution...');
         return { approved: true, autoApprove: false };
 
       case 'auto-approve':
         plan.status = 'approved';
-        this.promptService.success('✓ Plano aprovado com auto-approve! Execução automática ativada.');
+        this.promptService.success('✓ Plan approved with auto-approve! Automatic execution enabled.');
         return { approved: true, autoApprove: true };
 
       case 'modify':
         const modification = await this.promptService.question(
-          `${Colors.accent}Como deseja modificar o plano?${Colors.reset}`
+          `${Colors.accent}How do you want to modify the plan?${Colors.reset}`
         );
         plan.status = 'draft';
         return {
@@ -206,7 +206,7 @@ export class TaskManagementService {
 
       case 'cancel':
         plan.status = 'cancelled';
-        this.promptService.info('Plano cancelado');
+        this.promptService.info('Plan cancelled');
         return { approved: false, autoApprove: false };
 
       default:

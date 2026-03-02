@@ -235,7 +235,7 @@ export class TaskToolsService {
       {
         name: 'enter_plan_mode',
         description:
-          'Enter planning mode for complex tasks. In plan mode, you should explore the codebase using read_file, glob, and grep to understand the architecture, then create a detailed plan. Use exit_plan_mode when ready to present the plan for user approval.',
+          'Enter planning mode for complex tasks. In plan mode, you MUST explore the codebase using read_file, glob, and grep to understand the architecture, then create a detailed plan. IMPORTANT: When using exit_plan_mode, you MUST provide a comprehensive list of tasks that make up the plan.',
         schema: z.object({
           title: z.string().describe('Title of the plan (e.g., "Implement user authentication")'),
           description: z
@@ -276,7 +276,7 @@ export class TaskToolsService {
       {
         name: 'exit_plan_mode',
         description:
-          'Exit planning mode and present the plan for user approval. The user will see all tasks and can approve, modify, or cancel the plan.',
+          'Exit planning mode and present the plan for user approval. CRITICAL: You MUST provide ALL the tasks you planned in the `tasks` array. If you do not provide any tasks, the plan will be empty. The user will see all tasks and can approve, modify, or cancel the plan.',
         schema: z.object({
           tasks: z
             .array(

@@ -46,13 +46,13 @@ export class MentionsService {
   private parseMentions(message: string): ParsedMention[] {
     const mentions: ParsedMention[] = [];
 
-    const mentionRegex = /(?:^|\s)@((?:https?:\/\/\S+)|(?:git:[a-z]+)|(?:\.?\/?[\w./-]+\.[\w]+)|(?:\.?\/?[\w./-]+\/))/g;
+    const mentionRegex = /(?:^|\s)@(?:\[)?((?:https?:\/\/\S+)|(?:git:[a-z]+)|(?:\.?\/?[\w./-]+\.[\w]+)|(?:\.?\/?[\w./-]+\/))(?:\])?/g;
 
     let match: RegExpExecArray | null;
 
     while ((match = mentionRegex.exec(message)) !== null) {
-      const target = match[1];
-      const raw = '@' + target;
+      let target = match[1];
+      const raw = match[0].trim();
 
       let type: MentionType;
       let resolved: string;
