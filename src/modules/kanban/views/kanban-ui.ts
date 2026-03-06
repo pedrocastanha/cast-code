@@ -9,40 +9,57 @@ export function getKanbanHtml(): string {
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --card: #21262d;
-    --border: #30363d;
-    --border-hover: #484f58;
-    --text: #e6edf3;
-    --muted: #7d8590;
-    --cyan: #58a6ff;
-    --green: #3fb950;
-    --yellow: #d29922;
-    --red: #f85149;
-    --orange: #e3b341;
-    --purple: #bc8cff;
+    /* Premium Dark Mode Colors */
+    --bg: #09090b;
+    --surface: rgba(24, 24, 27, 0.6);
+    --surface-solid: #18181b;
+    --card: rgba(39, 39, 42, 0.5);
+    --border: rgba(255, 255, 255, 0.1);
+    --border-hover: rgba(255, 255, 255, 0.2);
+    --text: #fafafa;
+    --muted: #a1a1aa;
+    
+    /* Status Colors */
+    --cyan: #38bdf8;
+    --green: #4ade80;
+    --yellow: #facc15;
+    --red: #f87171;
+    --orange: #fb923c;
+    --purple: #c084fc;
+    --teal: #2dd4bf; /* For TEST status */
+    
+    /* Effects */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --glow: 0 0 20px -5px;
   }
 
   body {
     background: var(--bg);
+    background-image: radial-gradient(circle at top right, rgba(56, 189, 248, 0.05), transparent 40%),
+                      radial-gradient(circle at bottom left, rgba(192, 132, 252, 0.05), transparent 40%);
     color: var(--text);
-    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-    font-size: 13px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
     height: 100vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    -webkit-font-smoothing: antialiased;
   }
 
   header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 20px;
+    gap: 16px;
+    padding: 16px 24px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     flex-shrink: 0;
+    z-index: 10;
   }
 
   .logo {
@@ -86,23 +103,32 @@ export function getKanbanHtml(): string {
 
   .btn-primary {
     background: var(--cyan);
-    color: var(--bg);
+    color: #000;
     border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 700;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: all 0.2s ease;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
   }
 
   .btn-primary:hover {
-    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
+    background: #7dd3fc;
+  }
+
+  .btn-primary:active {
+    transform: translateY(1px);
   }
 
   .btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
 
   .task-count {
@@ -135,13 +161,19 @@ export function getKanbanHtml(): string {
   }
 
   .modal {
-    background: var(--surface);
+    background: var(--surface-solid);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
     width: 100%;
     max-width: 450px;
     padding: 24px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    box-shadow: var(--shadow-lg), 0 0 40px rgba(0,0,0,0.5);
+    transform: translateY(20px);
+    animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes modalIn {
+    to { transform: translateY(0); }
   }
 
   .modal-title {
@@ -204,9 +236,9 @@ export function getKanbanHtml(): string {
 
   .board {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    padding: 16px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    padding: 24px;
     flex: 1;
     overflow: hidden;
     min-height: 0;
@@ -214,17 +246,21 @@ export function getKanbanHtml(): string {
 
   .column {
     background: var(--surface);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: background 0.2s;
+    transition: all 0.3s ease;
+    box-shadow: var(--shadow-md);
   }
 
   .column.drag-over {
-    background: rgba(88, 166, 255, 0.05);
+    background: rgba(56, 189, 248, 0.08);
     border-color: var(--cyan);
+    transform: scale(1.01);
   }
 
   .column-header {
@@ -237,21 +273,23 @@ export function getKanbanHtml(): string {
   }
 
   .column-label {
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.05em;
   }
 
   .col-pending .column-label { color: var(--muted); }
   .col-inprogress .column-label { color: var(--orange); }
+  .col-test .column-label { color: var(--teal); }
   .col-done .column-label { color: var(--green); }
   .col-failed .column-label { color: var(--red); }
 
-  .col-inprogress { border-top: 2px solid var(--orange); }
-  .col-done { border-top: 2px solid var(--green); }
-  .col-failed { border-top: 2px solid var(--red); }
-  .col-pending { border-top: 2px solid var(--border); }
+  .col-inprogress { border-top: 3px solid var(--orange); }
+  .col-test { border-top: 3px solid var(--teal); }
+  .col-done { border-top: 3px solid var(--green); }
+  .col-failed { border-top: 3px solid var(--red); }
+  .col-pending { border-top: 3px solid var(--border); }
 
   .column-count {
     margin-left: auto;
@@ -268,26 +306,29 @@ export function getKanbanHtml(): string {
   .cards {
     flex: 1;
     overflow-y: auto;
-    padding: 10px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
     min-height: 50px;
   }
 
-  .cards::-webkit-scrollbar { width: 4px; }
+  .cards::-webkit-scrollbar { width: 6px; }
   .cards::-webkit-scrollbar-track { background: transparent; }
-  .cards::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .cards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  .cards::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
   .card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
+    border-radius: 8px;
+    padding: 14px;
     cursor: grab;
-    transition: border-color 0.15s, transform 0.15s;
-    animation: cardIn 0.2s ease-out;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: cardIn 0.3s ease-out;
     position: relative;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
   .card:active {
@@ -295,8 +336,9 @@ export function getKanbanHtml(): string {
   }
 
   .card.dragging {
-    opacity: 0.4;
-    transform: scale(0.95);
+    opacity: 0.6;
+    transform: scale(0.98) rotate(1deg);
+    box-shadow: var(--shadow-lg);
   }
 
   @keyframes cardIn {
@@ -306,18 +348,22 @@ export function getKanbanHtml(): string {
 
   .card:hover {
     border-color: var(--border-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
   }
 
   .card:hover .card-actions {
     opacity: 1;
+    transform: translateY(0);
   }
 
   .card-actions {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 10px;
+    right: 10px;
     opacity: 0;
-    transition: opacity 0.2s;
+    transform: translateY(-4px);
+    transition: all 0.2s ease;
   }
 
   .btn-mini {
@@ -360,14 +406,15 @@ export function getKanbanHtml(): string {
 
   .card-id {
     color: var(--muted);
-    font-size: 10px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
     flex-shrink: 0;
-    margin-top: 2px;
+    margin-top: 1px;
   }
 
   .card-subject {
-    font-weight: 600;
-    font-size: 12px;
+    font-weight: 500;
+    font-size: 13px;
     line-height: 1.4;
     flex: 1;
     word-break: break-word;
@@ -392,20 +439,24 @@ export function getKanbanHtml(): string {
   }
 
   .badge {
-    padding: 2px 6px;
-    border-radius: 3px;
+    padding: 4px 8px;
+    border-radius: 4px;
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
 
-  .badge-pending { background: rgba(125, 133, 144, 0.15); color: var(--muted); }
-  .badge-in_progress { background: rgba(227, 179, 65, 0.15); color: var(--orange); }
-  .badge-completed { background: rgba(63, 185, 80, 0.15); color: var(--green); }
-  .badge-failed { background: rgba(248, 81, 73, 0.15); color: var(--red); }
-  .badge-blocked { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
-  .badge-cancelled { background: rgba(125, 133, 144, 0.1); color: var(--muted); }
+  .badge-pending { background: rgba(161, 161, 170, 0.1); color: var(--muted); border: 1px solid rgba(161, 161, 170, 0.2); }
+  .badge-in_progress { background: rgba(251, 146, 60, 0.1); color: var(--orange); border: 1px solid rgba(251, 146, 60, 0.2); }
+  .badge-test { background: rgba(45, 212, 191, 0.1); color: var(--teal); border: 1px solid rgba(45, 212, 191, 0.2); }
+  .badge-completed { background: rgba(74, 222, 128, 0.1); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.2); }
+  .badge-failed { background: rgba(248, 113, 113, 0.1); color: var(--red); border: 1px solid rgba(248, 113, 113, 0.2); }
+  .badge-blocked { background: rgba(250, 204, 21, 0.1); color: var(--yellow); border: 1px solid rgba(250, 204, 21, 0.2); }
+  .badge-cancelled { background: rgba(161, 161, 170, 0.1); color: var(--muted); border: 1px solid rgba(161, 161, 170, 0.2); }
 
   .badge-agent {
     background: rgba(188, 140, 255, 0.12);
@@ -488,6 +539,13 @@ export function getKanbanHtml(): string {
     </div>
     <div class="cards" id="cards-inprogress"></div>
   </div>
+  <div class="column col-test" id="col-test" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'test')">
+    <div class="column-header">
+      <span class="column-label">Test</span>
+      <span class="column-count" id="count-test">0</span>
+    </div>
+    <div class="cards" id="cards-test"></div>
+  </div>
   <div class="column col-done" id="col-done" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'completed')">
     <div class="column-header">
       <span class="column-label">Done</span>
@@ -526,6 +584,7 @@ export function getKanbanHtml(): string {
   const COL_MAP = {
     pending: 'pending',
     in_progress: 'inprogress',
+    test: 'test',
     completed: 'done',
     failed: 'failed',
     blocked: 'failed',
@@ -716,7 +775,7 @@ export function getKanbanHtml(): string {
   }
 
   function renderAll() {
-    const cols = { pending: [], inprogress: [], done: [], failed: [] };
+    const cols = { pending: [], inprogress: [], test: [], done: [], failed: [] };
 
     for (const task of Object.values(tasks)) {
       cols[col(task.status)].push(task);
@@ -741,7 +800,7 @@ export function getKanbanHtml(): string {
     const existed = !!tasks[task.id];
     tasks[task.id] = task;
 
-    if (task.status === 'in_progress' || task.status === 'completed') {
+    if (task.status === 'in_progress' || task.status === 'completed' || task.status === 'test') {
         // If we get an update that is progress, stop showing auto-planner thinking
         if (isAutoPlanning) {
             isAutoPlanning = false;
@@ -778,7 +837,7 @@ export function getKanbanHtml(): string {
   }
 
   function updateCounts() {
-    const cols = { pending: 0, inprogress: 0, done: 0, failed: 0 };
+    const cols = { pending: 0, inprogress: 0, test: 0, done: 0, failed: 0 };
     for (const task of Object.values(tasks)) {
       cols[col(task.status)]++;
     }
