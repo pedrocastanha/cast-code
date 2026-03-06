@@ -17,6 +17,7 @@ import { ConfigCommandsService } from '../../config/services/config-commands.ser
 import { ProjectCommandsService } from './commands/project-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
+import { RemoteServerService } from '../../remote/services/remote-server.service';
 import { Colors, Icons } from '../utils/theme';
 
 @Injectable()
@@ -44,6 +45,7 @@ export class ReplService {
     private readonly projectCommands: ProjectCommandsService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly kanbanServer: KanbanServerService,
+    private readonly remoteServer: RemoteServerService,
   ) { }
 
   async start(): Promise<void> {
@@ -55,6 +57,27 @@ export class ReplService {
       model: this.getModelDisplayName(),
       toolCount: initResult.toolCount,
       agentCount,
+    });
+
+    // Intercept stdout to broadcast to remote UI
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: Uint8Array | string, encoding?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean => {
+      // broadcast to remote
+      if (typeof chunk === 'string') {
+        this.remoteServer.broadcast(chunk);
+      } else if (Buffer.isBuffer(chunk)) {
+        this.remoteServer.broadcast(chunk.toString());
+      } else if (chunk instanceof Uint8Array) {
+        this.remoteServer.broadcast(Buffer.from(chunk).toString());
+      }
+      return originalWrite(chunk, encoding as any, cb as any);
+    };
+
+    // Callback when remote UI sends a message
+    this.remoteServer.onMessage(async (msg) => {
+      // To show properly on UI and terminal
+      process.stdout.write(`\r\x1b[K${Colors.cyan}${Colors.bold}>${Colors.reset} ${msg}\r\n`);
+      await this.handleLine(msg);
     });
 
     this.smartInput = new SmartInput({
@@ -100,6 +123,7 @@ export class ReplService {
       { text: '/init', display: '/init', description: 'Analyze project and generate context' },
       { text: '/mcp', display: '/mcp', description: 'MCP servers' },
       { text: '/kanban', display: '/kanban', description: 'Open kanban board' },
+      { text: '/remote', display: '/remote', description: 'Start remote web interface via ngrok' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -331,6 +355,10 @@ export class ReplService {
 
       case 'kanban':
         this.kanbanServer.start();
+        break;
+
+      case 'remote':
+        await this.remoteServer.start();
         break;
 
       default:
