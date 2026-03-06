@@ -57,7 +57,7 @@ export class ConfigManagerService {
       yaml.dump(configToSave, { indent: 2, lineWidth: 100 }),
       'utf-8'
     );
-    
+
     if (config) {
       this.config = config;
     }
@@ -135,6 +135,7 @@ export class ConfigManagerService {
         ...DEFAULT_CONFIG.models,
         ...(parsed.models || {}),
       },
+      remote: parsed.remote,
     };
   }
 }

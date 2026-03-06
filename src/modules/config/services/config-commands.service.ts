@@ -28,7 +28,7 @@ export class ConfigCommandsService {
   constructor(
     private readonly configManager: ConfigManagerService,
     private readonly initService: InitConfigService
-  ) {}
+  ) { }
 
   async handleConfigCommand(args: string[], smartInput?: SmartInput): Promise<void> {
     const subcommand = args[0];
@@ -40,42 +40,42 @@ export class ConfigCommandsService {
 
     try {
       switch (subcommand) {
-      case 'init':
-      case 'setup':
-        await this.withEscHandler(() => this.initService.runInitialSetup());
-        break;
+        case 'init':
+        case 'setup':
+          await this.withEscHandler(() => this.initService.runInitialSetup());
+          break;
 
-      case 'show':
-        await this.showConfig();
-        break;
-
-      case 'add-provider':
-        await this.withEscHandler(() => this.addProviderInteractive());
-        break;
-
-      case 'set-model':
-        await this.withEscHandler(() => this.setModelInteractive());
-        break;
-
-      case 'set-api-key':
-        await this.withEscHandler(() => this.setApiKeyInteractive());
-        break;
-
-      case 'remove-provider':
-        await this.withEscHandler(() => this.removeProviderInteractive());
-        break;
-
-      case 'path':
-        console.log(this.configManager.getConfigPath());
-        break;
-
-      default:
-        if (smartInput) {
-          await this.showConfigMenu(smartInput);
-        } else {
+        case 'show':
           await this.showConfig();
-        }
-    }
+          break;
+
+        case 'add-provider':
+          await this.withEscHandler(() => this.addProviderInteractive());
+          break;
+
+        case 'set-model':
+          await this.withEscHandler(() => this.setModelInteractive());
+          break;
+
+        case 'set-api-key':
+          await this.withEscHandler(() => this.setApiKeyInteractive());
+          break;
+
+        case 'remove-provider':
+          await this.withEscHandler(() => this.removeProviderInteractive());
+          break;
+
+        case 'path':
+          console.log(this.configManager.getConfigPath());
+          break;
+
+        default:
+          if (smartInput) {
+            await this.showConfigMenu(smartInput);
+          } else {
+            await this.showConfig();
+          }
+      }
     } finally {
       if (useInquirerFlow) {
         smartInput?.resume();
@@ -114,8 +114,9 @@ export class ConfigCommandsService {
         { key: '4', label: 'Remover provedor', description: 'Remover serviço' },
         { key: '5', label: 'Configurar modelo', description: 'Definir modelo para finalidade' },
         { key: '6', label: 'Alterar API key', description: 'Atualizar credencial de um provedor' },
-        { key: '7', label: 'Ver caminho do arquivo', description: 'Local do config.yaml' },
-        { key: '8', label: 'Sair', description: 'Voltar ao chat' },
+        { key: '7', label: 'Configurar Remote UI', description: 'Habilitar/Desabilitar ou alterar senha' },
+        { key: '8', label: 'Ver caminho do arquivo', description: 'Local do config.yaml' },
+        { key: '9', label: 'Sair', description: 'Voltar ao chat' },
       ]));
 
       if (action === null) {
@@ -143,9 +144,12 @@ export class ConfigCommandsService {
           await this.runInquirerFlow(smartInput, () => this.setApiKeyInteractive());
           break;
         case '7':
-          console.log(`\n📁 ${this.configManager.getConfigPath()}\n`);
+          await this.runInquirerFlow(smartInput, () => this.setRemoteInteractive());
           break;
         case '8':
+          console.log(`\n📁 ${this.configManager.getConfigPath()}\n`);
+          break;
+        case '9':
           return;
       }
     }
@@ -187,8 +191,8 @@ export class ConfigCommandsService {
       for (const provider of providers) {
         const meta = PROVIDER_METADATA[provider];
         const isConfigured = this.configManager.isProviderConfigured(provider);
-        const status = isConfigured 
-          ? `${Colors.green}✓` 
+        const status = isConfigured
+          ? `${Colors.green}✓`
           : `${Colors.red}✗`;
         w(`   ${status} ${meta.name} ${Colors.gray}(${provider})${Colors.reset}\n`);
       }
@@ -202,6 +206,14 @@ export class ConfigCommandsService {
         w(`   ${Colors.cyan}${purpose.label.padEnd(12)}${Colors.reset} → ${modelConfig.model}\n`);
         w(`   ${Colors.gray}${' '.repeat(12)}   ${providerName}${Colors.reset}\n`);
       }
+    }
+
+    w(`\n${Colors.yellow}🌐 Acesso Remoto (Web UI):${Colors.reset}\n`);
+    if (config.remote?.enabled) {
+      w(`   Status:   ${Colors.green}Ativo${Colors.reset}\n`);
+      w(`   Whisper:  ${config.remote.openaiApiKey ? Colors.green + 'Configurado' + Colors.reset : Colors.gray + 'Não configurado' + Colors.reset}\n`);
+    } else {
+      w(`   Status:   ${Colors.gray}Desabilitado${Colors.reset}\n`);
     }
 
     w(`\n${Colors.gray}📁 Arquivo: ${this.configManager.getConfigPath()}${Colors.reset}\n\n`);
@@ -251,7 +263,7 @@ export class ConfigCommandsService {
       config = { baseUrl };
     } else {
       console.log(chalk.gray(`→ Obtenha sua API key em: ${meta.websiteUrl}`));
-      
+
       const apiKeyRaw = await inputWithEsc({
         message: `API Key para ${meta.name}:`,
         validate: (v) => {
@@ -510,5 +522,94 @@ export class ConfigCommandsService {
     });
 
     console.log(chalk.green(`\n✓ API key de ${PROVIDER_METADATA[provider].name} atualizada.\n`));
+  }
+
+  private async setRemoteInteractive(): Promise<void> {
+    await this.configManager.loadConfig();
+    const config = this.configManager.getConfig();
+
+    console.log(chalk.cyan('\n🌐 Configuração do Acesso Remoto (Web UI)'));
+    console.log(chalk.gray('(pressione ESC para cancelar)\n'));
+
+    const enableRemote = await confirmWithEsc({
+      message: 'Deseja habilitar o acesso remoto (Web UI) via ngrok?',
+      default: config.remote?.enabled ?? false,
+    });
+
+    if (enableRemote === null) {
+      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      return;
+    }
+
+    if (!enableRemote) {
+      config.remote = { enabled: false };
+      await this.configManager.saveConfig(config);
+      console.log(chalk.green(`\n✓ Acesso Remoto desabilitado.\n`));
+      return;
+    }
+
+    const passwordRaw = await inputWithEsc({
+      message: 'Defina uma senha para acessar a Web UI:',
+      default: config.remote?.password || '',
+      validate: (v) => v.trim().length > 0 ? true : 'A senha não pode ser vazia',
+    });
+
+    if (passwordRaw === null) {
+      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      return;
+    }
+    const password = passwordRaw.trim();
+
+    let openaiApiKey = config.remote?.openaiApiKey;
+    if (!openaiApiKey && config.providers.openai?.apiKey) {
+      const useExistingOpenAI = await confirmWithEsc({
+        message: 'Deseja usar sua API Key da OpenAI atual para transcrição Whisper de áudio?',
+        default: true,
+      });
+      if (useExistingOpenAI === null) return;
+      if (useExistingOpenAI) {
+        openaiApiKey = config.providers.openai.apiKey;
+      }
+    }
+
+    if (!openaiApiKey) {
+      const requestKey = await confirmWithEsc({
+        message: 'Deseja configurar uma API Key da OpenAI específica para transcrição de áudio?',
+        default: false,
+      });
+
+      if (requestKey === null) return;
+      if (requestKey) {
+        const keyRaw = await inputWithEsc({
+          message: 'OpenAI API Key para Whisper:',
+          validate: (v) => v.trim().length > 10 ? true : 'Insira uma key válida',
+        });
+        if (keyRaw === null) return;
+        openaiApiKey = keyRaw.trim();
+      }
+    }
+
+    let ngrokAuthToken = config.remote?.ngrokAuthToken;
+    const requestNgrokToken = await inputWithEsc({
+      message: '(Opcional) Ngrok Authtoken (Necessário para o túnel online):\nDeixe em branco se já configurou globalmente seu ngrok:',
+      default: ngrokAuthToken || '',
+    });
+    if (requestNgrokToken === null) return;
+
+    if (requestNgrokToken.trim().length > 0) {
+      ngrokAuthToken = requestNgrokToken.trim();
+    } else {
+      ngrokAuthToken = undefined;
+    }
+
+    config.remote = {
+      enabled: true,
+      password,
+      openaiApiKey,
+      ngrokAuthToken,
+    };
+
+    await this.configManager.saveConfig(config);
+    console.log(chalk.green(`\n✓ Acesso Remoto configurado com sucesso!\n`));
   }
 }
