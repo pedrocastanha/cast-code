@@ -1,9 +1,45 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { Colors } from '../utils/theme';
+
+const HISTORY_FILE = path.join(os.homedir(), '.cast', 'history');
+const MAX_HISTORY = 500;
+
+function loadHistory(): string[] {
+  try {
+    const content = fs.readFileSync(HISTORY_FILE, 'utf-8');
+    return content.split('\n').filter(Boolean).reverse().slice(0, MAX_HISTORY);
+  } catch {
+    return [];
+  }
+}
+
+function appendHistory(line: string): void {
+  try {
+    fs.mkdirSync(path.dirname(HISTORY_FILE), { recursive: true });
+    fs.appendFileSync(HISTORY_FILE, line + '\n', 'utf-8');
+  } catch {
+    // history persistence is best-effort
+  }
+}
 
 export interface Suggestion {
   text: string;
   display: string;
   description?: string;
+}
+
+export interface ISmartInput {
+  pause(): void;
+  resume(): void;
+  question(query: string): Promise<string>;
+  askChoice(message: string, choices: { key: string; label: string; description?: string }[]): Promise<string>;
+  start(): void;
+  destroy(): void;
+  showPrompt(): void;
+  enterPassiveMode(): void;
+  exitPassiveMode(): void;
 }
 
 export interface SmartInputOptions {
@@ -17,7 +53,7 @@ export interface SmartInputOptions {
   onExpandToolOutput?: () => void;
 }
 
-export class SmartInput {
+export class SmartInput implements ISmartInput {
   private buffer = '';
   private cursor = 0;
 
@@ -46,6 +82,7 @@ export class SmartInput {
     this.opts = opts;
     this.prompt = opts.prompt;
     this.promptLen = opts.promptVisibleLen;
+    this.history = loadHistory();
   }
 
   start() {
@@ -466,7 +503,8 @@ export class SmartInput {
 
     if (line.trim()) {
       this.history.unshift(line);
-      if (this.history.length > 200) this.history.pop();
+      if (this.history.length > MAX_HISTORY) this.history.pop();
+      appendHistory(line);
     }
 
     this.buffer = '';

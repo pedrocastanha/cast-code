@@ -159,33 +159,13 @@ export class ReplCommandsService {
     const hasContext = this.projectContext.hasContext();
     w(`  ${colorize('Project:', 'muted')}     ${hasContext ? colorize('✓ loaded', 'success') : colorize('not loaded', 'muted')}\r\n`);
 
-    try {
-      const memoryPath = this.memoryService['memoryPath'];
-      if (memoryPath) {
-        w(`  ${colorize('Memory:', 'muted')}      ${colorize('✓ enabled', 'success')}\r\n`);
-      }
-    } catch {
+    if (this.memoryService.isInitialized()) {
+      w(`  ${colorize('Memory:', 'muted')}      ${colorize('✓ enabled', 'success')}\r\n`);
+    } else {
       w(`  ${colorize('Memory:', 'muted')}      ${colorize('not configured', 'muted')}\r\n`);
     }
 
     w('\r\n');
-  }
-
-  cmdConfig(): void {
-    const fs = require('fs');
-    const path = require('path');
-    const castDir = path.join(process.cwd(), '.cast');
-    const hasCastDir = fs.existsSync(castDir);
-    
-    process.stdout.write('\r\n');
-    process.stdout.write(colorize(Icons.gear + ' ', 'accent') + colorize('Configuration', 'bold') + '\r\n');
-    process.stdout.write(colorize(Box.horizontal.repeat(25), 'subtle') + '\r\n');
-    process.stdout.write(`  ${colorize('Provider:', 'muted')}    ${colorize(this.configService.getProvider(), 'cyan')}\r\n`);
-    process.stdout.write(`  ${colorize('Model:', 'muted')}       ${colorize(this.configService.getModel(), 'cyan')}\r\n`);
-    process.stdout.write(`  ${colorize('CWD:', 'muted')}         ${colorize(process.cwd(), 'accent')}\r\n`);
-    process.stdout.write(`  ${colorize('Messages:', 'muted')}   ${this.deepAgent.getMessageCount()}\r\n`);
-    process.stdout.write(`  ${colorize('.cast/:', 'muted')}     ${hasCastDir ? colorize('✓ found', 'success') : colorize('not found (use /project)', 'warning')}\r\n`);
-    process.stdout.write('\r\n');
   }
 
   cmdModel(args: string[]): void {
@@ -198,39 +178,6 @@ export class ReplCommandsService {
       return;
     }
     process.stdout.write(`${Colors.yellow}  Model change requires restart${Colors.reset}\r\n`);
-  }
-
-  cmdInit(): void {
-    const fs = require('fs');
-    const path = require('path');
-    const castDir = path.join(process.cwd(), '.cast');
-
-    if (fs.existsSync(castDir)) {
-      process.stdout.write(`  ${Colors.dim}.cast/ already exists${Colors.reset}\r\n`);
-      return;
-    }
-
-    fs.mkdirSync(castDir, { recursive: true });
-    fs.mkdirSync(path.join(castDir, 'agents'), { recursive: true });
-    fs.mkdirSync(path.join(castDir, 'skills'), { recursive: true });
-    fs.mkdirSync(path.join(castDir, 'mcp'), { recursive: true });
-
-    fs.writeFileSync(
-      path.join(castDir, 'config.md'),
-      [
-        '---',
-        'model: gpt-4.1',
-        '---',
-        '',
-        '# Project Context',
-        '',
-        'Describe your project here.',
-        '',
-      ].join('\n'),
-    );
-
-    process.stdout.write(`${Colors.green}  Initialized .cast/ directory${Colors.reset}\r\n`);
-    process.stdout.write(`  ${Colors.dim}Created: config.md, agents/, skills/, mcp/${Colors.reset}\r\n\r\n`);
   }
 
   cmdMentionsHelp(): void {

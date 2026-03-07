@@ -4,11 +4,7 @@ import * as path from 'path';
 import { ProjectAnalyzerService, ProjectContext } from '../../../project/services/project-analyzer.service';
 import { Colors, colorize, Box, Icons } from '../../utils/theme';
 import { confirmWithEsc } from '../../utils/prompts-with-esc';
-
-interface SmartInput {
-  askChoice: (question: string, choices: { key: string; label: string; description: string }[]) => Promise<string>;
-  question: (prompt: string) => Promise<string>;
-}
+import { ISmartInput } from '../smart-input';
 
 @Injectable()
 export class ProjectCommandsService {
@@ -16,7 +12,7 @@ export class ProjectCommandsService {
     private readonly projectAnalyzer: ProjectAnalyzerService,
   ) { }
 
-  async cmdProject(args: string[], smartInput: SmartInput): Promise<string | void> {
+  async cmdProject(args: string[], smartInput: ISmartInput): Promise<string | void> {
     const sub = args[0] || 'analyze';
 
     switch (sub) {
@@ -44,7 +40,7 @@ export class ProjectCommandsService {
     }
   }
 
-  private async generateContext(smartInput: SmartInput, useAgent: boolean): Promise<string | void> {
+  private async generateContext(smartInput: ISmartInput, useAgent: boolean): Promise<string | void> {
     smartInput.pause();
 
     const w = (s: string) => process.stdout.write(s);

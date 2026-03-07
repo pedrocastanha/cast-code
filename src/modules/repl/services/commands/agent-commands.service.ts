@@ -2,11 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Colors, colorize, Box, Icons } from '../../utils/theme';
 import { AgentRegistryService } from '../../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../../skills/services/skill-registry.service';
-
-interface SmartInput {
-  askChoice: (question: string, choices: { key: string; label: string; description: string }[]) => Promise<string>;
-  question: (prompt: string) => Promise<string>;
-}
+import { ISmartInput } from '../smart-input';
 
 @Injectable()
 export class AgentCommandsService {
@@ -15,7 +11,7 @@ export class AgentCommandsService {
     private readonly skillRegistry: SkillRegistryService,
   ) {}
 
-  async cmdAgents(args: string[], smartInput: SmartInput): Promise<void> {
+  async cmdAgents(args: string[], smartInput: ISmartInput): Promise<void> {
     const sub = args[0];
     const w = (s: string) => process.stdout.write(s);
 
@@ -60,7 +56,7 @@ export class AgentCommandsService {
     }
   }
 
-  async cmdSkills(args: string[], smartInput: SmartInput): Promise<void> {
+  async cmdSkills(args: string[], smartInput: ISmartInput): Promise<void> {
     const sub = args[0];
     const w = (s: string) => process.stdout.write(s);
 
@@ -91,7 +87,7 @@ export class AgentCommandsService {
     w(`${Colors.red}  Unknown: /skills ${sub}${Colors.reset}\r\n`);
   }
 
-  private async createAgentWizard(smartInput: SmartInput): Promise<void> {
+  private async createAgentWizard(smartInput: ISmartInput): Promise<void> {
     const fs = require('fs');
     const path = require('path');
     const castDir = path.join(process.cwd(), '.cast', 'agents');
@@ -142,7 +138,7 @@ export class AgentCommandsService {
     w(colorize('  Edit the file to customize, then restart\r\n\r\n', 'muted'));
   }
 
-  private async createSkillWizard(smartInput: SmartInput): Promise<void> {
+  private async createSkillWizard(smartInput: ISmartInput): Promise<void> {
     const fs = require('fs');
     const path = require('path');
     const castDir = path.join(process.cwd(), '.cast', 'skills');

@@ -11,11 +11,7 @@ import {
   CancelledPromptError,
 } from '../../utils/prompts-with-esc';
 import { getAllTemplates, getTemplatesByCategory, getTemplate, McpCategory } from '../../../mcp/catalog/mcp-templates';
-
-interface SmartInput {
-  askChoice: (question: string, choices: { key: string; label: string; description: string }[]) => Promise<string>;
-  question: (prompt: string) => Promise<string>;
-}
+import { ISmartInput } from '../smart-input';
 
 @Injectable()
 export class McpCommandsService {
@@ -24,7 +20,7 @@ export class McpCommandsService {
     private readonly mcpClient: McpClientService,
   ) {}
 
-  async cmdMcp(args: string[], smartInput: SmartInput & { pause: () => void; resume: () => void }): Promise<void> {
+  async cmdMcp(args: string[], smartInput: ISmartInput): Promise<void> {
     const sub = args[0] || 'menu';
 
     if (sub === 'menu') {
@@ -78,7 +74,7 @@ export class McpCommandsService {
     }
   }
 
-  private async showMcpMenu(smartInput: SmartInput): Promise<void> {
+  private async showMcpMenu(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
 
     while (true) {
@@ -151,7 +147,7 @@ export class McpCommandsService {
     }
   }
 
-  private async connectServers(smartInput?: SmartInput & { pause: () => void; resume: () => void }): Promise<void> {
+  private async connectServers(smartInput?: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const summaries = this.mcpRegistry.getServerSummaries();
 
@@ -290,7 +286,7 @@ export class McpCommandsService {
     w('\r\n');
   }
 
-  private async addMcpWizard(smartInput: SmartInput): Promise<void> {
+  private async addMcpWizard(smartInput: ISmartInput): Promise<void> {
     const mcpDir = path.join(process.cwd(), '.cast', 'mcp');
 
     if (!fs.existsSync(mcpDir)) {
@@ -496,7 +492,7 @@ export class McpCommandsService {
     w(colorize('  Reinicie o Cast para conectar\r\n\r\n', 'muted'));
   }
 
-  private async removeMcpWizard(smartInput: SmartInput): Promise<void> {
+  private async removeMcpWizard(smartInput: ISmartInput): Promise<void> {
     const mcpDir = path.join(process.cwd(), '.cast', 'mcp');
 
     if (!fs.existsSync(mcpDir)) {
@@ -534,7 +530,7 @@ export class McpCommandsService {
     }
   }
 
-  private async testMcpTool(smartInput: SmartInput): Promise<void> {
+  private async testMcpTool(smartInput: ISmartInput): Promise<void> {
     console.log(colorize('\nEm breve!\n', 'muted'));
   }
 
