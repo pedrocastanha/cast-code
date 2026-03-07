@@ -19,7 +19,7 @@ export interface Task {
   dependencies: string[];
   blocks: string[];
   assignedAgent?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface TaskPlan {
@@ -36,7 +36,7 @@ export interface CreateTaskOptions {
   description: string;
   activeForm?: string;
   dependencies?: string[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateTaskOptions {
@@ -47,7 +47,7 @@ export interface UpdateTaskOptions {
   addDependencies?: string[];
   removeDependencies?: string[];
   assignedAgent?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface PlanApprovalOptions {

@@ -214,20 +214,6 @@ export class TaskManagementService {
     }
   }
 
-  async executePlan(planId: string): Promise<void> {
-    const plan = this.plans.get(planId);
-    if (!plan) {
-      throw new Error('Plan not found');
-    }
-
-    if (plan.status !== 'approved') {
-      throw new Error('Plan must be approved before execution');
-    }
-
-    plan.status = 'executing';
-    this.promptService.info('Starting plan execution...');
-  }
-
   private generateActiveForm(subject: string): string {
     const firstWord = subject.split(' ')[0].toLowerCase();
     const rest = subject.slice(firstWord.length);
@@ -271,14 +257,6 @@ export class TaskManagementService {
 
     const gerund = gerundMap[firstWord] || (subject.length > 20 ? subject.slice(0, 20) + '...' : subject);
     return gerund + rest;
-  }
-
-  clearCompletedTasks(): void {
-    for (const [id, task] of this.tasks.entries()) {
-      if (task.status === TaskStatus.COMPLETED || task.status === TaskStatus.CANCELLED) {
-        this.tasks.delete(id);
-      }
-    }
   }
 
   setExecutionContext(context: PlanExecutionContext): void {
