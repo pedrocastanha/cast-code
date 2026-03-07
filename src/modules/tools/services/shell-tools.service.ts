@@ -15,6 +15,11 @@ interface ExecError extends Error {
   stderr?: string;
 }
 
+interface ShellSessionState {
+  backgroundProcesses: Map<string, any>;
+  processCounter: { value: number };
+}
+
 @Injectable()
 export class ShellToolsService {
   private backgroundProcesses: Map<string, any> = new Map();
@@ -22,8 +27,27 @@ export class ShellToolsService {
 
   constructor(private permissionService: PermissionService) {}
 
+  private buildTools(state: ShellSessionState) {
+    return [
+      this.createShellTool(),
+      this.createBackgroundShellTool(state),
+      this.createBackgroundOutputTool(state),
+      this.createBackgroundKillTool(state),
+    ];
+  }
+
   getTools() {
-    return [this.createShellTool(), this.createBackgroundShellTool()];
+    return this.buildTools({
+      backgroundProcesses: this.backgroundProcesses,
+      processCounter: { value: this.processCounter },
+    });
+  }
+
+  getIsolatedTools() {
+    return this.buildTools({
+      backgroundProcesses: new Map(),
+      processCounter: { value: 0 },
+    });
   }
 
   private createShellTool() {
@@ -79,7 +103,7 @@ export class ShellToolsService {
     );
   }
 
-  private createBackgroundShellTool() {
+  private createBackgroundShellTool(state: ShellSessionState) {
     return tool(
       async ({ command, cwd }) => {
         const allowed = await this.permissionService.checkPermission(command);
@@ -88,7 +112,7 @@ export class ShellToolsService {
           return 'Command execution denied by user';
         }
 
-        const processId = `bg-${++this.processCounter}`;
+        const processId = `bg-${++state.processCounter.value}`;
         const outputFile = path.join(os.tmpdir(), `cast-bg-${processId}.log`);
 
         return new Promise((resolve) => {
@@ -101,7 +125,7 @@ export class ShellToolsService {
             stdio: ['ignore', logFd, logFd],
           });
 
-          this.backgroundProcesses.set(processId, {
+          state.backgroundProcesses.set(processId, {
             process: child,
             command,
             outputFile,
@@ -111,12 +135,19 @@ export class ShellToolsService {
           child.unref();
           require('fs').closeSync(logFd);
 
+          child.on('close', () => {
+            const entry = state.backgroundProcesses.get(processId);
+            if (entry) {
+              entry.exitedAt = Date.now();
+            }
+          });
+
           resolve(
             JSON.stringify({
               success: true,
               processId,
               outputFile,
-              message: 'Command started in background. Use task_output to check progress.',
+              message: 'Command started in background. Use shell_background_output to check progress or shell_background_kill to stop it.',
             }),
           );
         });
@@ -128,6 +159,57 @@ export class ShellToolsService {
         schema: z.object({
           command: z.string().describe('Command to execute in background'),
           cwd: z.string().optional().describe('Working directory'),
+        }),
+      },
+    );
+  }
+
+  private createBackgroundOutputTool(state: ShellSessionState) {
+    return tool(
+      async ({ processId }) => {
+        const bgProcess = state.backgroundProcesses.get(processId);
+        if (!bgProcess) {
+          return `Process ${processId} not found`;
+        }
+        try {
+          const content = await fs.readFile(bgProcess.outputFile, 'utf-8');
+          const status = bgProcess.exitedAt ? `[exited at ${new Date(bgProcess.exitedAt).toISOString()}]` : '[running]';
+          return `${status}\n${content || '(no output yet)'}`;
+        } catch (error) {
+          return `Error reading output: ${(error as Error).message}`;
+        }
+      },
+      {
+        name: 'shell_background_output',
+        description: 'Read the output of a background process started with shell_background.',
+        schema: z.object({
+          processId: z.string().describe('Process ID returned by shell_background'),
+        }),
+      },
+    );
+  }
+
+  private createBackgroundKillTool(state: ShellSessionState) {
+    return tool(
+      async ({ processId }) => {
+        const bgProcess = state.backgroundProcesses.get(processId);
+        if (!bgProcess) {
+          return `Process ${processId} not found`;
+        }
+        try {
+          process.kill(-bgProcess.process.pid);
+          state.backgroundProcesses.delete(processId);
+          return `Process ${processId} killed`;
+        } catch (error) {
+          state.backgroundProcesses.delete(processId);
+          return `Process ${processId} could not be killed (may have already exited): ${(error as Error).message}`;
+        }
+      },
+      {
+        name: 'shell_background_kill',
+        description: 'Kill a background process started with shell_background.',
+        schema: z.object({
+          processId: z.string().describe('Process ID returned by shell_background'),
         }),
       },
     );
