@@ -15,13 +15,7 @@ import {
   CancelledPromptError,
   withEsc,
 } from '../../repl/utils/prompts-with-esc';
-
-interface SmartInput {
-  askChoice: (question: string, choices: { key: string; label: string; description: string }[]) => Promise<string>;
-  question: (prompt: string) => Promise<string>;
-  pause: () => void;
-  resume: () => void;
-}
+import { ISmartInput } from '../../repl/services/smart-input';
 
 @Injectable()
 export class ConfigCommandsService {
@@ -90,7 +84,7 @@ export class ConfigCommandsService {
     }
   }
 
-  private async showConfigMenu(smartInput: SmartInput): Promise<void> {
+  private async showConfigMenu(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const Colors = {
       cyan: '\x1b[38;5;51m',
@@ -155,7 +149,7 @@ export class ConfigCommandsService {
     }
   }
 
-  private async runInquirerFlow(smartInput: SmartInput, fn: () => Promise<void>): Promise<void> {
+  private async runInquirerFlow(smartInput: ISmartInput, fn: () => Promise<void>): Promise<void> {
     smartInput.pause();
     try {
       await this.withEscHandler(fn);

@@ -75,7 +75,7 @@ export class McpClientService extends EventEmitter {
     proc.stderr?.on('data', (data: Buffer) => {
       const msg = data.toString().trim();
       if (msg && !msg.startsWith('Debugger') && !msg.startsWith('Warning')) {
-        console.error(`MCP ${name} stderr:`, msg);
+        process.stderr.write(`MCP ${name} stderr: ${msg}\n`);
       }
     });
 
