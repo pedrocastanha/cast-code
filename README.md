@@ -81,6 +81,8 @@ You can also assign different models per purpose — `default`, `subAgent`, `cod
 | `/context` | Show session, tools, agents, skills, MCP status |
 | `/clear` | Clear conversation history |
 | `/compact` | Compact context window |
+| `/kanban` | Open Kanban board (local web UI on port 3333) |
+| `/remote` | Start remote web interface via ngrok |
 | `/exit` | Exit CLI |
 
 ### Config
@@ -162,6 +164,50 @@ Cast ships with templates for 30+ MCP servers across categories: Dev Tools, Desi
 5. Restart Cast, then `/mcp` → Conectar servidores
 
 For HTTP servers that require OAuth, Cast handles the full OAuth 2.0 + PKCE flow automatically and stores tokens in `~/.cast/mcp-auth/`.
+
+---
+
+## Remote Access
+
+Cast can expose a password-protected web UI accessible from any browser — phone, tablet, or remote computer — via a secure ngrok tunnel.
+
+### Setup
+
+1. Enable remote access and set a password:
+   ```bash
+   /config init
+   ```
+   Toggle **Remote Access → enabled**, set a **password**, and optionally add your **ngrok auth token** (for persistent URLs) and **OpenAI API key** (for voice input via Whisper).
+
+2. Start the remote server:
+   ```bash
+   /remote
+   ```
+
+   Cast prints a public URL and your password:
+   ```
+   🌐 Remote Access Online!
+   Link:  https://xxxx-xxxx.ngrok-free.app
+   Password: your-password
+   ```
+
+3. Open the URL in any browser, enter your password, and you're in.
+
+### What the remote UI can do
+
+| Feature | Details |
+|---|---|
+| Live output | All agent responses stream to the browser in real time |
+| Send messages | Type prompts from the browser — they execute in the local CLI |
+| Voice input | Record audio in the browser; Cast transcribes via Whisper and sends as a prompt |
+| Kanban board | Access the task board at `<remote-url>/kanban` |
+
+### Requirements
+
+- `remote.enabled: true` and `remote.password` set in `~/.cast/config.yaml`
+- `npx` available (ngrok is fetched automatically via `npx ngrok`)
+- For persistent ngrok URLs: a free [ngrok account](https://ngrok.com) + auth token
+- For voice input: `remote.openaiApiKey` set (uses Whisper API)
 
 ---
 
