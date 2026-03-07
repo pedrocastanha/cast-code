@@ -20,6 +20,7 @@ export class RemoteServerService {
     private authToken: string | null = null;
     private isRunning = false;
     private ngrokProcess: any = null;
+    private publicUrl: string | null = null;
     private messageCallback: ((msg: string) => Promise<void>) | null = null;
 
     constructor(private readonly configManager: ConfigManagerService) { }
@@ -92,6 +93,7 @@ export class RemoteServerService {
                 if (data && data.tunnels && data.tunnels.length > 0) {
                     const tunnel = data.tunnels[0].public_url;
                     clearInterval(interval);
+                    this.publicUrl = tunnel;
                     process.stdout.write(`\r\n${Colors.green}${Colors.bold}🌐 Acesso Remoto Online!${Colors.reset}\r\n`);
                     process.stdout.write(`${Colors.bold}Link:${Colors.reset} ${Colors.cyan}${tunnel}${Colors.reset}\r\n`);
                     process.stdout.write(`${Colors.bold}Senha:${Colors.reset} ${this.configManager.getConfig().remote?.password}\r\n\r\n`);
@@ -109,6 +111,14 @@ export class RemoteServerService {
             console.log(`${Colors.red}  Erro no ngrok: ${err.message}${Colors.reset}`);
             clearInterval(interval);
         });
+    }
+
+    public getIsRunning(): boolean {
+        return this.isRunning;
+    }
+
+    public getPublicUrl(): string | null {
+        return this.publicUrl;
     }
 
     public stop() {
@@ -179,6 +189,40 @@ export class RemoteServerService {
             req.on('close', () => {
                 this.clients = this.clients.filter(client => client !== res);
             });
+            return;
+        }
+
+        if (parsedUrl.pathname === '/kanban' || parsedUrl.pathname.startsWith('/kanban/')) {
+            const kanbanPath = parsedUrl.pathname.replace(/^\/kanban/, '') || '/';
+            const kanbanUrl = `http://localhost:3333${kanbanPath}${parsedUrl.search || ''}`;
+
+            const proxyReq = http.request(kanbanUrl, { method: method }, (proxyRes) => {
+                const contentType = proxyRes.headers['content-type'] || '';
+                if (contentType.includes('text/html')) {
+                    let html = '';
+                    proxyRes.setEncoding('utf8');
+                    proxyRes.on('data', (chunk) => html += chunk);
+                    proxyRes.on('end', () => {
+                        html = html.replace(/(["'`])\/api\//g, '$1/kanban/api/');
+                        res.writeHead(proxyRes.statusCode || 200, { 'Content-Type': 'text/html; charset=utf-8' });
+                        res.end(html);
+                    });
+                } else {
+                    res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+                    proxyRes.pipe(res);
+                }
+            });
+
+            proxyReq.on('error', () => {
+                res.writeHead(502);
+                res.end(JSON.stringify({ error: 'Kanban server not running. Use /kanban in the CLI first.' }));
+            });
+
+            if (method !== 'GET' && method !== 'HEAD') {
+                req.pipe(proxyReq);
+            } else {
+                proxyReq.end();
+            }
             return;
         }
 

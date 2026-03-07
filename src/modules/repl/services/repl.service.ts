@@ -25,6 +25,7 @@ export class ReplService {
   private smartInput: SmartInput | null = null;
   private abortController: AbortController | null = null;
   private isProcessing = false;
+  private isBroadcasting = false;
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -59,16 +60,22 @@ export class ReplService {
       agentCount,
     });
 
-    // Intercept stdout to broadcast to remote UI
+    // Intercept stdout to broadcast to remote UI.
+    // Only broadcast while isProcessing=true (AI responding / tools running).
+    // This prevents SmartInput cursor-movement / autocomplete renders from
+    // being sent to the remote client and corrupting the local terminal state.
     const originalWrite = process.stdout.write.bind(process.stdout);
     process.stdout.write = (chunk: Uint8Array | string, encoding?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean => {
-      // broadcast to remote
-      if (typeof chunk === 'string') {
-        this.remoteServer.broadcast(chunk);
-      } else if (Buffer.isBuffer(chunk)) {
-        this.remoteServer.broadcast(chunk.toString());
-      } else if (chunk instanceof Uint8Array) {
-        this.remoteServer.broadcast(Buffer.from(chunk).toString());
+      if (this.isBroadcasting) {
+        try {
+          if (typeof chunk === 'string') {
+            this.remoteServer.broadcast(chunk);
+          } else if (Buffer.isBuffer(chunk)) {
+            this.remoteServer.broadcast(chunk.toString());
+          } else if (chunk instanceof Uint8Array) {
+            this.remoteServer.broadcast(Buffer.from(chunk).toString());
+          }
+        } catch { /* never let broadcast errors affect the local terminal */ }
       }
       return originalWrite(chunk, encoding as any, cb as any);
     };
@@ -276,10 +283,15 @@ export class ReplService {
       return;
     }
 
-    if (trimmed.startsWith('/')) {
-      await this.handleCommand(trimmed);
-    } else {
-      await this.handleMessage(trimmed);
+    this.isBroadcasting = true;
+    try {
+      if (trimmed.startsWith('/')) {
+        await this.handleCommand(trimmed);
+      } else {
+        await this.handleMessage(trimmed);
+      }
+    } finally {
+      this.isBroadcasting = false;
     }
 
     this.smartInput?.showPrompt();
@@ -354,7 +366,15 @@ export class ReplService {
         break;
 
       case 'kanban':
-        this.kanbanServer.start();
+        this.kanbanServer.start(!this.remoteServer.getIsRunning());
+        if (this.remoteServer.getIsRunning()) {
+          const remoteUrl = this.remoteServer.getPublicUrl();
+          if (remoteUrl) {
+            process.stdout.write(`  Kanban: ${remoteUrl}/kanban\r\n`);
+          } else {
+            process.stdout.write(`  Kanban: acesse pelo remote + /kanban\r\n`);
+          }
+        }
         break;
 
       case 'remote':

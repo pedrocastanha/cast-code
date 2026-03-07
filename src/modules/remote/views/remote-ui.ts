@@ -4,596 +4,849 @@ export function getRemoteHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>cast · remote</title>
+  <title>Cast Code</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌰</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #09090b;
-      --surface: rgba(24, 24, 27, 0.6);
-      --surface-solid: #18181b;
-      --card: rgba(39, 39, 42, 0.5);
-      --border: rgba(255, 255, 255, 0.1);
-      --border-hover: rgba(255, 255, 255, 0.2);
-      --text: #fafafa;
-      --muted: #a1a1aa;
-      --cyan: #38bdf8;
-      --purple: #c084fc;
-      --red: #f87171;
-      --green: #4ade80;
+      --bg:         #080810;
+      --surface:    #0f0f1a;
+      --card:       #141424;
+      --border:     rgba(140, 130, 255, 0.12);
+      --border-hi:  rgba(140, 130, 255, 0.28);
+      --text:       #e8e8f4;
+      --muted:      #8888aa;
+      --subtle:     #44445a;
 
-      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+      --cyan:    #38d9f5;
+      --purple:  #a78bfa;
+      --green:   #34d399;
+      --yellow:  #fbbf24;
+      --red:     #f87171;
+      --orange:  #fb923c;
+
+      --glow-c:  0 0 18px rgba(56, 217, 245, 0.18);
+      --glow-p:  0 0 18px rgba(167, 139, 250, 0.20);
+
+      --radius:  14px;
+      --radius-s: 8px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       background: var(--bg);
-      background-image: radial-gradient(circle at top right, rgba(56, 189, 248, 0.05), transparent 40%),
-                        radial-gradient(circle at bottom left, rgba(192, 132, 252, 0.05), transparent 40%);
+      background-image:
+        radial-gradient(ellipse 60% 40% at 80% 0%, rgba(56,217,245,0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 35% at 10% 100%, rgba(167,139,250,0.07) 0%, transparent 60%);
       color: var(--text);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       font-size: 14px;
-      height: 100vh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Auth Screen */
+    /* ── Auth ─────────────────────────────────────── */
     #auth-screen {
       position: absolute;
       inset: 0;
-      z-index: 100;
-      background: var(--bg);
+      z-index: 200;
       display: flex;
       align-items: center;
       justify-content: center;
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: var(--bg);
     }
 
     .auth-card {
-      background: var(--surface-solid);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 32px;
-      width: 100%;
-      max-width: 400px;
-      box-shadow: var(--shadow-lg);
+      width: min(420px, 92vw);
+      background: var(--surface);
+      border: 1px solid var(--border-hi);
+      border-radius: 20px;
+      padding: 40px 36px;
       text-align: center;
-      animation: formIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.6), var(--glow-p);
+      animation: popIn 0.45s cubic-bezier(0.16,1,0.3,1);
     }
 
-    @keyframes formIn {
-      from { opacity: 0; transform: translateY(20px) scale(0.95); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+    @keyframes popIn {
+      from { opacity: 0; transform: translateY(24px) scale(0.94); }
+      to   { opacity: 1; transform: none; }
     }
 
-    .auth-title {
-      font-size: 20px;
+    .auth-logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+
+    .auth-logo-icon {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+
+    .auth-logo-text {
+      font-size: 22px;
       font-weight: 700;
-      margin-bottom: 24px;
-      color: var(--cyan);
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .auth-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 28px;
+      line-height: 1.5;
     }
 
     .auth-input {
       width: 100%;
-      background: rgba(0,0,0,0.2);
+      background: rgba(0,0,0,0.3);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 12px 16px;
-      border-radius: 8px;
-      font-size: 14px;
-      outline: none;
-      margin-bottom: 16px;
-      transition: border-color 0.2s;
+      padding: 13px 18px;
+      border-radius: var(--radius-s);
+      font-size: 16px;
+      letter-spacing: 4px;
       text-align: center;
-      letter-spacing: 2px;
+      outline: none;
+      margin-bottom: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .auth-input:focus {
       border-color: var(--cyan);
+      box-shadow: var(--glow-c);
     }
 
     .auth-btn {
       width: 100%;
-      background: var(--cyan);
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
       color: #000;
       border: none;
-      padding: 12px;
-      border-radius: 8px;
-      font-weight: 600;
+      padding: 13px;
+      border-radius: var(--radius-s);
+      font-weight: 700;
       font-size: 14px;
+      letter-spacing: 0.03em;
       cursor: pointer;
-      transition: all 0.2s;
-      box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+      transition: opacity 0.2s, transform 0.15s;
     }
 
-    .auth-btn:hover {
-      background: #7dd3fc;
-      transform: translateY(-1px);
+    .auth-btn:hover  { opacity: 0.88; transform: translateY(-1px); }
+    .auth-btn:active { transform: translateY(0); }
+
+    .auth-error {
+      color: var(--red);
+      margin-top: 12px;
+      font-size: 13px;
+      display: none;
     }
 
-    /* App UI */
+    /* ── App layout ───────────────────────────────── */
     #app-screen {
       display: none;
       flex-direction: column;
-      height: 100vh;
+      height: 100dvh;
     }
 
+    /* ── Header ───────────────────────────────────── */
     header {
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
       display: flex;
       align-items: center;
       justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
       flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8,8,16,0.7);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       z-index: 10;
     }
 
-    .logo {
-      font-weight: 700;
-      font-size: 16px;
-      color: var(--cyan);
-      letter-spacing: 0.05em;
-    }
-
-    .logo span {
-      color: var(--muted);
-      font-weight: 400;
-    }
-
-    .status-indicator {
+    .header-left {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+    }
+
+    .header-logo-icon {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .header-title {
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.02em;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header-sep {
+      color: var(--subtle);
+      font-weight: 300;
+    }
+
+    .header-sub {
       font-size: 12px;
       color: var(--muted);
     }
 
-    .live-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 8px var(--green);
-      animation: pulse 2s infinite;
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      font-size: 12px;
+      color: var(--muted);
     }
 
-    .live-dot.disconnected {
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: blink 2.4s infinite;
+    }
+
+    .status-dot.off {
       background: var(--red);
-      box-shadow: 0 0 8px var(--red);
+      box-shadow: 0 0 6px var(--red);
       animation: none;
     }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+    @keyframes blink {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.35; }
     }
 
-    .chat-container {
+    /* ── Chat ─────────────────────────────────────── */
+    .chat {
       flex: 1;
       overflow-y: auto;
-      padding: 24px;
+      padding: 20px 20px 8px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 1px;
       scroll-behavior: smooth;
     }
 
-    .log-line {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 13px;
+    .chat::-webkit-scrollbar       { width: 4px; }
+    .chat::-webkit-scrollbar-track  { background: transparent; }
+    .chat::-webkit-scrollbar-thumb  { background: var(--subtle); border-radius: 2px; }
+
+    .chat-welcome {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 16px 0 24px;
       line-height: 1.6;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .chat-welcome strong {
+      color: var(--text);
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .log-line {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.65;
       white-space: pre-wrap;
       word-break: break-word;
+      padding: 1px 0;
+      color: var(--text);
     }
 
     .log-line.user-msg {
       color: var(--cyan);
-      margin-top: 8px;
+      font-weight: 500;
+      padding: 6px 12px;
+      margin: 8px 0 4px;
+      background: rgba(56,217,245,0.06);
+      border-left: 2px solid var(--cyan);
+      border-radius: 0 6px 6px 0;
     }
 
-    .input-area {
-      padding: 16px 24px;
-      background: var(--surface);
+    /* ── Command Palette ──────────────────────────── */
+    #cmd-palette {
+      position: absolute;
+      bottom: 72px;
+      left: 16px; right: 16px;
+      background: var(--card);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius);
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.5), var(--glow-p);
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      max-height: 320px;
+      overflow: hidden;
+      animation: slideUp 0.18s cubic-bezier(0.16,1,0.3,1);
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    .palette-header {
+      padding: 10px 14px 8px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .palette-list {
+      overflow-y: auto;
+      padding: 6px;
+    }
+
+    .palette-list::-webkit-scrollbar       { width: 3px; }
+    .palette-list::-webkit-scrollbar-track  { background: transparent; }
+    .palette-list::-webkit-scrollbar-thumb  { background: var(--subtle); border-radius: 2px; }
+
+    .palette-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: var(--radius-s);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .palette-item:hover,
+    .palette-item.active {
+      background: rgba(167,139,250,0.1);
+    }
+
+    .palette-item.active {
+      background: rgba(167,139,250,0.15);
+    }
+
+    .palette-cmd {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--cyan);
+      min-width: 130px;
+      flex-shrink: 0;
+    }
+
+    .palette-cmd mark {
+      background: transparent;
+      color: var(--purple);
+      font-weight: 700;
+    }
+
+    .palette-desc {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .palette-category {
+      font-size: 10px;
+      color: var(--subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      padding: 6px 10px 2px;
+      margin-top: 2px;
+    }
+
+    .palette-hint {
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--subtle);
       border-top: 1px solid var(--border);
-      backdrop-filter: blur(12px);
       display: flex;
       gap: 12px;
-      align-items: flex-end;
+      flex-shrink: 0;
     }
 
-    .textarea-wrapper {
+    .palette-hint kbd {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+    }
+
+    /* ── Input ────────────────────────────────────── */
+    .input-bar {
+      padding: 12px 14px;
+      background: rgba(8,8,16,0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .input-wrap {
       flex: 1;
       position: relative;
     }
 
     textarea {
       width: 100%;
-      background: rgba(0,0,0,0.2);
+      background: var(--surface);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 12px 16px;
-      border-radius: 12px;
-      font-family: inherit;
+      padding: 11px 14px;
+      border-radius: var(--radius-s);
+      font-family: 'Inter', sans-serif;
       font-size: 14px;
       resize: none;
       outline: none;
-      max-height: 120px;
-      min-height: 46px;
+      max-height: 140px;
+      min-height: 44px;
       line-height: 1.5;
-      transition: border 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     textarea:focus {
-      border-color: var(--cyan);
+      border-color: rgba(167,139,250,0.5);
+      box-shadow: 0 0 0 3px rgba(167,139,250,0.08);
     }
 
-    .btn-action {
-      width: 46px;
-      height: 46px;
-      border-radius: 12px;
-      border: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: all 0.2s;
-    }
-
-    .btn-send {
-      background: var(--cyan);
-      color: #000;
-      box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
-    }
-
-    .btn-send:hover {
-      background: #7dd3fc;
-      transform: translateY(-2px);
-    }
-
-    .btn-mic {
-      background: var(--card);
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-
-    .btn-mic:hover {
-      border-color: var(--border-hover);
-      background: rgba(255,255,255,0.05);
-    }
-
-    .btn-mic.recording {
-      background: rgba(248, 113, 113, 0.1);
-      border-color: var(--red);
-      color: var(--red);
-      animation: micPulse 1s infinite alternate;
-    }
-
-    @keyframes micPulse {
-      from { box-shadow: 0 0 5px rgba(248, 113, 113, 0.2); }
-      to { box-shadow: 0 0 15px rgba(248, 113, 113, 0.6); }
-    }
+    textarea::placeholder { color: var(--subtle); }
 
     .recording-overlay {
       position: absolute;
       inset: 0;
-      background: var(--surface-solid);
-      border-radius: 12px;
+      background: var(--surface);
+      border-radius: var(--radius-s);
+      border: 1px solid var(--red);
       display: none;
       align-items: center;
       justify-content: center;
-      gap: 12px;
-      border: 1px solid var(--red);
+      gap: 10px;
       color: var(--red);
+      font-size: 13px;
       font-weight: 500;
       z-index: 2;
+    }
+
+    .rec-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: blink 0.8s infinite;
+    }
+
+    .btn {
+      width: 44px; height: 44px;
+      border-radius: var(--radius-s);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.18s;
+      background: var(--surface);
+      color: var(--muted);
+    }
+
+    .btn:hover { border-color: var(--border-hi); color: var(--text); background: var(--card); }
+
+    .btn-send {
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      border-color: transparent;
+      color: #000;
+    }
+
+    .btn-send:hover { opacity: 0.85; border-color: transparent; }
+
+    .btn-mic.recording {
+      border-color: var(--red);
+      color: var(--red);
+      background: rgba(248,113,113,0.08);
+      animation: micPulse 1s ease-in-out infinite alternate;
+    }
+
+    @keyframes micPulse {
+      from { box-shadow: 0 0 4px rgba(248,113,113,0.2); }
+      to   { box-shadow: 0 0 16px rgba(248,113,113,0.5); }
     }
   </style>
 </head>
 <body>
 
-  <!-- Auth Screen -->
-  <div id="auth-screen">
-    <form class="auth-card" id="auth-form" onsubmit="handleAuth(event)">
-      <div class="auth-title">cast · remote</div>
-      <input type="password" id="password" class="auth-input" placeholder="Enter password" autofocus required>
-      <button type="submit" class="auth-btn">Connect</button>
-      <div id="auth-error" style="color: var(--red); margin-top: 12px; font-size: 13px; display: none;">Invalid password</div>
-    </form>
-  </div>
-
-  <!-- App UI -->
-  <div id="app-screen">
-    <header>
-      <div class="logo">cast <span>·</span> remote</div>
-      <div class="status-indicator">
-        <span id="status-text">Connecting...</span>
-        <div class="live-dot" id="live-dot"></div>
-      </div>
-    </header>
-
-    <div class="chat-container" id="chat">
-      <div style="color: var(--muted); text-align: center; margin-bottom: 20px; font-size: 12px;">
-        Secure terminal session connected. Context and history available.
-      </div>
+<!-- ── Auth ────────────────────────────────────────── -->
+<div id="auth-screen">
+  <form class="auth-card" onsubmit="handleAuth(event)">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">🌰</div>
+      <div class="auth-logo-text">cast remote</div>
     </div>
+    <p class="auth-sub">Enter your password to start a secure<br>remote terminal session.</p>
+    <input type="password" id="password" class="auth-input" placeholder="••••••••" autofocus required>
+    <button type="submit" class="auth-btn" id="auth-btn">Connect</button>
+    <div class="auth-error" id="auth-error">Incorrect password — try again.</div>
+  </form>
+</div>
 
-    <div class="input-area">
-      <div class="textarea-wrapper">
-        <textarea id="msg-input" placeholder="Type a command or message... (/help for commands)" onkeydown="handleKey(event)" rows="1"></textarea>
-        <div class="recording-overlay" id="recording-overlay">
-          <div class="live-dot" style="background: var(--red); box-shadow: none;"></div>
-          Recording audio...
-        </div>
-      </div>
-      <button class="btn-action btn-mic" id="btn-mic" onclick="toggleRecording()" title="Record Audio">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-          <line x1="12" y1="19" x2="12" y2="22"></line>
-        </svg>
-      </button>
-      <button class="btn-action btn-send" onclick="sendMessage()" title="Send">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
+<!-- ── App ─────────────────────────────────────────── -->
+<div id="app-screen">
+  <header>
+    <div class="header-left">
+      <div class="header-logo-icon">🌰</div>
+      <span class="header-title">cast</span>
+      <span class="header-sep">·</span>
+      <span class="header-sub">remote session</span>
+    </div>
+    <div class="status-badge">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Connecting…</span>
+    </div>
+  </header>
+
+  <div class="chat" id="chat">
+    <div class="chat-welcome">
+      <strong>Remote session active</strong>
+      Type a message or use <code style="color:var(--cyan)">/</code> to browse commands.
     </div>
   </div>
+
+  <!-- Command Palette -->
+  <div id="cmd-palette">
+    <div class="palette-header">Commands — type to filter</div>
+    <div class="palette-list" id="palette-list"></div>
+    <div class="palette-hint">
+      <span><kbd>↑↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> run</span>
+      <span><kbd>Esc</kbd> close</span>
+    </div>
+  </div>
+
+  <div class="input-bar">
+    <div class="input-wrap">
+      <textarea id="msg-input" placeholder="Message cast… (/ for commands)" rows="1"
+        oninput="onInputChange(this)" onkeydown="handleKey(event)"></textarea>
+      <div class="recording-overlay" id="rec-overlay">
+        <div class="rec-dot"></div>
+        Recording…
+      </div>
+    </div>
+    <button class="btn btn-mic" id="btn-mic" onclick="toggleRecording()" title="Voice input">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+      </svg>
+    </button>
+    <button class="btn btn-send" onclick="sendMessage()" title="Send (Enter)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"/>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
+  </div>
+</div>
 
 <script>
-  let authToken = null;
-  let es = null;
-
-  // Audio Recording State
+  // ── State ────────────────────────────────────────────────────────────────
+  let authToken     = null;
   let mediaRecorder = null;
-  let audioChunks = [];
-  let isRecording = false;
+  let audioChunks   = [];
+  let isRecording   = false;
+  let paletteIndex  = -1;
+  let paletteItems  = [];
 
-  // ─── ANSI → HTML ──────────────────────────────────────────────────────────
+  // ── Commands (mirrors repl.service.ts getCommandSuggestions) ─────────────
+  const COMMANDS = [
+    // General
+    { text: '/help',         desc: 'Show all commands',                cat: 'General' },
+    { text: '/clear',        desc: 'Clear conversation history',        cat: 'General' },
+    { text: '/compact',      desc: 'Summarize and compress history',    cat: 'General' },
+    { text: '/context',      desc: 'Session info & stats',              cat: 'General' },
+    { text: '/model',        desc: 'Show or switch model',              cat: 'General' },
+    { text: '/exit',         desc: 'Exit cast',                         cat: 'General' },
+    // Project
+    { text: '/init',         desc: 'Analyze project & generate context', cat: 'Project' },
+    { text: '/project',      desc: 'Show project context',              cat: 'Project' },
+    { text: '/project-deep', desc: 'Deep codebase analysis',            cat: 'Project' },
+    { text: '/config',       desc: 'Open configuration',                cat: 'Project' },
+    // Git
+    { text: '/status',       desc: 'Git status',                        cat: 'Git' },
+    { text: '/diff',         desc: 'Git diff',                          cat: 'Git' },
+    { text: '/log',          desc: 'Git log (last 15)',                  cat: 'Git' },
+    { text: '/commit',       desc: 'Stage & commit changes',            cat: 'Git' },
+    { text: '/up',           desc: 'Smart commit + push',               cat: 'Git' },
+    { text: '/split-up',     desc: 'Split into logical commits',        cat: 'Git' },
+    { text: '/pr',           desc: 'Create Pull Request',               cat: 'Git' },
+    // Code
+    { text: '/review',       desc: 'AI code review',                    cat: 'Code' },
+    { text: '/fix',          desc: 'Auto-fix code issues',              cat: 'Code' },
+    { text: '/ident',        desc: 'Format & indent code',              cat: 'Code' },
+    { text: '/unit-test',    desc: 'Generate unit tests',               cat: 'Code' },
+    { text: '/release',      desc: 'Generate release notes',            cat: 'Code' },
+    // Agents & Tools
+    { text: '/agents',       desc: 'List available agents',             cat: 'Agents & Tools' },
+    { text: '/skills',       desc: 'List loaded skills',                cat: 'Agents & Tools' },
+    { text: '/tools',        desc: 'List available tools',              cat: 'Agents & Tools' },
+    { text: '/mentions',     desc: 'Help with @file mentions',          cat: 'Agents & Tools' },
+    { text: '/mcp',          desc: 'Manage MCP servers',                cat: 'Agents & Tools' },
+    // Interface
+    { text: '/kanban',       desc: 'Open Kanban board',                 cat: 'Interface' },
+    { text: '/remote',       desc: 'Restart remote web interface',      cat: 'Interface' },
+  ];
 
+  // ── ANSI → HTML ──────────────────────────────────────────────────────────
   function xterm256(n) {
     n = n | 0;
     if (n < 16) {
-      const c = [
-        '#1a1a1a','#cc3333','#33cc33','#cccc33','#3333cc','#cc33cc','#33cccc','#cccccc',
-        '#888888','#ff5555','#55ff55','#ffff55','#5555ff','#ff55ff','#55ffff','#ffffff'
-      ];
+      const c = ['#1a1a1a','#cc3333','#33cc33','#cccc33','#3333cc','#cc33cc','#33cccc','#cccccc',
+                 '#888888','#ff5555','#55ff55','#ffff55','#5555ff','#ff55ff','#55ffff','#ffffff'];
       return c[n] || '#ffffff';
     }
     if (n >= 232) {
       const v = 8 + (n - 232) * 10;
-      const h = v.toString(16).padStart(2, '0');
+      const h = v.toString(16).padStart(2,'0');
       return '#' + h + h + h;
     }
     n -= 16;
-    const b = n % 6;
-    const g = Math.floor(n / 6) % 6;
-    const r = Math.floor(n / 36);
-    const ch = v => v ? (55 + v * 40).toString(16).padStart(2, '0') : '00';
+    const b = n % 6, g = Math.floor(n / 6) % 6, r = Math.floor(n / 36);
+    const ch = v => v ? (55 + v * 40).toString(16).padStart(2,'0') : '00';
     return '#' + ch(r) + ch(g) + ch(b);
   }
 
-  function escapeHtml(str) {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   function ansiToHtml(raw) {
-    // Simulate carriage-return line overwriting: for each \\n-segment, keep only
-    // the content after the last \\r (mimics terminal cursor-to-col-0 behaviour).
     const lines = raw.split('\\n');
-    const processed = lines.map(line => {
-      const lastCR = line.lastIndexOf('\\r');
-      return lastCR >= 0 ? line.slice(lastCR + 1) : line;
-    });
-    const text = processed.join('\\n');
+    const text  = lines.map(l => { const i = l.lastIndexOf('\\r'); return i >= 0 ? l.slice(i+1) : l; }).join('\\n');
+    const clean = text
+      .replace(/\\x1b\\[\\?25[lh]/g,'').replace(/\\x1b\\[K/g,'')
+      .replace(/\\x1b\\[\\d*[ABCDEFG]/g,'').replace(/\\x1b\\[\\d+;\\d+[Hf]/g,'')
+      .replace(/\\x1b\\[2J/g,'');
 
-    // Strip non-colour escape sequences (cursor movement, erase, etc.)
-    const cleaned = text
-      .replace(/\\x1b\\[\\?25[lh]/g, '')       // cursor hide/show
-      .replace(/\\x1b\\[K/g, '')               // erase to end of line
-      .replace(/\\x1b\\[\\d*[ABCDEFG]/g, '')   // cursor up/down/left/right
-      .replace(/\\x1b\\[\\d+;\\d+[Hf]/g, '')  // cursor position
-      .replace(/\\x1b\\[2J/g, '');             // clear screen
+    const parts = clean.split('\\x1b[');
+    let out = escapeHtml(parts[0]);
+    let open = 0;
 
-    // Parse colour / style codes
-    const parts = cleaned.split('\\x1b[');
-    let result = escapeHtml(parts[0]);
-    let openSpans = 0;
-
-    for (let idx = 1; idx < parts.length; idx++) {
-      const part = parts[idx];
-      const mEnd = part.indexOf('m');
-
-      if (mEnd === -1) {
-        // Not a colour code — emit literally
-        result += escapeHtml('\\x1b[' + part);
-        continue;
-      }
-
-      const codeStr = part.substring(0, mEnd);
-      const rest    = part.substring(mEnd + 1);
-      const codes   = codeStr === '' ? [0] : codeStr.split(';').map(Number);
-
-      const styles = [];
-      let i = 0;
-      while (i < codes.length) {
-        const code = codes[i];
-        if (code === 0) {
-          // Reset — close all open spans
-          while (openSpans > 0) { result += '</span>'; openSpans--; }
-        } else if (code === 1) {
-          styles.push('font-weight:700');
-        } else if (code === 2) {
-          styles.push('opacity:0.55');
-        } else if (code === 3) {
-          styles.push('font-style:italic');
-        } else if (code === 4) {
-          styles.push('text-decoration:underline');
-        } else if (code >= 30 && code <= 37) {
-          const base = ['#1a1a1a','#f87171','#4ade80','#fbbf24','#60a5fa','#c084fc','#67e8f9','#e4e4e7'];
-          styles.push('color:' + base[code - 30]);
-        } else if (code >= 90 && code <= 97) {
-          const bright = ['#71717a','#f87171','#86efac','#fde68a','#93c5fd','#d8b4fe','#a5f3fc','#fafafa'];
-          styles.push('color:' + bright[code - 90]);
-        } else if (code === 38 || code === 48) {
-          const prop = code === 38 ? 'color' : 'background-color';
-          if (codes[i + 1] === 5 && codes[i + 2] !== undefined) {
-            styles.push(prop + ':' + xterm256(codes[i + 2]));
-            i += 2;
-          } else if (codes[i + 1] === 2 && codes[i + 4] !== undefined) {
-            styles.push(prop + ':rgb(' + codes[i+2] + ',' + codes[i+3] + ',' + codes[i+4] + ')');
-            i += 4;
-          }
+    for (let i = 1; i < parts.length; i++) {
+      const p = parts[i], m = p.indexOf('m');
+      if (m === -1) { out += escapeHtml('\\x1b[' + p); continue; }
+      const codes = (p.slice(0,m) || '0').split(';').map(Number);
+      const rest  = p.slice(m+1);
+      const st    = [];
+      let ci = 0;
+      while (ci < codes.length) {
+        const c = codes[ci];
+        if (c === 0) { while (open > 0) { out += '</span>'; open--; } }
+        else if (c === 1) st.push('font-weight:700');
+        else if (c === 2) st.push('opacity:0.55');
+        else if (c === 3) st.push('font-style:italic');
+        else if (c === 4) st.push('text-decoration:underline');
+        else if (c >= 30 && c <= 37) {
+          const b = ['#1a1a1a','#f87171','#4ade80','#fbbf24','#60a5fa','#c084fc','#67e8f9','#e4e4e7'];
+          st.push('color:' + b[c-30]);
+        } else if (c >= 90 && c <= 97) {
+          const b = ['#71717a','#f87171','#86efac','#fde68a','#93c5fd','#d8b4fe','#a5f3fc','#fafafa'];
+          st.push('color:' + b[c-90]);
+        } else if (c === 38 || c === 48) {
+          const prop = c === 38 ? 'color' : 'background-color';
+          if (codes[ci+1] === 5 && codes[ci+2] != null) { st.push(prop + ':' + xterm256(codes[ci+2])); ci += 2; }
+          else if (codes[ci+1] === 2 && codes[ci+4] != null) { st.push(prop + ':rgb(' + codes[ci+2] + ',' + codes[ci+3] + ',' + codes[ci+4] + ')'); ci += 4; }
         }
-        i++;
+        ci++;
       }
-
-      if (styles.length > 0) {
-        result += '<span style="' + styles.join(';') + '">';
-        openSpans++;
-      }
-      result += escapeHtml(rest);
+      if (st.length) { out += '<span style="' + st.join(';') + '">'; open++; }
+      out += escapeHtml(rest);
     }
-
-    while (openSpans > 0) { result += '</span>'; openSpans--; }
-    return result;
+    while (open > 0) { out += '</span>'; open--; }
+    return out;
   }
 
-  // ─── Stream line buffer ───────────────────────────────────────────────────
-  // Accumulates raw chunks and only commits a DOM element per complete line
-  // (terminated by \\n). Streaming tokens no longer create one div each.
-
+  // ── Stream buffer ─────────────────────────────────────────────────────────
   let rawBuffer = '';
 
   function pushChunk(raw) {
     const chat = document.getElementById('chat');
-
-    // Spinner / overwrite frames: chunk starts with \\r but NOT \\r\\n
     if (raw.startsWith('\\r') && !raw.startsWith('\\r\\n')) {
-      const content = raw.slice(1).replace(/\\x1b\\[K/g, '');
+      const content = raw.slice(1).replace(/\\x1b\\[K/g,'');
       const html = ansiToHtml(content);
-      const visible = html.replace(/<[^>]*>/g, '').trim();
-      if (!visible) return;
+      const vis  = html.replace(/<[^>]*>/g,'').trim();
+      if (!vis) return;
       const last = chat.lastElementChild;
-      if (last && last.dataset.transient === 'true') {
-        last.innerHTML = html;
-      } else {
-        const div = document.createElement('div');
-        div.className = 'log-line';
-        div.dataset.transient = 'true';
-        div.innerHTML = html;
-        chat.appendChild(div);
+      if (last && last.dataset.transient === 'true') { last.innerHTML = html; }
+      else {
+        const d = document.createElement('div');
+        d.className = 'log-line'; d.dataset.transient = 'true'; d.innerHTML = html;
+        chat.appendChild(d);
       }
-      chat.scrollTop = chat.scrollHeight;
-      return;
+      chat.scrollTop = chat.scrollHeight; return;
     }
-
-    // Clear transient flag on the last element when normal content arrives
     const lastEl = chat.lastElementChild;
-    if (lastEl && lastEl.dataset.transient === 'true') {
-      delete lastEl.dataset.transient;
-    }
+    if (lastEl && lastEl.dataset.transient === 'true') delete lastEl.dataset.transient;
 
     rawBuffer += raw;
-
-    // Split on newlines — only fully terminated lines are committed to DOM
     const parts = rawBuffer.split('\\n');
-    // The last element is the in-progress line (may have no \\n yet)
     rawBuffer = parts.pop();
 
     for (const line of parts) {
-      // Simulate \\r within a completed line: keep text after last \\r
-      const afterCR = line.includes('\\r') ? line.slice(line.lastIndexOf('\\r') + 1) : line;
-
-      // Finalize the streaming div if one is open, otherwise create a new div
-      const streamDiv = chat.querySelector('.log-line[data-streaming="true"]');
+      const lastCR = line.lastIndexOf('\\r');
+      const afterCR = lastCR < 0 ? line : lastCR === line.length - 1 ? line.slice(0, lastCR) : line.slice(lastCR + 1);
+      const sd = chat.querySelector('.log-line[data-streaming="true"]');
       const html = ansiToHtml(afterCR);
-      const visible = html.replace(/<[^>]*>/g, '').trim();
-
-      if (streamDiv) {
-        streamDiv.innerHTML = html;
-        delete streamDiv.dataset.streaming;
-      } else if (visible) {
-        const div = document.createElement('div');
-        div.className = 'log-line';
-        div.innerHTML = html;
-        chat.appendChild(div);
-      } else if (!chat.lastElementChild || chat.lastElementChild.innerHTML.trim() !== '') {
-        // Empty line — only if previous line is non-empty (collapse blanks)
-        const div = document.createElement('div');
-        div.className = 'log-line';
-        div.innerHTML = '';
-        chat.appendChild(div);
+      const vis  = html.replace(/<[^>]*>/g,'').trim();
+      if (sd) { sd.innerHTML = html; delete sd.dataset.streaming; }
+      else if (vis) { const d = document.createElement('div'); d.className='log-line'; d.innerHTML=html; chat.appendChild(d); }
+      else if (!chat.lastElementChild || chat.lastElementChild.innerHTML.trim() !== '') {
+        const d = document.createElement('div'); d.className='log-line'; d.innerHTML=''; chat.appendChild(d);
       }
     }
-
-    // Update / create the in-progress streaming div
-    if (rawBuffer !== undefined && rawBuffer !== '') {
-      const afterCR = rawBuffer.includes('\\r') ? rawBuffer.slice(rawBuffer.lastIndexOf('\\r') + 1) : rawBuffer;
+    if (rawBuffer) {
+      const lastCR = rawBuffer.lastIndexOf('\\r');
+      const afterCR = lastCR < 0 ? rawBuffer : lastCR === rawBuffer.length - 1 ? rawBuffer.slice(0, lastCR) : rawBuffer.slice(lastCR + 1);
       const html = ansiToHtml(afterCR);
-      const visible = html.replace(/<[^>]*>/g, '').trim();
-      const streamDiv = chat.querySelector('.log-line[data-streaming="true"]');
-      if (streamDiv) {
-        if (visible) streamDiv.innerHTML = html;
-      } else if (visible) {
-        const div = document.createElement('div');
-        div.className = 'log-line';
-        div.dataset.streaming = 'true';
-        div.innerHTML = html;
-        chat.appendChild(div);
-      }
+      const vis  = html.replace(/<[^>]*>/g,'').trim();
+      const sd   = chat.querySelector('.log-line[data-streaming="true"]');
+      if (sd) { if (vis) sd.innerHTML = html; }
+      else if (vis) { const d = document.createElement('div'); d.className='log-line'; d.dataset.streaming='true'; d.innerHTML=html; chat.appendChild(d); }
     }
-
     chat.scrollTop = chat.scrollHeight;
   }
-
-  // ─── Log rendering ────────────────────────────────────────────────────────
 
   function appendLog(text, isUser = false) {
     const chat = document.getElementById('chat');
-    const div = document.createElement('div');
-    if (isUser) {
-      div.className = 'log-line user-msg';
-      div.innerHTML = '> ' + escapeHtml(text);
-    } else {
-      div.className = 'log-line';
-      div.innerHTML = ansiToHtml(text);
-    }
-    chat.appendChild(div);
+    const d = document.createElement('div');
+    d.className = 'log-line' + (isUser ? ' user-msg' : '');
+    d.innerHTML = isUser ? '> ' + escapeHtml(text) : ansiToHtml(text);
+    chat.appendChild(d);
     chat.scrollTop = chat.scrollHeight;
   }
 
-  // ─── Auth ─────────────────────────────────────────────────────────────────
+  // ── Command Palette ───────────────────────────────────────────────────────
+  function showPalette(query) {
+    const palette = document.getElementById('cmd-palette');
+    const list    = document.getElementById('palette-list');
+    const q = query.toLowerCase();
 
+    const filtered = COMMANDS.filter(c => c.text.includes(q) || c.desc.toLowerCase().includes(q));
+    paletteItems = filtered;
+    paletteIndex = filtered.length > 0 ? 0 : -1;
+
+    if (filtered.length === 0) { hidePalette(); return; }
+
+    const cats = [...new Set(filtered.map(c => c.cat))];
+    let html = '';
+    for (const cat of cats) {
+      const group = filtered.filter(c => c.cat === cat);
+      html += \`<div class="palette-category">\${escapeHtml(cat)}</div>\`;
+      for (const cmd of group) {
+        const idx   = filtered.indexOf(cmd);
+        const label = cmd.text.replace(q, \`<mark>\${escapeHtml(q)}</mark>\`);
+        html += \`<div class="palette-item\${idx === paletteIndex ? ' active' : ''}"
+          data-idx="\${idx}"
+          onclick="selectPaletteItem(\${idx})"
+          onmouseenter="hoverPaletteItem(\${idx})">
+          <span class="palette-cmd">\${label}</span>
+          <span class="palette-desc">\${escapeHtml(cmd.desc)}</span>
+        </div>\`;
+      }
+    }
+    list.innerHTML = html;
+    palette.style.display = 'flex';
+  }
+
+  function hidePalette() {
+    document.getElementById('cmd-palette').style.display = 'none';
+    paletteIndex = -1; paletteItems = [];
+  }
+
+  function hoverPaletteItem(idx) {
+    paletteIndex = idx;
+    document.querySelectorAll('.palette-item').forEach((el, i) => {
+      el.classList.toggle('active', i === idx);
+    });
+  }
+
+  function selectPaletteItem(idx) {
+    const cmd = paletteItems[idx];
+    if (!cmd) return;
+    hidePalette();
+    const ta = document.getElementById('msg-input');
+    ta.value = cmd.text;
+    ta.focus();
+    // Auto-submit the command
+    sendMessage();
+  }
+
+  function navigatePalette(dir) {
+    if (paletteItems.length === 0) return;
+    paletteIndex = (paletteIndex + dir + paletteItems.length) % paletteItems.length;
+    document.querySelectorAll('.palette-item').forEach((el, i) => {
+      el.classList.toggle('active', i === paletteIndex);
+      if (i === paletteIndex) el.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function onInputChange(ta) {
+    // Auto-resize
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+    // Command palette
+    const val = ta.value;
+    if (val.startsWith('/')) {
+      showPalette(val);
+    } else {
+      hidePalette();
+    }
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
   async function handleAuth(e) {
     e.preventDefault();
     const pwd = document.getElementById('password').value;
-    const btn = e.target.querySelector('button');
-    btn.textContent = 'Verifying...';
-    btn.disabled = true;
-
+    const btn = document.getElementById('auth-btn');
+    btn.textContent = 'Connecting…'; btn.disabled = true;
     try {
       const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
+        method:'POST',
+        headers:{ 'Content-Type':'application/json','ngrok-skip-browser-warning':'true' },
         body: JSON.stringify({ password: pwd })
       });
-
       if (res.ok) {
         const data = await res.json();
         authToken = data.token;
@@ -602,130 +855,96 @@ export function getRemoteHtml(): string {
         connectSSE();
       } else {
         document.getElementById('auth-error').style.display = 'block';
-        btn.textContent = 'Connect';
-        btn.disabled = false;
+        btn.textContent = 'Connect'; btn.disabled = false;
       }
-    } catch (err) {
-      document.getElementById('auth-error').textContent = 'Connection failed';
+    } catch {
+      document.getElementById('auth-error').textContent = 'Connection failed — check network.';
       document.getElementById('auth-error').style.display = 'block';
-      btn.textContent = 'Connect';
-      btn.disabled = false;
+      btn.textContent = 'Connect'; btn.disabled = false;
     }
   }
 
-  // ─── SSE stream ───────────────────────────────────────────────────────────
-
+  // ── SSE ───────────────────────────────────────────────────────────────────
   async function connectSSE() {
-    const dot = document.getElementById('live-dot');
-    const statusText = document.getElementById('status-text');
-
-    dot.classList.remove('disconnected');
-    statusText.textContent = 'Connected';
-
+    const dot  = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    dot.classList.remove('off'); text.textContent = 'Connected';
     try {
       const res = await fetch(\`/api/events?token=\${authToken}\`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers:{ 'ngrok-skip-browser-warning':'true' }
       });
-
-      const reader = res.body.getReader();
+      const reader  = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
-      let buffer = '';
-
+      let buf = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let lines = buffer.split('\\n\\n');
-        buffer = lines.pop();
-
-        for (let line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.substring(6));
-              if (data.type === 'stdout') {
-                pushChunk(data.content);
-              }
-            } catch (e) {}
-          }
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\\n\\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'stdout') pushChunk(data.content);
+          } catch {}
         }
       }
-    } catch (err) {
-      dot.classList.add('disconnected');
-      statusText.textContent = 'Disconnected';
+    } catch {
+      dot.classList.add('off'); text.textContent = 'Disconnected';
       setTimeout(connectSSE, 3000);
     }
   }
 
-  // ─── Input ────────────────────────────────────────────────────────────────
-
+  // ── Input handling ────────────────────────────────────────────────────────
   function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+    const paletteOpen = document.getElementById('cmd-palette').style.display === 'flex';
+    if (paletteOpen) {
+      if (e.key === 'ArrowDown')  { e.preventDefault(); navigatePalette(+1); return; }
+      if (e.key === 'ArrowUp')    { e.preventDefault(); navigatePalette(-1); return; }
+      if (e.key === 'Escape')     { e.preventDefault(); hidePalette(); return; }
+      if (e.key === 'Enter')      { e.preventDefault(); if (paletteIndex >= 0) selectPaletteItem(paletteIndex); return; }
+      if (e.key === 'Tab')        { e.preventDefault(); navigatePalette(+1); return; }
     }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
 
   async function sendMessage() {
     const input = document.getElementById('msg-input');
-    const msg = input.value.trim();
+    const msg   = input.value.trim();
     if (!msg) return;
-
+    hidePalette();
     appendLog(msg, true);
-    input.value = '';
-    input.style.height = 'auto';
-
+    input.value = ''; input.style.height = 'auto'; input.focus();
     try {
       await fetch('/api/message', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': \`Bearer \${authToken}\`,
-          'ngrok-skip-browser-warning': 'true'
-        },
+        headers: { 'Content-Type':'application/json','Authorization':\`Bearer \${authToken}\`,'ngrok-skip-browser-warning':'true' },
         body: JSON.stringify({ message: msg })
       });
-    } catch {
-      appendLog('Failed to send message.', true);
-    }
+    } catch { appendLog('Failed to send — check connection.'); }
   }
 
-  // ─── Audio Recording ──────────────────────────────────────────────────────
-
+  // ── Audio ─────────────────────────────────────────────────────────────────
   async function toggleRecording() {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
+    isRecording ? stopRecording() : startRecording();
   }
 
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream);
-      audioChunks = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunks.push(event.data);
-      };
-
+      audioChunks   = [];
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        await sendAudioMessage(audioBlob);
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        await sendAudio(blob);
       };
-
-      mediaRecorder.start();
-      isRecording = true;
-
+      mediaRecorder.start(); isRecording = true;
       document.getElementById('btn-mic').classList.add('recording');
-      document.getElementById('recording-overlay').style.display = 'flex';
+      document.getElementById('rec-overlay').style.display = 'flex';
       document.getElementById('msg-input').disabled = true;
-
-    } catch (err) {
-      console.error('Mic error:', err);
-      alert('Could not access microphone. Check permissions.');
-    }
+    } catch { alert('Microphone access denied.'); }
   }
 
   function stopRecording() {
@@ -734,49 +953,30 @@ export function getRemoteHtml(): string {
       mediaRecorder.stream.getTracks().forEach(t => t.stop());
     }
     isRecording = false;
-
     document.getElementById('btn-mic').classList.remove('recording');
-    document.getElementById('recording-overlay').style.display = 'none';
+    document.getElementById('rec-overlay').style.display = 'none';
     document.getElementById('msg-input').disabled = false;
     document.getElementById('msg-input').focus();
   }
 
-  async function sendAudioMessage(blob) {
-    appendLog('Transcribing audio...', true);
-
+  async function sendAudio(blob) {
+    appendLog('Transcribing audio…', true);
     const reader = new FileReader();
     reader.readAsDataURL(blob);
     reader.onloadend = async () => {
-      const base64data = reader.result;
-
       try {
         const res = await fetch('/api/audio', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': \`Bearer \${authToken}\`,
-            'ngrok-skip-browser-warning': 'true'
-          },
-          body: JSON.stringify({ audioBase64: base64data })
+          headers: { 'Content-Type':'application/json','Authorization':\`Bearer \${authToken}\`,'ngrok-skip-browser-warning':'true' },
+          body: JSON.stringify({ audioBase64: reader.result })
         });
-
         if (!res.ok) {
           const err = await res.json();
           appendLog('Audio error: ' + (err.error || 'Transcription failed'));
         }
-      } catch (e) {
-        appendLog('Failed to send audio.', true);
-      }
+      } catch { appendLog('Failed to send audio.'); }
     };
   }
-
-  // ─── Textarea auto-resize ─────────────────────────────────────────────────
-
-  const tx = document.getElementById('msg-input');
-  tx.addEventListener('input', function () {
-    this.style.height = 'auto';
-    this.style.height = this.scrollHeight + 'px';
-  });
 </script>
 </body>
 </html>`;

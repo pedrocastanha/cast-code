@@ -26,7 +26,7 @@ export class KanbanServerService {
     return this.deepAgent;
   }
 
-  start(): void {
+  start(openBrowser = true): void {
     if (this.server) {
       process.stdout.write(`  Kanban already running at http://localhost:${this.port}\r\n`);
       return;
@@ -35,8 +35,10 @@ export class KanbanServerService {
     this.server = http.createServer((req, res) => this.handleRequest(req, res));
 
     this.server.listen(this.port, () => {
-      process.stdout.write(`  Kanban: http://localhost:${this.port}\r\n`);
-      exec(`xdg-open http://localhost:${this.port}`);
+      if (openBrowser) {
+        process.stdout.write(`  Kanban: http://localhost:${this.port}\r\n`);
+        exec(`xdg-open http://localhost:${this.port}`);
+      }
     });
 
     this.taskService.events.on('task:created', (task) => this.broadcast('task:created', task));
