@@ -432,6 +432,25 @@ export function getKanbanHtml(): string {
     overflow: hidden;
   }
 
+  .card-note {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text);
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(56, 189, 248, 0.15);
+    background: rgba(56, 189, 248, 0.06);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .card-note.error {
+    color: #fecaca;
+    border-color: rgba(248, 113, 113, 0.2);
+    background: rgba(248, 113, 113, 0.08);
+  }
+
   .card-footer {
     display: flex;
     flex-wrap: wrap;
@@ -732,6 +751,7 @@ export function getKanbanHtml(): string {
     const colKey = col(task.status);
     const isInProgress = task.status === 'in_progress';
     const isPending = task.status === 'pending';
+    const metadata = task.metadata || {};
 
     const depBadges = task.dependencies.length > 0
       ? task.dependencies.map(d => '<span class="badge badge-dep">↳ ' + d + '</span>').join('')
@@ -742,6 +762,11 @@ export function getKanbanHtml(): string {
       : '';
 
     const spinner = isInProgress ? '<div class="spinner"></div>' : '';
+    const note = metadata.lastRunError
+      ? '<div class="card-note error">' + escHtml(metadata.lastRunError) + '</div>'
+      : metadata.lastRunSummary
+        ? '<div class="card-note">' + escHtml(metadata.lastRunSummary) + '</div>'
+        : '';
     
     const actionBtn = isPending 
       ? \`<div class="card-actions"><button class="btn-mini" onclick="executeTask('\${task.id}')">Run</button></div>\` 
@@ -762,6 +787,7 @@ export function getKanbanHtml(): string {
           <span class="card-subject">\${escHtml(task.subject)}</span>
         </div>
         \${task.description ? '<div class="card-description">' + escHtml(task.description) + '</div>' : ''}
+        \${note}
         <div class="card-footer">
           <span class="badge badge-\${task.status}">\${task.status.replace('_', ' ')}</span>
           \${agentBadge}
@@ -772,7 +798,11 @@ export function getKanbanHtml(): string {
   }
 
   function escHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(str ?? '')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
   }
 
   function renderAll() {

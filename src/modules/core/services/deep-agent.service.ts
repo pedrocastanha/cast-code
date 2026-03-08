@@ -264,7 +264,7 @@ export class DeepAgentService {
       `# Task Management & Kanban Board`,
       `You are integrated with a live Kanban Board. The board is the source of truth for the user to see your progress.`,
       `- **CRITICAL**: Whenever you start working on a task, you MUST call **task_update** with status="in_progress".`,
-      `- **CRITICAL**: When a task is finished, you MUST call **task_update** with status="completed".`,
+      `- **CRITICAL**: When a task is implemented and ready for human validation, you MUST call **task_update** with status="test".`,
       `- Use **task_create** to break complex work into trackable subtasks. They will appear on the board instantly.`,
       `- Use **task_list** to see what's on your plate.`,
       `- Use **ask_user_question** when you need clarification BEFORE acting.`,
@@ -916,22 +916,27 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     return this.lastToolOutputs;
   }
 
-  async executeTask(task: Task): Promise<{ success: boolean; error?: string }> {
+  async executeTask(
+    task: Task,
+    options?: { onChunk?: (chunk: string) => void },
+  ): Promise<{ success: boolean; error?: string; output?: string }> {
     try {
       const message = [
         'Voce esta executando uma tarefa de um plano ja aprovado.',
         'NAO use enter_plan_mode nem exit_plan_mode nesta tarefa.',
         `Tarefa:\n**${task.subject}**\n\n${task.description}`,
         'Implemente diretamente o que foi pedido e valide o resultado.',
+        'Quando terminar, responda com um resumo objetivo do que foi feito e do que o usuario deve verificar no frontend.',
       ].join('\n\n');
 
       let fullResponse = '';
       for await (const chunk of this.chat(message)) {
         fullResponse += chunk;
         process.stdout.write(chunk);
+        options?.onChunk?.(chunk);
       }
 
-      return { success: true };
+      return { success: true, output: fullResponse.trim() };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
