@@ -9,9 +9,12 @@ import { InitConfigService } from './modules/config/services/init-config.service
 
 config({ quiet: true });
 
-async function checkAndRunSetup(configManager: ConfigManagerService, initService: InitConfigService): Promise<boolean> {
+async function checkAndRunSetup(
+  configManager: ConfigManagerService,
+  initService: InitConfigService,
+): Promise<boolean> {
   const hasConfig = await configManager.configExists();
-  
+
   if (!hasConfig) {
     console.log('\n👋 Bem-vindo ao Cast Code!\n');
     console.log('Parece que esta é a primeira vez que você executa o Cast.');
@@ -33,24 +36,25 @@ async function checkAndRunSetup(configManager: ConfigManagerService, initService
 
     return true;
   }
-  
+
   return true;
 }
 
 async function bootstrap() {
   const args = process.argv.slice(2);
   const command = args[0];
-  
+
   if (command === 'config' || command === 'init') {
     const app = await NestFactory.createApplicationContext(AppModule, {
       logger: false,
     });
-    
+
     const configCommands = app.get(InitConfigService);
     try {
       await configCommands.runInitialSetup();
     } catch (error) {
-      const message = error instanceof Error ? error.stack || error.message : String(error);
+      const message =
+        error instanceof Error ? error.stack || error.message : String(error);
       console.error('\nFailed to run initial setup:\n', message);
       process.exitCode = 1;
     }
@@ -64,9 +68,9 @@ async function bootstrap() {
 
   const configManager = app.get(ConfigManagerService);
   const initService = app.get(InitConfigService);
-  
+
   const ready = await checkAndRunSetup(configManager, initService);
-  
+
   if (!ready) {
     await app.close();
     process.exit(1);
@@ -91,7 +95,8 @@ async function bootstrap() {
 }
 
 bootstrap().catch((error) => {
-  const message = error instanceof Error ? error.stack || error.message : String(error);
+  const message =
+    error instanceof Error ? error.stack || error.message : String(error);
   console.error('\nFatal bootstrap error:\n', message);
   process.exit(1);
 });
