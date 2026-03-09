@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TasksModule } from '../tasks/tasks.module';
+import { RemoteModule } from '../remote/remote.module';
 import { KanbanServerService } from './services/kanban-server.service';
 
 @Module({
-  imports: [TasksModule],
+  imports: [TasksModule, RemoteModule],
   providers: [KanbanServerService],
   exports: [KanbanServerService],
 })

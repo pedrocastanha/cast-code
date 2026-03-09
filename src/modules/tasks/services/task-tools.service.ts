@@ -104,7 +104,7 @@ export class TaskToolsService {
         schema: z.object({
           taskId: z.string().describe('ID of the task to update'),
           status: z
-            .enum(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'cancelled'])
+            .enum(['pending', 'in_progress', 'test', 'completed', 'failed', 'blocked', 'cancelled'])
             .optional()
             .describe('New status for the task'),
           subject: z.string().optional().describe('New subject'),

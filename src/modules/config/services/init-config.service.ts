@@ -21,13 +21,13 @@ import {
 
 @Injectable()
 export class InitConfigService {
-  constructor(private readonly configManager: ConfigManagerService) {}
+  constructor(private readonly configManager: ConfigManagerService) { }
 
   async runInitialSetup(): Promise<void> {
     console.log(chalk.cyan.bold('\n🚀 Bem-vindo ao Cast Code!\n'));
     console.log(
       'Vamos configurar seus provedores de IA e modelos. ' +
-        'Você pode configurar múltiplos provedores e atribuir modelos diferentes para diferentes tarefas.\n'
+      'Você pode configurar múltiplos provedores e atribuir modelos diferentes para diferentes tarefas.\n'
     );
     console.log(chalk.gray('(pressione ESC a qualquer momento para cancelar)\n'));
 
@@ -59,7 +59,7 @@ export class InitConfigService {
     console.log(chalk.cyan('\n🤖 Configurando Modelos por Finalidade\n'));
     console.log(
       'Agora você pode configurar diferentes modelos para diferentes tarefas. ' +
-        'Por exemplo, usar um modelo mais barato para sub-agentes, ou um mais poderoso para arquitetura.\n'
+      'Por exemplo, usar um modelo mais barato para sub-agentes, ou um mais poderoso para arquitetura.\n'
     );
 
     const availableProviders = selectedProviders.filter(
@@ -68,6 +68,16 @@ export class InitConfigService {
 
     const modelsConfigured = await this.configureModels(config, availableProviders);
     if (!modelsConfigured) {
+      console.log(chalk.yellow('\n❌ Configuração cancelada.\n'));
+      return;
+    }
+
+    console.log(chalk.cyan('\n🌐 Configuração de Acesso Remoto (Web UI)\n'));
+    console.log(
+      'O Cast Code pode rodar uma Interface Web via ngrok que permite conversar e enviar áudios pelo navegador.\n'
+    );
+    const remoteConfigured = await this.configureRemote(config);
+    if (!remoteConfigured) {
       console.log(chalk.yellow('\n❌ Configuração cancelada.\n'));
       return;
     }
@@ -273,5 +283,76 @@ export class InitConfigService {
       provider,
       model,
     };
+  }
+
+  private async configureRemote(config: CastConfig): Promise<boolean> {
+    const enableRemote = await confirmWithEsc({
+      message: 'Deseja habilitar o acesso remoto (Web UI) com ngrok?',
+      default: false,
+    });
+
+    if (enableRemote === null) return false;
+
+    if (!enableRemote) {
+      config.remote = { enabled: false };
+      return true;
+    }
+
+    const passwordRaw = await inputWithEsc({
+      message: 'Defina uma senha para acessar a Web UI:',
+      validate: (v) => v.trim().length > 0 ? true : 'A senha não pode ser vazia',
+    });
+
+    if (passwordRaw === null) return false;
+    const password = passwordRaw.trim();
+
+    let openaiApiKey: string | undefined = undefined;
+
+    if (config.providers.openai?.apiKey) {
+      const useExistingOpenAI = await confirmWithEsc({
+        message: 'Deseja usar sua API Key da OpenAI atual para transcrição Whisper de áudio?',
+        default: true,
+      });
+      if (useExistingOpenAI === null) return false;
+      if (useExistingOpenAI) {
+        openaiApiKey = config.providers.openai.apiKey;
+      }
+    }
+
+    if (!openaiApiKey) {
+      const requestKey = await confirmWithEsc({
+        message: 'Deseja configurar uma API Key da OpenAI específica para transcrição de áudio?',
+        default: false,
+      });
+
+      if (requestKey === null) return false;
+      if (requestKey) {
+        const keyRaw = await inputWithEsc({
+          message: 'OpenAI API Key para Whisper:',
+          validate: (v) => v.trim().length > 10 ? true : 'Insira uma key válida',
+        });
+        if (keyRaw === null) return false;
+        openaiApiKey = keyRaw.trim();
+      }
+    }
+
+    let ngrokAuthToken: string | undefined = undefined;
+    const requestNgrokToken = await inputWithEsc({
+      message: '(Opcional) Ngrok Authtoken (Necessário para o túnel online):\nDeixe em branco se já configurou globalmente seu ngrok:',
+    });
+    if (requestNgrokToken === null) return false;
+
+    if (requestNgrokToken.trim().length > 0) {
+      ngrokAuthToken = requestNgrokToken.trim();
+    }
+
+    config.remote = {
+      enabled: true,
+      password,
+      openaiApiKey,
+      ngrokAuthToken,
+    };
+
+    return true;
   }
 }

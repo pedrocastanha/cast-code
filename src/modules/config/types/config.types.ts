@@ -1,9 +1,9 @@
-export type ProviderType = 
-  | 'openai' 
-  | 'anthropic' 
-  | 'gemini' 
-  | 'kimi' 
-  | 'ollama' 
+export type ProviderType =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'kimi'
+  | 'ollama'
   | 'deepseek'
   | 'openrouter';
 
@@ -12,12 +12,12 @@ export interface BaseProviderConfig {
   baseUrl?: string;
 }
 
-export interface OpenAIConfig extends BaseProviderConfig {}
-export interface AnthropicConfig extends BaseProviderConfig {}
-export interface GeminiConfig extends BaseProviderConfig {}
-export interface KimiConfig extends BaseProviderConfig {}
-export interface DeepSeekConfig extends BaseProviderConfig {}
-export interface OpenRouterConfig extends BaseProviderConfig {}
+export interface OpenAIConfig extends BaseProviderConfig { }
+export interface AnthropicConfig extends BaseProviderConfig { }
+export interface GeminiConfig extends BaseProviderConfig { }
+export interface KimiConfig extends BaseProviderConfig { }
+export interface DeepSeekConfig extends BaseProviderConfig { }
+export interface OpenRouterConfig extends BaseProviderConfig { }
 
 export interface OllamaConfig {
   baseUrl: string;
@@ -40,22 +40,30 @@ export interface ModelConfig {
   maxTokens?: number;
 }
 
-export type ModelPurpose = 
-  | 'default' 
-  | 'subAgent' 
-  | 'coder' 
-  | 'architect' 
-  | 'reviewer' 
-  | 'planner' 
+export type ModelPurpose =
+  | 'default'
+  | 'subAgent'
+  | 'coder'
+  | 'architect'
+  | 'reviewer'
+  | 'planner'
   | 'tester'
   | 'cheap';
 
 export type ModelsConfig = Partial<Record<ModelPurpose, ModelConfig>>;
 
+export interface RemoteConfig {
+  enabled: boolean;
+  password?: string;
+  openaiApiKey?: string;
+  ngrokAuthToken?: string;
+}
+
 export interface CastConfig {
   version: number;
   providers: ProvidersConfig;
   models: ModelsConfig;
+  remote?: RemoteConfig;
 }
 
 export interface ProviderMetadata {

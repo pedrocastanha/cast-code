@@ -6,11 +6,7 @@ import { PrGeneratorService } from '../../../git/services/pr-generator.service';
 import { CodeReviewService } from '../../../git/services/code-review.service';
 import { ReleaseNotesService } from '../../../git/services/release-notes.service';
 import { UnitTestGeneratorService } from '../../../git/services/unit-test-generator.service';
-
-interface SmartInput {
-  askChoice: (question: string, choices: { key: string; label: string; description: string }[]) => Promise<string>;
-  question: (prompt: string) => Promise<string>;
-}
+import { ISmartInput } from '../smart-input';
 
 @Injectable()
 export class GitCommandsService {
@@ -24,16 +20,32 @@ export class GitCommandsService {
   ) {}
 
   runGit(cmd: string): void {
-    const { execSync } = require('child_process');
+    const { execSync, spawnSync } = require('child_process');
+
+    const check = spawnSync('git', ['--version'], { encoding: 'utf-8' });
+    if (check.error) {
+      const code = (check.error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        process.stdout.write(`${Colors.red}  git not found in PATH${Colors.reset}\r\n`);
+      } else if (code === 'EPERM' || code === 'EACCES') {
+        process.stdout.write(`${Colors.red}  cannot execute git in this environment (${code})${Colors.reset}\r\n`);
+      } else {
+        process.stdout.write(`${Colors.red}  git unavailable: ${code}${Colors.reset}\r\n`);
+      }
+      return;
+    }
+
     try {
       const output = execSync(cmd, { encoding: 'utf-8', cwd: process.cwd() }).trim();
       process.stdout.write(output ? `\r\n${output}\r\n\r\n` : `  ${colorize('(no output)', 'muted')}\r\n`);
-    } catch (e) {
-      process.stdout.write(`${Colors.red}  ${(e as Error).message}${Colors.reset}\r\n`);
+    } catch (e: any) {
+      const stderr: string = e.stderr?.toString().trim() || '';
+      const msg = stderr || e.message || 'git command failed';
+      process.stdout.write(`${Colors.red}  ${msg}${Colors.reset}\r\n`);
     }
   }
 
-  async cmdCommit(args: string[], smartInput: SmartInput): Promise<void> {
+  async cmdCommit(args: string[], smartInput: ISmartInput): Promise<void> {
     const msg = args.join(' ');
     if (!msg) {
       await this.generateAndCommit(smartInput);
@@ -46,7 +58,7 @@ export class GitCommandsService {
     }
   }
 
-  private async generateAndCommit(smartInput: SmartInput): Promise<void> {
+  private async generateAndCommit(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
 
     if (!this.commitGenerator.hasChanges()) {
@@ -94,7 +106,7 @@ export class GitCommandsService {
     }
   }
 
-  async cmdUp(smartInput: SmartInput): Promise<void> {
+  async cmdUp(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
 
     if (!this.commitGenerator.hasChanges()) {
@@ -174,7 +186,7 @@ export class GitCommandsService {
     }
   }
 
-  async cmdSplitUp(smartInput: SmartInput): Promise<void> {
+  async cmdSplitUp(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
 
     if (!this.commitGenerator.hasChanges()) {
@@ -248,7 +260,7 @@ export class GitCommandsService {
     }
   }
 
-  async cmdPr(smartInput: SmartInput): Promise<void> {
+  async cmdPr(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
 
     const branch = this.prGenerator.getCurrentBranch();
@@ -493,7 +505,7 @@ export class GitCommandsService {
     }
   }
 
-  async cmdUnitTest(smartInput: SmartInput): Promise<void> {
+  async cmdUnitTest(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
 
     const detectedBase = this.unitTestGenerator.detectDefaultBaseBranch();

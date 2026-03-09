@@ -18,7 +18,7 @@ export class PlanExecutorService {
     private planPersistence: PlanPersistenceService,
     private promptService: PromptService,
     private moduleRef: ModuleRef,
-  ) {}
+  ) { }
 
   private async getDeepAgent() {
     if (!this.deepAgent) {
@@ -89,9 +89,9 @@ export class PlanExecutorService {
           errors.push(`Task ${task.id}: ${result.error || 'Falha na execução'}`);
           this.taskService.updateTask(task.id, { status: TaskStatus.FAILED });
         } else {
-          this.taskService.updateTask(task.id, { status: TaskStatus.COMPLETED });
+          this.taskService.updateTask(task.id, { status: TaskStatus.TEST });
           completedTasks.push(task.id);
-          console.log(`  ${Colors.success}✓ Concluído${Colors.reset}`);
+          console.log(`  ${Colors.success}✓ Enviado para Teste${Colors.reset}`);
         }
 
         // Atualizar progresso no arquivo

@@ -5,9 +5,11 @@ import { exec } from 'child_process';
 import { TaskManagementService } from '../../tasks/services/task-management.service';
 import { getKanbanHtml } from '../views/kanban-ui';
 import { TaskStatus } from '../../tasks/types/task.types';
+import { RemoteServerService } from '../../remote/services/remote-server.service';
 
 @Injectable()
 export class KanbanServerService {
+  private static readonly TASK_TIMEOUT_MS = 10 * 60 * 1000;
   private server: http.Server | null = null;
   private sseClients: http.ServerResponse[] = [];
   private port = 3333;
@@ -15,8 +17,9 @@ export class KanbanServerService {
 
   constructor(
     private readonly taskService: TaskManagementService,
-    private readonly moduleRef: ModuleRef
-  ) {}
+    private readonly moduleRef: ModuleRef,
+    private readonly remoteServer: RemoteServerService,
+  ) { }
 
   private async getDeepAgent() {
     if (!this.deepAgent) {
@@ -26,7 +29,7 @@ export class KanbanServerService {
     return this.deepAgent;
   }
 
-  start(): void {
+  start(openBrowser = true): void {
     if (this.server) {
       process.stdout.write(`  Kanban already running at http://localhost:${this.port}\r\n`);
       return;
@@ -35,8 +38,10 @@ export class KanbanServerService {
     this.server = http.createServer((req, res) => this.handleRequest(req, res));
 
     this.server.listen(this.port, () => {
-      process.stdout.write(`  Kanban: http://localhost:${this.port}\r\n`);
-      exec(`xdg-open http://localhost:${this.port}`);
+      if (openBrowser) {
+        process.stdout.write(`  Kanban: http://localhost:${this.port}\r\n`);
+        exec(`xdg-open http://localhost:${this.port}`);
+      }
     });
 
     this.taskService.events.on('task:created', (task) => this.broadcast('task:created', task));
@@ -49,7 +54,7 @@ export class KanbanServerService {
   stop(): void {
     if (!this.server) return;
     for (const client of this.sseClients) {
-      try { client.end(); } catch {}
+      try { client.end(); } catch { }
     }
     this.sseClients = [];
     this.server.close();
@@ -144,7 +149,7 @@ export class KanbanServerService {
         const updates = JSON.parse(body);
         const oldTask = this.taskService.getTask(taskId);
         const task = this.taskService.updateTask(taskId, updates);
-        
+
         if (task) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(task));
@@ -165,7 +170,7 @@ export class KanbanServerService {
 
   private async handleAutoExecute(res: http.ServerResponse): Promise<void> {
     const tasks = this.taskService.listTasks().filter(t => t.status === TaskStatus.PENDING || t.status === TaskStatus.FAILED);
-    
+
     if (tasks.length === 0) {
       res.writeHead(200);
       res.end(JSON.stringify({ message: 'No tasks to execute' }));
@@ -179,18 +184,18 @@ export class KanbanServerService {
       try {
         const agent = await this.getDeepAgent();
         const taskList = tasks.map(t => `- [${t.id}] ${t.subject}: ${t.description}`).join('\n');
-        
+
         const prompt = `Você é o Coordenador do Kanban. Existem as seguintes tarefas pendentes:\n\n${taskList}\n\n` +
           `Sua missão é executá-las. Para que o usuário veja seu progresso no Board, você DEVE seguir este protocolo rigidamente:\n` +
           `1. Escolha a tarefa mais prioritária.\n` +
           `2. Chame 'task_update' com status='in_progress' para o ID da tarefa ANTES de começar.\n` +
           `3. Execute o trabalho necessário.\n` +
-          `4. Chame 'task_update' com status='completed' assim que terminar.\n` +
+          `4. Chame 'task_update' com status='test' assim que terminar para o controle de qualidade humano.\n` +
           `5. Repita para a próxima tarefa.\n\n` +
           `Pode começar agora.`;
-        
+
         process.stdout.write(`\n  Kanban: Starting intelligent auto-planner for ${tasks.length} tasks...\r\n`);
-        
+
         for await (const chunk of agent.chat(prompt)) {
           process.stdout.write(chunk);
         }
@@ -222,24 +227,110 @@ export class KanbanServerService {
 
   private async runAgentForTask(task: any): Promise<void> {
     const taskId = task.id;
+    const executionId = `${taskId}-${Date.now()}`;
+    let timeoutHandle: NodeJS.Timeout | null = null;
+
+    const isCurrentExecutionActive = (): boolean => {
+      const currentTask = this.taskService.getTask(taskId);
+      return (
+        !!currentTask &&
+        currentTask.status === TaskStatus.IN_PROGRESS &&
+        currentTask.metadata?.executionId === executionId
+      );
+    };
+
+    const writeExecutionLog = (message: string): void => {
+      process.stdout.write(message);
+      this.remoteServer.broadcast(message);
+    };
+
     (async () => {
       try {
-        process.stdout.write(`\n  Kanban: Starting task ${taskId}: ${task.subject}\r\n`);
-        this.taskService.updateTask(taskId, { status: TaskStatus.IN_PROGRESS, assignedAgent: 'deep-agent' });
-        
+        writeExecutionLog(`\n  Kanban: Starting task ${taskId}: ${task.subject}\r\n`);
+        this.taskService.updateTask(taskId, {
+          status: TaskStatus.IN_PROGRESS,
+          assignedAgent: 'deep-agent',
+          metadata: {
+            ...task.metadata,
+            executionId,
+            executionStartedAt: Date.now(),
+            lastRunError: null,
+          },
+        });
+
+        timeoutHandle = setTimeout(() => {
+          const currentTask = this.taskService.getTask(taskId);
+          const currentExecutionId = currentTask?.metadata?.executionId;
+
+          if (
+            currentTask &&
+            currentTask.status === TaskStatus.IN_PROGRESS &&
+            currentExecutionId === executionId
+          ) {
+            this.taskService.updateTask(taskId, {
+              status: TaskStatus.FAILED,
+              metadata: {
+                executionId,
+                lastRunError: `Task exceeded ${(KanbanServerService.TASK_TIMEOUT_MS / 60000).toFixed(0)} minutes without finishing.`,
+                lastRunSummary: null,
+                executionFinishedAt: Date.now(),
+              },
+            });
+            writeExecutionLog(`  Kanban: Task ${taskId} timed out and was moved to failed\r\n`);
+          }
+        }, KanbanServerService.TASK_TIMEOUT_MS);
+
         const agent = await this.getDeepAgent();
-        const result = await agent.executeTask(task);
-        
+        const result = await agent.executeTask(task, {
+          onChunk: (chunk: string) => this.remoteServer.broadcast(chunk),
+        });
+
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+
+        if (!isCurrentExecutionActive()) {
+          writeExecutionLog(`  Kanban: Ignoring stale result for task ${taskId}\r\n`);
+          return;
+        }
+
         if (result.success) {
-          this.taskService.updateTask(taskId, { status: TaskStatus.COMPLETED });
-          process.stdout.write(`  Kanban: Task ${taskId} completed\r\n`);
+          this.taskService.updateTask(taskId, {
+            status: TaskStatus.TEST,
+            metadata: {
+              executionId,
+              lastRunSummary: result.output || 'Execution finished successfully.',
+              lastRunError: null,
+              executionFinishedAt: Date.now(),
+            },
+          });
+          writeExecutionLog(`  Kanban: Task ${taskId} sent to test\r\n`);
         } else {
-          this.taskService.updateTask(taskId, { status: TaskStatus.FAILED });
-          process.stdout.write(`  Kanban: Task ${taskId} failed: ${result.error}\r\n`);
+          this.taskService.updateTask(taskId, {
+            status: TaskStatus.FAILED,
+            metadata: {
+              executionId,
+              lastRunError: result.error || 'Task execution failed.',
+              lastRunSummary: result.output || null,
+              executionFinishedAt: Date.now(),
+            },
+          });
+          writeExecutionLog(`  Kanban: Task ${taskId} failed: ${result.error}\r\n`);
         }
       } catch (err) {
-        this.taskService.updateTask(taskId, { status: TaskStatus.FAILED });
-        process.stdout.write(`  Kanban: Error executing task ${taskId}: ${err}\r\n`);
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+        this.taskService.updateTask(taskId, {
+          status: TaskStatus.FAILED,
+          metadata: {
+            executionId,
+            lastRunError: String(err),
+            executionFinishedAt: Date.now(),
+          },
+        });
+        writeExecutionLog(`  Kanban: Error executing task ${taskId}: ${err}\r\n`);
       }
     })();
   }
@@ -247,7 +338,7 @@ export class KanbanServerService {
   private broadcast(event: string, data: unknown): void {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const client of this.sseClients) {
-      try { client.write(payload); } catch {}
+      try { client.write(payload); } catch { }
     }
   }
 }

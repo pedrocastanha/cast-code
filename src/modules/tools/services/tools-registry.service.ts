@@ -46,6 +46,29 @@ export class ToolsRegistryService {
       .filter((t): t is StructuredTool => t !== undefined);
   }
 
+  getIsolatedTools(names: string[]): StructuredTool[] {
+    // Stateful services get fresh isolated instances; stateless services reuse shared instances.
+    const isolatedMap = new Map<string, StructuredTool>();
+
+    for (const t of this.filesystemTools.getIsolatedTools()) {
+      isolatedMap.set(t.name, t);
+    }
+    for (const t of this.shellTools.getIsolatedTools()) {
+      isolatedMap.set(t.name, t);
+    }
+    for (const t of [
+      ...this.searchTools.getTools(),
+      ...this.taskTools.getTools(),
+      ...this.memoryTools.getTools(),
+    ]) {
+      isolatedMap.set(t.name, t);
+    }
+
+    return names
+      .map((name) => isolatedMap.get(name))
+      .filter((t): t is StructuredTool => t !== undefined);
+  }
+
   getAllTools(): StructuredTool[] {
     return Array.from(this.tools.values());
   }

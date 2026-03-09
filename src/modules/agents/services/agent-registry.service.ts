@@ -17,18 +17,27 @@ export class AgentRegistryService {
     private readonly mcpRegistry: McpRegistryService,
   ) {}
 
-  resolveAgent(name: string, projectContext?: string): ResolvedAgent | undefined {
+  resolveAgent(name: string, projectContext?: string, isolated = false): ResolvedAgent | undefined {
     const agent = this.agentLoader.getAgent(name);
 
     if (!agent) {
       return undefined;
     }
 
-    let skillTools = this.skillRegistry.getToolsForSkills(agent.skills);
+    let skillTools = isolated
+      ? this.skillRegistry.getIsolatedToolsForSkills(agent.skills)
+      : this.skillRegistry.getToolsForSkills(agent.skills);
     const skillGuidelines = this.skillRegistry.getGuidelinesForSkills(agent.skills);
 
     if (skillTools.length === 0 && agent.skills.length > 0) {
-      skillTools = this.toolsRegistry.getTools(FALLBACK_TOOL_NAMES);
+      const knownSkills = this.skillRegistry.getAllSkills().map(s => s.name);
+      const unknown = agent.skills.filter(s => !knownSkills.includes(s));
+      if (unknown.length > 0) {
+        process.stderr.write(`[warn] agent "${agent.name}" references unknown skills: ${unknown.join(', ')} — falling back to default tools\n`);
+      }
+      skillTools = isolated
+        ? this.toolsRegistry.getIsolatedTools(FALLBACK_TOOL_NAMES)
+        : this.toolsRegistry.getTools(FALLBACK_TOOL_NAMES);
     }
 
     let mcpTools: StructuredTool[] = [];
@@ -70,7 +79,7 @@ export class AgentRegistryService {
     const agents = this.agentLoader.getAllAgents();
 
     return agents
-      .map((a) => this.resolveAgent(a.name, projectContext))
+      .map((a) => this.resolveAgent(a.name, projectContext, true))
       .filter((a): a is ResolvedAgent => a !== undefined);
   }
 

@@ -1,3 +1,5 @@
+import { StructuredTool } from '@langchain/core/tools';
+
 export interface SkillFrontmatter {
   name: string;
   description: string;
@@ -14,6 +16,6 @@ export interface SkillDefinition {
 export interface ResolvedSkill {
   name: string;
   description: string;
-  tools: unknown[];
+  tools: StructuredTool[];
   guidelines: string;
 }

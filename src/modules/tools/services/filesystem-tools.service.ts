@@ -20,22 +20,44 @@ const DEFAULT_IGNORE = [
   'pnpm-lock.yaml',
 ];
 
+const MAX_READ_FILES = 200;
+
 @Injectable()
 export class FilesystemToolsService {
   private readFiles: Set<string> = new Set();
 
-  getTools() {
+  clearSession(): void {
+    this.readFiles.clear();
+  }
+
+  private trackRead(readFiles: Set<string>, filePath: string): void {
+    if (readFiles.size >= MAX_READ_FILES) {
+      const first = readFiles.values().next().value;
+      if (first !== undefined) readFiles.delete(first);
+    }
+    readFiles.add(filePath);
+  }
+
+  private buildTools(readFiles: Set<string>) {
     return [
-      this.createReadFileTool(),
-      this.createWriteFileTool(),
-      this.createEditFileTool(),
+      this.createReadFileTool(readFiles),
+      this.createWriteFileTool(readFiles),
+      this.createEditFileTool(readFiles),
       this.createGlobTool(),
       this.createGrepTool(),
       this.createLsTool(),
     ];
   }
 
-  private createReadFileTool() {
+  getTools() {
+    return this.buildTools(this.readFiles);
+  }
+
+  getIsolatedTools() {
+    return this.buildTools(new Set<string>());
+  }
+
+  private createReadFileTool(readFiles: Set<string>) {
     return tool(
       async (input) => {
         try {
@@ -113,7 +135,7 @@ export class FilesystemToolsService {
             })
             .join('\n');
 
-          this.readFiles.add(resolvedPath);
+          this.trackRead(readFiles, resolvedPath);
 
           if (end < lines.length) {
             return `${formatted}\n\n(Showing lines ${start + 1}-${end} of ${lines.length} total. Use offset/limit to read more.)`;
@@ -145,7 +167,7 @@ export class FilesystemToolsService {
     );
   }
 
-  private createWriteFileTool() {
+  private createWriteFileTool(readFiles: Set<string>) {
     return tool(
       async (input) => {
         try {
@@ -167,15 +189,15 @@ export class FilesystemToolsService {
           } catch {
           }
 
-          if (fileExists && !this.readFiles.has(resolvedPath)) {
-            this.readFiles.add(resolvedPath);
+          if (fileExists && !readFiles.has(resolvedPath)) {
+            this.trackRead(readFiles, resolvedPath);
           }
 
           const dir = path.dirname(resolvedPath);
           await fs.mkdir(dir, { recursive: true });
           await fs.writeFile(resolvedPath, content, 'utf-8');
 
-          this.readFiles.add(resolvedPath);
+          this.trackRead(readFiles, resolvedPath);
 
           const lines = content.split('\n').length;
           return `File written successfully: ${resolvedPath} (${lines} lines)`;
@@ -197,7 +219,7 @@ export class FilesystemToolsService {
     );
   }
 
-  private createEditFileTool() {
+  private createEditFileTool(readFiles: Set<string>) {
     return tool(
       async (input) => {
         try {
@@ -219,7 +241,7 @@ export class FilesystemToolsService {
             return 'Error: old_string and new_string are identical. No changes needed.';
           }
 
-          if (!this.readFiles.has(resolvedPath)) {
+          if (!readFiles.has(resolvedPath)) {
             return `Error: You must read_file("${filePath}") before editing it. This ensures you understand the current content.`;
           }
 

@@ -1,7 +1,7 @@
 ---
-name: cast-code
+name: kimi-code
 objective: |
-  Desenvolver e manter o projeto cast-code utilizando TypeScript com arquitetura Layered Architecture.
+  Desenvolver e manter o projeto kimi-code utilizando TypeScript com arquitetura Layered Architecture.
 primary_language: typescript
 languages:
   - TypeScript
@@ -12,7 +12,7 @@ architecture:
 
 # Visão Geral
 
-Projeto cast-code desenvolvido em TypeScript seguindo Layered Architecture com 2 módulo(s) organizado(s).
+Projeto kimi-code desenvolvido em TypeScript seguindo Layered Architecture com 2 módulo(s) organizado(s).
 
 ## Arquitetura
 
@@ -38,14 +38,14 @@ Separação em camadas: apresentação, negócio, dados
 
 **Papel:** Funcionalidade específica do domínio
 
-**Arquivos:** 145
+**Arquivos:** 126
 
 **Arquivos-chave:**
+- `claude.md`
 - `tools/tools.module.ts`
 - `tools/index.ts`
-- `tools/CLAUDE.md`
-- `tasks/tasks.module.ts`
-- `tasks/index.ts`
+- `tools/claude.md`
+- `skills/skills.module.ts`
 
 ---
 
@@ -55,14 +55,14 @@ Separação em camadas: apresentação, negócio, dados
 
 **Papel:** Common - Código compartilhado
 
-**Arquivos:** 12
+**Arquivos:** 11
 
 **Arquivos-chave:**
 - `index.ts`
 - `common.module.ts`
+- `claude.md`
 - `types/markdown.types.ts`
 - `types/index.ts`
-- `services/multi-llm.service.ts`
 
 ---
 

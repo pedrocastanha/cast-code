@@ -45,28 +45,26 @@ export class SkillRegistryService {
     return Array.from(toolsMap.values());
   }
 
+  getIsolatedToolsForSkills(skillNames: string[]): StructuredTool[] {
+    const toolsMap = new Map<string, StructuredTool>();
+
+    for (const skillName of skillNames) {
+      const skill = this.skillLoader.getSkill(skillName);
+      if (!skill) continue;
+      for (const t of this.toolsRegistry.getIsolatedTools(skill.tools)) {
+        toolsMap.set(t.name, t);
+      }
+    }
+
+    return Array.from(toolsMap.values());
+  }
+
   getGuidelinesForSkills(skillNames: string[]): string {
     const skills = this.resolveSkills(skillNames);
 
     return skills.map((s) => `## ${s.name}\n${s.guidelines}`).join('\n\n');
   }
 
-  getAllSkillKnowledge(): string {
-    const skills = this.skillLoader.getAllSkills();
-    const seen = new Set<string>();
-    const parts: string[] = [];
-
-    for (const skill of skills) {
-      if (seen.has(skill.name)) continue;
-      seen.add(skill.name);
-
-      if (skill.guidelines && skill.guidelines.trim()) {
-        parts.push(skill.guidelines.trim());
-      }
-    }
-
-    return parts.join('\n\n---\n\n');
-  }
 
   getAllSkills(): SkillDefinition[] {
     return this.skillLoader.getAllSkills();

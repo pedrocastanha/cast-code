@@ -82,7 +82,7 @@ export class DeepAgentService {
 
     const contextPrompt = this.projectContext.getContextPrompt();
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
-    const skillKnowledge = this.skillRegistry.getAllSkillKnowledge();
+
     const subagents = this.agentRegistry.getSubagentDefinitions(contextPrompt);
     const allTools = this.toolsRegistry.getAllTools();
     const mcpTools = this.mcpRegistry.getAllMcpTools();
@@ -91,7 +91,7 @@ export class DeepAgentService {
     const mcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
     const mcpServerSummaries = this.mcpRegistry.getServerSummaries();
 
-    const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, skillKnowledge, subagents, allTools, mcpTools, mcpServerSummaries);
+    const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, subagents, allTools, mcpTools, mcpServerSummaries);
 
     this.cachedSystemPrompt = systemPrompt;
     this.cachedExtraTools = extraTools;
@@ -159,7 +159,6 @@ export class DeepAgentService {
   private buildSystemPrompt(
     contextPrompt: string,
     memoryPrompt: string,
-    skillKnowledge: string,
     subagents: any[],
     tools: any[],
     mcpTools: any[],
@@ -265,7 +264,7 @@ export class DeepAgentService {
       `# Task Management & Kanban Board`,
       `You are integrated with a live Kanban Board. The board is the source of truth for the user to see your progress.`,
       `- **CRITICAL**: Whenever you start working on a task, you MUST call **task_update** with status="in_progress".`,
-      `- **CRITICAL**: When a task is finished, you MUST call **task_update** with status="completed".`,
+      `- **CRITICAL**: When a task is implemented and ready for human validation, you MUST call **task_update** with status="test".`,
       `- Use **task_create** to break complex work into trackable subtasks. They will appear on the board instantly.`,
       `- Use **task_list** to see what's on your plate.`,
       `- Use **ask_user_question** when you need clarification BEFORE acting.`,
@@ -413,7 +412,7 @@ export class DeepAgentService {
       `# Execution Protocol`,
       ``,
       `## Exploring a Project`,
-      `1. ls the root directory`,
+      `1. ls the project root with \`ls .\` — NEVER use \`ls /\` (that is the system root, not the project)`,
       `2. Read key config files (package.json, tsconfig.json, etc.)`,
       `3. glob to map directory tree with key patterns`,
       `4. Read the most important files (entry points, main modules)`,
@@ -498,8 +497,8 @@ export class DeepAgentService {
       ``,
     );
 
-    if (skillKnowledge) {
-      const skillSummaries = this.skillRegistry.getSkillSummaries();
+    const skillSummaries = this.skillRegistry.getSkillSummaries();
+    if (skillSummaries.length > 0) {
 
       parts.push(
         `# Domain Knowledge`,
@@ -510,14 +509,7 @@ export class DeepAgentService {
       for (const skill of skillSummaries) {
         parts.push(`- **${skill.name}**: ${skill.description}`);
       }
-
-      parts.push(
-        ``,
-        `The following are the complete guidelines from your skill library. These are reference materials — study them to learn patterns, decision frameworks, and anti-patterns for each domain. Use this knowledge when making decisions about how to approach tasks.`,
-        ``,
-        skillKnowledge,
-        ``,
-      );
+      parts.push(``);
     }
 
     parts.push(
@@ -555,15 +547,29 @@ export class DeepAgentService {
 
     let detail = '';
 
+    const filePath = (i: any): string => {
+      if (!i) return '';
+      if (typeof i === 'string') return i;
+      const v = i.file_path || i.path || i.filename || i.file || i.filepath;
+      if (v) return String(v);
+      // Fallback: find any key whose name suggests a file path
+      for (const key of Object.keys(i)) {
+        if (key.toLowerCase().includes('path') || key.toLowerCase().includes('file')) {
+          return String(i[key]);
+        }
+      }
+      return '';
+    };
+
     switch (toolName) {
       case 'read_file':
-        detail = input?.file_path ? ` ${input.file_path}` : '';
+        detail = filePath(input) ? ` ${filePath(input)}` : '';
         break;
       case 'write_file':
-        detail = input?.file_path ? ` ${input.file_path}` : '';
+        detail = filePath(input) ? ` ${filePath(input)}` : '';
         break;
       case 'edit_file':
-        detail = input?.file_path ? ` ${input.file_path}` : '';
+        detail = filePath(input) ? ` ${filePath(input)}` : '';
         break;
       case 'glob':
         detail = input?.pattern ? ` ${input.pattern}` : '';
@@ -910,22 +916,27 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     return this.lastToolOutputs;
   }
 
-  async executeTask(task: Task): Promise<{ success: boolean; error?: string }> {
+  async executeTask(
+    task: Task,
+    options?: { onChunk?: (chunk: string) => void },
+  ): Promise<{ success: boolean; error?: string; output?: string }> {
     try {
       const message = [
         'Voce esta executando uma tarefa de um plano ja aprovado.',
         'NAO use enter_plan_mode nem exit_plan_mode nesta tarefa.',
         `Tarefa:\n**${task.subject}**\n\n${task.description}`,
         'Implemente diretamente o que foi pedido e valide o resultado.',
+        'Quando terminar, responda com um resumo objetivo do que foi feito e do que o usuario deve verificar no frontend.',
       ].join('\n\n');
 
       let fullResponse = '';
       for await (const chunk of this.chat(message)) {
         fullResponse += chunk;
         process.stdout.write(chunk);
+        options?.onChunk?.(chunk);
       }
 
-      return { success: true };
+      return { success: true, output: fullResponse.trim() };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
