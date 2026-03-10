@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { StructuredTool } from '@langchain/core/tools';
 import { AgentLoaderService } from './agent-loader.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
@@ -12,7 +12,9 @@ const FALLBACK_TOOL_NAMES = ['read_file', 'glob', 'grep', 'ls'];
 export class AgentRegistryService {
   constructor(
     private readonly agentLoader: AgentLoaderService,
+    @Inject(forwardRef(() => SkillRegistryService))
     private readonly skillRegistry: SkillRegistryService,
+    @Inject(forwardRef(() => ToolsRegistryService))
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly mcpRegistry: McpRegistryService,
   ) {}

@@ -9,9 +9,10 @@ import { McpModule } from '../mcp/mcp.module';
 import { ProjectModule } from '../project/project.module';
 import { MemoryModule } from '../memory/memory.module';
 import { MentionsModule } from '../mentions/mentions.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
-  imports: [CommonModule, AgentsModule, SkillsModule, forwardRef(() => ToolsModule), McpModule, ProjectModule, forwardRef(() => MemoryModule), MentionsModule],
+  imports: [CommonModule, AgentsModule, SkillsModule, forwardRef(() => ToolsModule), McpModule, ProjectModule, forwardRef(() => MemoryModule), MentionsModule, PermissionsModule],
   providers: [DeepAgentService, PlanModeService],
   exports: [DeepAgentService, PlanModeService, MentionsModule, McpModule, AgentsModule, SkillsModule],
 })
