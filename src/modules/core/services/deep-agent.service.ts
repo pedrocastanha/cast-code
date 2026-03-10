@@ -15,6 +15,7 @@ import { MemoryService } from '../../memory/services/memory.service';
 import { ProjectInitResult } from '../../project/types';
 import { Task } from '../../tasks/types/task.types';
 import { McpServerSummary } from '../../mcp/types';
+import { PermissionService } from '../../permissions/services/permission.service';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -48,6 +49,7 @@ export class DeepAgentService {
     private readonly skillRegistry: SkillRegistryService,
     private readonly memoryService: MemoryService,
     private readonly markdownRenderer: MarkdownRendererService,
+    private readonly permissionService: PermissionService,
   ) {}
 
   async initialize(): Promise<ProjectInitResult> {
@@ -81,6 +83,7 @@ export class DeepAgentService {
     this.model = this.multiLlmService.createStreamingModel('default');
 
     const contextPrompt = this.projectContext.getContextPrompt();
+    const projectStructure = await this.projectContext.getProjectStructureSummary(process.cwd());
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
 
     const subagents = this.agentRegistry.getSubagentDefinitions(contextPrompt);
@@ -91,7 +94,15 @@ export class DeepAgentService {
     const mcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
     const mcpServerSummaries = this.mcpRegistry.getServerSummaries();
 
-    const systemPrompt = this.buildSystemPrompt(contextPrompt, memoryPrompt, subagents, allTools, mcpTools, mcpServerSummaries);
+    const systemPrompt = this.buildSystemPrompt(
+      contextPrompt,
+      memoryPrompt,
+      subagents,
+      allTools,
+      mcpTools,
+      mcpServerSummaries,
+      projectStructure,
+    );
 
     this.cachedSystemPrompt = systemPrompt;
     this.cachedExtraTools = extraTools;
@@ -163,6 +174,7 @@ export class DeepAgentService {
     tools: any[],
     mcpTools: any[],
     mcpServerSummaries: McpServerSummary[] = [],
+    projectStructure: string = '',
   ): string {
     const gitInfo = this.getGitStatus();
     const allToolNames = [
@@ -177,6 +189,15 @@ export class DeepAgentService {
       `You are a highly capable agent that can independently explore codebases, make decisions, execute multi-step plans, and delegate work to specialized sub-agents. You help developers with software engineering tasks including writing code, debugging, refactoring, and answering questions about codebases.`,
       ``,
     );
+
+    if (projectStructure) {
+      parts.push(
+        `# Project Overview`,
+        ``,
+        projectStructure,
+        ``,
+      );
+    }
 
     parts.push(
       `# CRITICAL RULES`,
@@ -497,19 +518,15 @@ export class DeepAgentService {
       ``,
     );
 
-    const skillSummaries = this.skillRegistry.getSkillSummaries();
-    if (skillSummaries.length > 0) {
-
+    const skillCount = this.skillRegistry.getSkillNames().length;
+    if (skillCount > 0) {
       parts.push(
         `# Domain Knowledge`,
         ``,
-        `You have ${skillSummaries.length} skills loaded:`,
+        `You have ${skillCount} skills available. Use **list_skills** to discover them and **read_skill(name)** to load full content.`,
+        `Use **list_agents** to see available sub-agents.`,
+        ``,
       );
-
-      for (const skill of skillSummaries) {
-        parts.push(`- **${skill.name}**: ${skill.description}`);
-      }
-      parts.push(``);
     }
 
     parts.push(
@@ -918,8 +935,8 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
   async executeTask(
     task: Task,
-    options?: { onChunk?: (chunk: string) => void },
   ): Promise<{ success: boolean; error?: string; output?: string }> {
+    this.permissionService.setHeadless(true);
     try {
       const message = [
         'Voce esta executando uma tarefa de um plano ja aprovado.',
@@ -933,12 +950,13 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       for await (const chunk of this.chat(message)) {
         fullResponse += chunk;
         process.stdout.write(chunk);
-        options?.onChunk?.(chunk);
       }
 
       return { success: true, output: fullResponse.trim() };
     } catch (error) {
       return { success: false, error: (error as Error).message };
+    } finally {
+      this.permissionService.setHeadless(false);
     }
   }
 }

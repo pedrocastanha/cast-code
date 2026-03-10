@@ -15,6 +15,8 @@ import { PromptService } from './prompt.service';
 export class PermissionService {
   private config: PermissionsConfig;
   private configPath: string;
+  private headless = false;
+  private permissionHandler: ((command: string, dangerLevel: DangerLevel) => Promise<PermissionResponse>) | null = null;
   private sessionRules: Map<string, PermissionRule> = new Map();
 
   private readonly DANGER_PATTERNS = {
@@ -65,8 +67,27 @@ export class PermissionService {
       console.error('Error initializing permissions:', error);
     }
   }
+
+  setHeadless(value: boolean): void {
+    this.headless = value;
+  }
+
+  setPermissionHandler(
+    handler: (command: string, dangerLevel: DangerLevel) => Promise<PermissionResponse>,
+  ): void {
+    this.permissionHandler = handler;
+  }
+
   async checkPermission(command: string): Promise<boolean> {
     const dangerLevel = this.getDangerLevel(command);
+
+    if (this.headless) {
+      if (dangerLevel === DangerLevel.DANGEROUS) {
+        process.stdout.write(`  ⚠️  Kanban: Blocked dangerous command: ${command}\r\n`);
+        return false;
+      }
+      return true;
+    }
 
     if (dangerLevel === DangerLevel.SAFE) {
       return true;
@@ -129,6 +150,16 @@ export class PermissionService {
   }
 
   private async requestPermission(
+    command: string,
+    dangerLevel: DangerLevel,
+  ): Promise<PermissionResponse> {
+    if (this.permissionHandler) {
+      return this.permissionHandler(command, dangerLevel);
+    }
+    return this.showInteractivePrompt(command, dangerLevel);
+  }
+
+  private async showInteractivePrompt(
     command: string,
     dangerLevel: DangerLevel,
   ): Promise<PermissionResponse> {
