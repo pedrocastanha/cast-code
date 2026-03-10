@@ -5,7 +5,6 @@ import { exec } from 'child_process';
 import { TaskManagementService } from '../../tasks/services/task-management.service';
 import { getKanbanHtml } from '../views/kanban-ui';
 import { TaskStatus } from '../../tasks/types/task.types';
-import { RemoteServerService } from '../../remote/services/remote-server.service';
 
 @Injectable()
 export class KanbanServerService {
@@ -18,7 +17,6 @@ export class KanbanServerService {
   constructor(
     private readonly taskService: TaskManagementService,
     private readonly moduleRef: ModuleRef,
-    private readonly remoteServer: RemoteServerService,
   ) { }
 
   private async getDeepAgent() {
@@ -194,13 +192,15 @@ export class KanbanServerService {
           `5. Repita para a próxima tarefa.\n\n` +
           `Pode começar agora.`;
 
-        process.stdout.write(`\n  Kanban: Starting intelligent auto-planner for ${tasks.length} tasks...\r\n`);
+        const startMsg = `\n  Kanban: Starting intelligent auto-planner for ${tasks.length} tasks...\r\n`;
+        process.stdout.write(startMsg);
 
         for await (const chunk of agent.chat(prompt)) {
           process.stdout.write(chunk);
         }
       } catch (err) {
-        process.stdout.write(`  Kanban: Auto-planner error: ${err}\r\n`);
+        const errMsg = `  Kanban: Auto-planner error: ${err}\r\n`;
+        process.stdout.write(errMsg);
       }
     })();
   }
@@ -241,7 +241,6 @@ export class KanbanServerService {
 
     const writeExecutionLog = (message: string): void => {
       process.stdout.write(message);
-      this.remoteServer.broadcast(message);
     };
 
     (async () => {
@@ -281,9 +280,7 @@ export class KanbanServerService {
         }, KanbanServerService.TASK_TIMEOUT_MS);
 
         const agent = await this.getDeepAgent();
-        const result = await agent.executeTask(task, {
-          onChunk: (chunk: string) => this.remoteServer.broadcast(chunk),
-        });
+        const result = await agent.executeTask(task);
 
         if (timeoutHandle) {
           clearTimeout(timeoutHandle);

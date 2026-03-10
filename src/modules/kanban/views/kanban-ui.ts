@@ -615,6 +615,15 @@ export function getKanbanHtml(): string {
   let sseRetryTimer = null;
   let isAutoPlanning = false;
 
+  function debounce(fn, delay) {
+    let timer = null;
+    return function(...args) {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function() { timer = null; fn.apply(null, args); }, delay);
+    };
+  }
+  const debouncedRenderAll = debounce(renderAll, 50);
+
   // Drag and Drop State
   let draggedTaskId = null;
 
@@ -806,25 +815,23 @@ export function getKanbanHtml(): string {
   }
 
   function renderAll() {
-    const cols = { pending: [], inprogress: [], test: [], done: [], failed: [] };
-
-    for (const task of Object.values(tasks)) {
-      cols[col(task.status)].push(task);
-    }
-
-    for (const [key, list] of Object.entries(cols)) {
-      const container = document.getElementById('cards-' + key);
-      const count = document.getElementById('count-' + key);
-
-      if (list.length === 0) {
-        container.innerHTML = '<div class="empty-state">—</div>';
-      } else {
-        container.innerHTML = list.map(makeCard).join('');
+    requestAnimationFrame(function() {
+      const cols = { pending: [], inprogress: [], test: [], done: [], failed: [] };
+      for (const task of Object.values(tasks)) {
+        cols[col(task.status)].push(task);
       }
-      count.textContent = list.length;
-    }
-
-    renderHeaderRight();
+      for (const [key, list] of Object.entries(cols)) {
+        const container = document.getElementById('cards-' + key);
+        const count = document.getElementById('count-' + key);
+        if (list.length === 0) {
+          container.innerHTML = '<div class="empty-state">—</div>';
+        } else {
+          container.innerHTML = list.map(makeCard).join('');
+        }
+        count.textContent = list.length;
+      }
+      renderHeaderRight();
+    });
   }
 
   function upsertTask(task) {
@@ -849,7 +856,7 @@ export function getKanbanHtml(): string {
         const targetContainer = document.getElementById('cards-' + newColKey);
 
         if (currentContainer !== targetContainer) {
-          renderAll();
+          debouncedRenderAll();
         } else {
           card.outerHTML = makeCard(task);
           const updated = document.getElementById('card-' + task.id);
@@ -860,10 +867,10 @@ export function getKanbanHtml(): string {
           updateCounts();
         }
       } else {
-        renderAll();
+        debouncedRenderAll();
       }
     } else {
-      renderAll();
+      debouncedRenderAll();
     }
   }
 
