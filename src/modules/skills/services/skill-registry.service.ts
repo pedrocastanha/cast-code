@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { StructuredTool } from '@langchain/core/tools';
 import { SkillLoaderService } from './skill-loader.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
@@ -8,6 +8,7 @@ import { ResolvedSkill, SkillDefinition } from '../types';
 export class SkillRegistryService {
   constructor(
     private readonly skillLoader: SkillLoaderService,
+    @Inject(forwardRef(() => ToolsRegistryService))
     private readonly toolsRegistry: ToolsRegistryService,
   ) {}
 
