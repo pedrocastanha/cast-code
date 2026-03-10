@@ -18,9 +18,10 @@ import { MemoryModule } from '../memory/memory.module';
 import { ConfigModule } from '../config';
 import { KanbanModule } from '../kanban/kanban.module';
 import { RemoteModule } from '../remote/remote.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
-  imports: [ConfigModule, CoreModule, ToolsModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule, MemoryModule, KanbanModule, RemoteModule],
+  imports: [ConfigModule, CoreModule, ToolsModule, GitModule, AgentsModule, SkillsModule, McpModule, ProjectModule, MemoryModule, KanbanModule, RemoteModule, PermissionsModule],
   providers: [
     ReplService,
     WelcomeScreenService,
