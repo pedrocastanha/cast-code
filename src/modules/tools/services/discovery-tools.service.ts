@@ -1,17 +1,13 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { SkillRegistryService } from '../../skills/services/skill-registry.service';
-import { AgentRegistryService } from '../../agents/services/agent-registry.service';
+import { AgentLoaderService } from '../../agents/services/agent-loader.service';
 import { SkillLoaderService } from '../../skills/services/skill-loader.service';
 
 @Injectable()
 export class DiscoveryToolsService {
   constructor(
-    @Inject(forwardRef(() => SkillRegistryService))
-    private readonly skillRegistry: SkillRegistryService,
-    @Inject(forwardRef(() => AgentRegistryService))
-    private readonly agentRegistry: AgentRegistryService,
+    private readonly agentLoader: AgentLoaderService,
     private readonly skillLoader: SkillLoaderService,
   ) {}
 
@@ -27,7 +23,7 @@ export class DiscoveryToolsService {
     const self = this;
     return tool(
       async (_input: {}) => {
-        const skills = self.skillRegistry.getAllSkills();
+        const skills = self.skillLoader.getAllSkills();
         if (skills.length === 0) return 'No skills loaded.';
         const lines = skills.map((s) =>
           '- **' + s.name + '**: ' + (s.description || 'No description') + '\n  -> Load full content: read_skill("' + s.name + '")',
@@ -48,7 +44,7 @@ export class DiscoveryToolsService {
       async (input: { name: string }) => {
         const skill = self.skillLoader.getSkill(input.name);
         if (!skill) {
-          const available = self.skillRegistry.getSkillNames().join(', ');
+          const available = self.skillLoader.getSkillNames().join(', ');
           return 'Skill "' + input.name + '" not found. Available: ' + available;
         }
         return '## Skill: ' + skill.name + '\n\n**Description:** ' + skill.description + '\n\n**Guidelines:**\n' + (skill.guidelines || '(none)');
@@ -67,7 +63,7 @@ export class DiscoveryToolsService {
     const self = this;
     return tool(
       async (_input: {}) => {
-        const agents = self.agentRegistry.getSubagentDefinitions();
+        const agents = self.agentLoader.getAllAgents();
         if (agents.length === 0) return 'No sub-agents loaded.';
         const lines = agents.map((a) => '- **' + a.name + '**: ' + a.description);
         return '## Available Sub-Agents (' + agents.length + ')\n\n' + lines.join('\n');
