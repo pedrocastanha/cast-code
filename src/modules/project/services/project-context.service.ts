@@ -51,6 +51,36 @@ export class ProjectContextService {
     return parts.join('\n');
   }
 
+  async getProjectStructureSummary(rootDir: string): Promise<string> {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const parts: string[] = [];
+
+    try {
+      const pkg = JSON.parse(await fs.readFile(path.join(rootDir, 'package.json'), 'utf-8'));
+      parts.push('**Project:** ' + (pkg.name || 'unknown') + (pkg.version ? ' v' + pkg.version : ''));
+      if (pkg.description) parts.push('**Description:** ' + pkg.description);
+      const scripts = Object.keys(pkg.scripts || {}).slice(0, 6).join(', ');
+      if (scripts) parts.push('**Scripts:** ' + scripts);
+    } catch {}
+
+    try {
+      const entries = await fs.readdir(path.join(rootDir, 'src'), { withFileTypes: true });
+      const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+      if (dirs.length > 0) parts.push('**src/ dirs:** ' + dirs.join(', '));
+    } catch {}
+
+    try {
+      const entries = await fs.readdir(path.join(rootDir, 'src', 'modules'), {
+        withFileTypes: true,
+      });
+      const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+      if (dirs.length > 0) parts.push('**Modules:** ' + dirs.join(', '));
+    } catch {}
+
+    return parts.join('\n');
+  }
+
   hasContext(): boolean {
     return this.context !== null;
   }

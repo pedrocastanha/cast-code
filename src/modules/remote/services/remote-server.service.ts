@@ -22,6 +22,7 @@ export class RemoteServerService {
     private ngrokProcess: any = null;
     private publicUrl: string | null = null;
     private messageCallback: ((msg: string) => Promise<void>) | null = null;
+    private originalStdoutWrite: typeof process.stdout.write | null = null;
 
     constructor(private readonly configManager: ConfigManagerService) { }
 
@@ -30,10 +31,35 @@ export class RemoteServerService {
     }
 
     public broadcast(chunk: string) {
-        if (!this.isRunning) return;
+        if (!this.isRunning || this.clients.length === 0) return;
         const payload = JSON.stringify({ type: 'stdout', content: chunk });
         for (const res of this.clients) {
-            res.write(`data: ${payload}\n\n`);
+            try { res.write(`data: ${payload}\n\n`); } catch { }
+        }
+    }
+
+    private interceptStdout(): void {
+        if (this.originalStdoutWrite) return;
+        this.originalStdoutWrite = process.stdout.write.bind(process.stdout);
+        const self = this;
+        (process.stdout as any).write = function (
+            buffer: Uint8Array | string,
+            encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+            cb?: (err?: Error | null) => void,
+        ): boolean {
+            const result = (self.originalStdoutWrite as any)(buffer, encodingOrCb, cb);
+            if (self.isRunning && self.clients.length > 0) {
+                const str = typeof buffer === 'string' ? buffer : Buffer.from(buffer).toString('utf8');
+                self.broadcast(str);
+            }
+            return result;
+        };
+    }
+
+    private restoreStdout(): void {
+        if (this.originalStdoutWrite) {
+            (process.stdout as any).write = this.originalStdoutWrite;
+            this.originalStdoutWrite = null;
         }
     }
 
@@ -58,6 +84,7 @@ export class RemoteServerService {
 
         this.authToken = crypto.randomBytes(32).toString('hex');
         this.isRunning = true;
+        this.interceptStdout();
 
         this.server = http.createServer((req, res) => this.handleRequest(req, res));
         this.server.listen(this.port, '0.0.0.0', () => {
@@ -122,6 +149,7 @@ export class RemoteServerService {
     }
 
     public stop() {
+        this.restoreStdout();
         if (this.ngrokProcess) {
             this.ngrokProcess.kill();
         }

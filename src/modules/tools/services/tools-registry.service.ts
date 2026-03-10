@@ -3,6 +3,7 @@ import { StructuredTool } from '@langchain/core/tools';
 import { FilesystemToolsService } from './filesystem-tools.service';
 import { ShellToolsService } from './shell-tools.service';
 import { SearchToolsService } from './search-tools.service';
+import { DiscoveryToolsService } from './discovery-tools.service';
 import { TaskToolsService } from '../../tasks/services/task-tools.service';
 import { MemoryToolsService } from '../../memory/services/memory-tools.service';
 
@@ -14,6 +15,8 @@ export class ToolsRegistryService {
     private readonly filesystemTools: FilesystemToolsService,
     private readonly shellTools: ShellToolsService,
     private readonly searchTools: SearchToolsService,
+    @Inject(forwardRef(() => DiscoveryToolsService))
+    private readonly discoveryTools: DiscoveryToolsService,
     @Inject(forwardRef(() => TaskToolsService))
     private readonly taskTools: TaskToolsService,
     @Inject(forwardRef(() => MemoryToolsService))
@@ -27,6 +30,7 @@ export class ToolsRegistryService {
       ...this.filesystemTools.getTools(),
       ...this.shellTools.getTools(),
       ...this.searchTools.getTools(),
+      ...this.discoveryTools.getTools(),
       ...this.taskTools.getTools(),
       ...this.memoryTools.getTools(),
     ];

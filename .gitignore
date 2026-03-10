@@ -26,3 +26,5 @@ to-do.md
 ./.cast/
 cast/
 .cast.worktrees/
+
+claude --resume 255711bc-8fbb-406e-867b-4415617c534e 

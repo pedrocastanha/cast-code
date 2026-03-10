@@ -18,6 +18,12 @@ import { ProjectCommandsService } from './commands/project-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
 import { RemoteServerService } from '../../remote/services/remote-server.service';
+import { PermissionService } from '../../permissions/services/permission.service';
+import {
+  DangerLevel,
+  PermissionResponse,
+  PermissionScope,
+} from '../../permissions/types/permission.types';
 import { Colors, Icons } from '../utils/theme';
 
 @Injectable()
@@ -47,6 +53,7 @@ export class ReplService {
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly kanbanServer: KanbanServerService,
     private readonly remoteServer: RemoteServerService,
+    private readonly permissionService: PermissionService,
   ) { }
 
   async start(): Promise<void> {
@@ -97,7 +104,65 @@ export class ReplService {
       onExit: () => this.handleExit(),
     });
 
+    this.permissionService.setPermissionHandler((command, dangerLevel) =>
+      this.handlePermissionPrompt(command, dangerLevel),
+    );
+
     this.smartInput.start();
+  }
+
+  private async handlePermissionPrompt(
+    command: string,
+    dangerLevel: DangerLevel,
+  ): Promise<PermissionResponse> {
+    this.smartInput?.pause();
+
+    try {
+      console.log('');
+      process.stdout.write(`${Colors.yellow}  Permission required to execute command:${Colors.reset}\r\n`);
+      process.stdout.write(`  ${command}\r\n\r\n`);
+
+      if (dangerLevel === DangerLevel.DANGEROUS) {
+        process.stdout.write(
+          `${Colors.red}  ⚠️  WARNING: This command is potentially DANGEROUS!${Colors.reset}\r\n`,
+        );
+      }
+
+      const choices = [
+        { key: 'allow-once', label: 'Allow once', description: 'Execute just this time' },
+        {
+          key: 'allow-session',
+          label: 'Allow for session',
+          description: 'Allow during this session',
+        },
+        ...(dangerLevel !== DangerLevel.DANGEROUS
+          ? [
+              {
+                key: 'allow-always',
+                label: 'Always allow',
+                description: 'Never ask again for this command',
+              },
+            ]
+          : []),
+        { key: 'deny', label: 'Deny', description: 'Do not execute' },
+      ] as const;
+
+      const choice = await this.smartInput!.askChoice('What do you want to do?', [...choices]);
+
+      switch (choice) {
+        case 'allow-once':
+          return { allowed: true, scope: PermissionScope.ONCE };
+        case 'allow-session':
+          return { allowed: true, scope: PermissionScope.SESSION };
+        case 'allow-always':
+          return { allowed: true, scope: PermissionScope.ALWAYS };
+        case 'deny':
+        default:
+          return { allowed: false, scope: PermissionScope.ONCE };
+      }
+    } finally {
+      this.smartInput?.resume();
+    }
   }
 
   private getCommandSuggestions(input: string): Array<{ text: string; display: string; description: string }> {
