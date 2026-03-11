@@ -10,9 +10,27 @@ import { ProjectModule } from '../project/project.module';
 import { MemoryModule } from '../memory/memory.module';
 import { MentionsModule } from '../mentions/mentions.module';
 import { PermissionsModule } from '../permissions/permissions.module';
+import { SnapshotModule } from '../snapshots/snapshot.module';
+import { StatsModule } from '../stats/stats.module';
+import { ReplayModule } from '../replay/replay.module';
+import { WatcherModule } from '../watcher/watcher.module';
 
 @Module({
-  imports: [CommonModule, AgentsModule, SkillsModule, forwardRef(() => ToolsModule), McpModule, ProjectModule, forwardRef(() => MemoryModule), MentionsModule, PermissionsModule],
+  imports: [
+    CommonModule,
+    AgentsModule,
+    SkillsModule,
+    forwardRef(() => ToolsModule),
+    McpModule,
+    ProjectModule,
+    forwardRef(() => MemoryModule),
+    MentionsModule,
+    PermissionsModule,
+    SnapshotModule,
+    StatsModule,
+    ReplayModule,
+    WatcherModule,
+  ],
   providers: [DeepAgentService, PlanModeService],
   exports: [DeepAgentService, PlanModeService, MentionsModule, McpModule, AgentsModule, SkillsModule],
 })
