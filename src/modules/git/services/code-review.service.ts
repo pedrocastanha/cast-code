@@ -164,7 +164,7 @@ Return ONLY the formatted code in a code block.`;
     }
   }
 
-  private getChangedFiles(stagedOnly = false): string[] {
+  getChangedFiles(stagedOnly = false): string[] {
     try {
       const cmd = stagedOnly 
         ? 'git diff --cached --name-only --diff-filter=ACM'

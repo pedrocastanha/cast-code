@@ -16,15 +16,17 @@ import {
   withEsc,
 } from '../../repl/utils/prompts-with-esc';
 import { ISmartInput } from '../../repl/services/smart-input';
+import { I18nService } from '../../i18n/services/i18n.service';
 
 @Injectable()
 export class ConfigCommandsService {
   constructor(
     private readonly configManager: ConfigManagerService,
-    private readonly initService: InitConfigService
+    private readonly initService: InitConfigService,
+    private readonly i18nService: I18nService,
   ) { }
 
-  async handleConfigCommand(args: string[], smartInput?: SmartInput): Promise<void> {
+  async handleConfigCommand(args: string[], smartInput?: ISmartInput): Promise<void> {
     const subcommand = args[0];
     const useInquirerFlow = ['init', 'setup', 'add-provider', 'set-model', 'set-api-key', 'remove-provider'].includes(subcommand || '');
 
@@ -80,7 +82,7 @@ export class ConfigCommandsService {
   private async withEscHandler<T>(fn: () => Promise<T>): Promise<void> {
     const result = await withEsc(fn);
     if (result === null) {
-      console.log(chalk.yellow('\n\n❌ Cancelado. Voltando ao menu...\n'));
+      console.log(chalk.yellow('\n\n❌ Cancelled. Returning to menu...\n'));
     }
   }
 
@@ -98,23 +100,24 @@ export class ConfigCommandsService {
     await this.configManager.loadConfig();
 
     while (true) {
-      w(`\n${Colors.cyan}${Colors.bold}⚙️  Configuração Cast Code${Colors.reset}\n`);
+      w(`\n${Colors.cyan}${Colors.bold}⚙️  Cast Code Configuration${Colors.reset}\n`);
       w(`${Colors.gray}${'─'.repeat(30)}${Colors.reset}\n\n`);
 
-      const action = await withEsc(() => smartInput.askChoice('O que deseja fazer?', [
-        { key: '1', label: 'Ver configuração atual', description: 'Mostrar provedores e modelos' },
-        { key: '2', label: 'Configuração inicial completa', description: 'Wizard de setup' },
-        { key: '3', label: 'Adicionar provedor', description: 'Novo serviço de IA' },
-        { key: '4', label: 'Remover provedor', description: 'Remover serviço' },
-        { key: '5', label: 'Configurar modelo', description: 'Definir modelo para finalidade' },
-        { key: '6', label: 'Alterar API key', description: 'Atualizar credencial de um provedor' },
-        { key: '7', label: 'Configurar Remote UI', description: 'Habilitar/Desabilitar ou alterar senha' },
-        { key: '8', label: 'Ver caminho do arquivo', description: 'Local do config.yaml' },
-        { key: '9', label: 'Sair', description: 'Voltar ao chat' },
+      const action = await withEsc(() => smartInput.askChoice('What would you like to do?', [
+        { key: '1', label: 'View current configuration', description: 'Show providers and models' },
+        { key: '2', label: 'Full initial setup', description: 'Setup wizard' },
+        { key: '3', label: 'Add provider', description: 'New AI service' },
+        { key: '4', label: 'Remove provider', description: 'Remove service' },
+        { key: '5', label: 'Configure model', description: 'Set model for a purpose' },
+        { key: '6', label: 'Change API key', description: 'Update provider credential' },
+        { key: '7', label: 'Configure Remote UI', description: 'Enable/Disable or change password' },
+        { key: '8', label: 'View config file path', description: 'Location of config.yaml' },
+        { key: 'l', label: 'Change language', description: 'Switch UI language' },
+        { key: '9', label: 'Exit', description: 'Return to chat' },
       ]));
 
       if (action === null) {
-        console.log(chalk.yellow('\nSaindo do menu de configuração...\n'));
+        console.log(chalk.yellow('\nExiting configuration menu...\n'));
         return;
       }
 
@@ -142,6 +145,9 @@ export class ConfigCommandsService {
           break;
         case '8':
           console.log(`\n📁 ${this.configManager.getConfigPath()}\n`);
+          break;
+        case 'l':
+          await this.runInquirerFlow(smartInput, () => this.changeLanguageInteractive());
           break;
         case '9':
           return;
@@ -173,14 +179,14 @@ export class ConfigCommandsService {
       reset: '\x1b[0m',
     };
 
-    w(`\n${Colors.cyan}${Colors.bold}⚙️  Configuração Atual${Colors.reset}\n`);
+    w(`\n${Colors.cyan}${Colors.bold}⚙️  Current Configuration${Colors.reset}\n`);
     w(`${Colors.gray}${'─'.repeat(40)}${Colors.reset}\n\n`);
 
-    w(`${Colors.yellow}📦 Provedores configurados:${Colors.reset}\n`);
+    w(`${Colors.yellow}📦 Configured providers:${Colors.reset}\n`);
     const providers = this.configManager.getConfiguredProviders();
     if (providers.length === 0) {
-      w(`${Colors.gray}   Nenhum provedor configurado${Colors.reset}\n`);
-      w(`${Colors.gray}   Use "cast config init" ou /config add-provider${Colors.reset}\n`);
+      w(`${Colors.gray}   No providers configured${Colors.reset}\n`);
+      w(`${Colors.gray}   Use "cast config init" or /config add-provider${Colors.reset}\n`);
     } else {
       for (const provider of providers) {
         const meta = PROVIDER_METADATA[provider];
@@ -192,7 +198,7 @@ export class ConfigCommandsService {
       }
     }
 
-    w(`\n${Colors.yellow}🤖 Modelos configurados:${Colors.reset}\n`);
+    w(`\n${Colors.yellow}🤖 Configured models:${Colors.reset}\n`);
     for (const purpose of MODEL_PURPOSES) {
       const modelConfig = config.models[purpose.value];
       if (modelConfig) {
@@ -202,12 +208,12 @@ export class ConfigCommandsService {
       }
     }
 
-    w(`\n${Colors.yellow}🌐 Acesso Remoto (Web UI):${Colors.reset}\n`);
+    w(`\n${Colors.yellow}🌐 Remote Access (Web UI):${Colors.reset}\n`);
     if (config.remote?.enabled) {
-      w(`   Status:   ${Colors.green}Ativo${Colors.reset}\n`);
-      w(`   Whisper:  ${config.remote.openaiApiKey ? Colors.green + 'Configurado' + Colors.reset : Colors.gray + 'Não configurado' + Colors.reset}\n`);
+      w(`   Status:   ${Colors.green}Active${Colors.reset}\n`);
+      w(`   Whisper:  ${config.remote.openaiApiKey ? Colors.green + 'Configured' + Colors.reset : Colors.gray + 'Not configured' + Colors.reset}\n`);
     } else {
-      w(`   Status:   ${Colors.gray}Desabilitado${Colors.reset}\n`);
+      w(`   Status:   ${Colors.gray}Disabled${Colors.reset}\n`);
     }
 
     w(`\n${Colors.gray}📁 Arquivo: ${this.configManager.getConfigPath()}${Colors.reset}\n\n`);
@@ -221,15 +227,15 @@ export class ConfigCommandsService {
     ) as ProviderType[];
 
     if (availableProviders.length === 0) {
-      console.log(chalk.yellow('\n⚠️  Todos os provedores já estão configurados!\n'));
+      console.log(chalk.yellow('\n⚠️  All providers are already configured!\n'));
       return;
     }
 
-    console.log(chalk.cyan('\n📦 Adicionar Provedor'));
-    console.log(chalk.gray('(pressione ESC para cancelar)\n'));
+    console.log(chalk.cyan('\n📦 Add Provider'));
+    console.log(chalk.gray('(press ESC to cancel)\n'));
 
     const provider = await selectWithEsc<ProviderType>({
-      message: 'Qual provedor deseja adicionar?',
+      message: 'Which provider would you like to add?',
       choices: availableProviders.map((p) => ({
         name: `${PROVIDER_METADATA[p].name} - ${PROVIDER_METADATA[p].description}`,
         value: p,
@@ -237,7 +243,7 @@ export class ConfigCommandsService {
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
@@ -247,51 +253,51 @@ export class ConfigCommandsService {
 
     if (provider === 'ollama') {
       const baseUrl = await inputWithEsc({
-        message: 'URL do servidor Ollama:',
+        message: 'Ollama server URL:',
         default: meta.defaultBaseUrl,
       });
       if (baseUrl === null) {
-        console.log(chalk.yellow('\n❌ Cancelado.\n'));
+        console.log(chalk.yellow('\n❌ Cancelled.\n'));
         return;
       }
       config = { baseUrl };
     } else {
-      console.log(chalk.gray(`→ Obtenha sua API key em: ${meta.websiteUrl}`));
+      console.log(chalk.gray(`→ Get your API key at: ${meta.websiteUrl}`));
 
       const apiKeyRaw = await inputWithEsc({
-        message: `API Key para ${meta.name}:`,
+        message: `API Key for ${meta.name}:`,
         validate: (v) => {
           const clean = v.trim();
-          if (clean.length <= 5) return 'API key muito curta';
-          if (/[\s%]/.test(clean)) return 'API key contém caracteres inválidos (espaços ou %)';
+          if (clean.length <= 5) return 'API key is too short';
+          if (/[\s%]/.test(clean)) return 'API key contains invalid characters (spaces or %)';
           return true;
         },
       });
 
       if (apiKeyRaw === null) {
-        console.log(chalk.yellow('\n❌ Cancelado.\n'));
+        console.log(chalk.yellow('\n❌ Cancelled.\n'));
         return;
       }
       const apiKey = apiKeyRaw.trim();
 
       const useCustom = await confirmWithEsc({
-        message: 'Usar URL customizada?',
+        message: 'Use a custom URL?',
         default: false,
       });
 
       if (useCustom === null) {
-        console.log(chalk.yellow('\n❌ Cancelado.\n'));
+        console.log(chalk.yellow('\n❌ Cancelled.\n'));
         return;
       }
 
       let baseUrl: string | undefined;
       if (useCustom) {
         baseUrl = await inputWithEsc({
-          message: 'URL da API:',
+          message: 'API URL:',
           default: meta.defaultBaseUrl,
         });
         if (baseUrl === null) {
-          console.log(chalk.yellow('\n❌ Cancelado.\n'));
+          console.log(chalk.yellow('\n❌ Cancelled.\n'));
           return;
         }
       }
@@ -300,7 +306,7 @@ export class ConfigCommandsService {
     }
 
     await this.configManager.addProvider(provider, config);
-    console.log(chalk.green(`\n✓ Provedor ${meta.name} adicionado com sucesso!\n`));
+    console.log(chalk.green(`\n✓ Provider ${meta.name} added successfully!\n`));
   }
 
   private async removeProviderInteractive(): Promise<void> {
@@ -308,14 +314,14 @@ export class ConfigCommandsService {
 
     const configuredProviders = this.configManager.getConfiguredProviders();
     if (configuredProviders.length === 0) {
-      console.log(chalk.yellow('\n⚠️  Nenhum provedor configurado para remover.\n'));
+      console.log(chalk.yellow('\n⚠️  No providers configured to remove.\n'));
       return;
     }
 
-    console.log(chalk.gray('(pressione ESC para cancelar)\n'));
+    console.log(chalk.gray('(press ESC to cancel)\n'));
 
     const provider = await selectWithEsc<ProviderType>({
-      message: 'Qual provedor deseja remover?',
+      message: 'Which provider would you like to remove?',
       choices: configuredProviders.map((p) => ({
         name: PROVIDER_METADATA[p].name,
         value: p,
@@ -323,24 +329,24 @@ export class ConfigCommandsService {
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     const confirmRemove = await confirmWithEsc({
-      message: `Tem certeza que deseja remover ${PROVIDER_METADATA[provider].name}?`,
+      message: `Are you sure you want to remove ${PROVIDER_METADATA[provider].name}?`,
       default: false,
     });
 
     if (confirmRemove === null || !confirmRemove) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     const config = this.configManager.getConfig();
     delete config.providers[provider];
     await this.configManager.saveConfig(config);
-    console.log(chalk.green(`\n✓ Provedor removido.\n`));
+    console.log(chalk.green(`\n✓ Provider removed.\n`));
   }
 
   private async setModelInteractive(): Promise<void> {
@@ -349,16 +355,16 @@ export class ConfigCommandsService {
     const availableProviders = this.configManager.getConfiguredProviders();
     if (availableProviders.length === 0) {
       console.log(
-        chalk.red('\n❌ Nenhum provedor configurado. Configure um provedor primeiro.\n')
+        chalk.red('\n❌ No providers configured. Configure a provider first.\n')
       );
       return;
     }
 
-    console.log(chalk.cyan('\n🤖 Configurar Modelo'));
-    console.log(chalk.gray('(pressione ESC para cancelar)\n'));
+    console.log(chalk.cyan('\n🤖 Configure Model'));
+    console.log(chalk.gray('(press ESC to cancel)\n'));
 
     const purpose = await selectWithEsc<ModelPurpose>({
-      message: 'Para qual finalidade?',
+      message: 'For which purpose?',
       choices: MODEL_PURPOSES.map((p) => ({
         name: `${p.label} - ${p.description}`,
         value: p.value,
@@ -366,12 +372,12 @@ export class ConfigCommandsService {
     });
 
     if (purpose === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     const provider = await selectWithEsc<ProviderType>({
-      message: 'Qual provedor?',
+      message: 'Which provider?',
       choices: availableProviders.map((p) => ({
         name: PROVIDER_METADATA[p].name,
         value: p,
@@ -379,19 +385,19 @@ export class ConfigCommandsService {
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     const meta = PROVIDER_METADATA[provider];
 
     const usePopular = await confirmWithEsc({
-      message: `Usar um dos modelos populares do ${meta.name}?`,
+      message: `Use one of ${meta.name}'s popular models?`,
       default: true,
     });
 
     if (usePopular === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
@@ -399,7 +405,7 @@ export class ConfigCommandsService {
 
     if (usePopular) {
       model = await selectWithEsc<string>({
-        message: 'Escolha o modelo:',
+        message: 'Choose the model:',
         choices: [
           ...meta.popularModels.map((m) => ({ name: m, value: m })),
           { name: '➕ Outro modelo...', value: '__custom__' },
@@ -407,27 +413,27 @@ export class ConfigCommandsService {
       });
 
       if (model === null) {
-        console.log(chalk.yellow('\n❌ Cancelado.\n'));
+        console.log(chalk.yellow('\n❌ Cancelled.\n'));
         return;
       }
 
       if (model === '__custom__') {
         model = await inputWithEsc({
-          message: 'Nome do modelo:',
+          message: 'Model name:',
           default: meta.popularModels[0],
         });
         if (model === null) {
-          console.log(chalk.yellow('\n❌ Cancelado.\n'));
+          console.log(chalk.yellow('\n❌ Cancelled.\n'));
           return;
         }
       }
     } else {
       model = await inputWithEsc({
-        message: 'Nome do modelo:',
+        message: 'Model name:',
         default: meta.popularModels[0],
       });
       if (model === null) {
-        console.log(chalk.yellow('\n❌ Cancelado.\n'));
+        console.log(chalk.yellow('\n❌ Cancelled.\n'));
         return;
       }
     }
@@ -439,7 +445,7 @@ export class ConfigCommandsService {
 
     const purposeLabel = MODEL_PURPOSES.find((p) => p.value === purpose)?.label;
     console.log(
-      chalk.green(`\n✓ Modelo para "${purposeLabel}" configurado: ${model}\n`)
+      chalk.green(`\n✓ Model for "${purposeLabel}" configured: ${model}\n`)
     );
   }
 
@@ -451,15 +457,15 @@ export class ConfigCommandsService {
       .filter((p) => p !== 'ollama');
 
     if (configuredProviders.length === 0) {
-      console.log(chalk.yellow('\n⚠️  Nenhum provedor com API key configurável encontrado.\n'));
+      console.log(chalk.yellow('\n⚠️  No providers with configurable API keys found.\n'));
       return;
     }
 
-    console.log(chalk.cyan('\n🔑 Alterar API Key'));
-    console.log(chalk.gray('(pressione ESC para cancelar)\n'));
+    console.log(chalk.cyan('\n🔑 Change API Key'));
+    console.log(chalk.gray('(press ESC to cancel)\n'));
 
     const provider = await selectWithEsc<ProviderType>({
-      message: 'Qual provedor deseja atualizar?',
+      message: 'Which provider would you like to update?',
       choices: configuredProviders.map((p) => ({
         name: PROVIDER_METADATA[p].name,
         value: p,
@@ -467,44 +473,44 @@ export class ConfigCommandsService {
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     const currentConfig = this.configManager.getProviderConfig(provider) as { baseUrl?: string } | undefined;
     const apiKeyRaw = await inputWithEsc({
-      message: `Nova API key para ${PROVIDER_METADATA[provider].name}:`,
+      message: `New API key for ${PROVIDER_METADATA[provider].name}:`,
       validate: (v) => {
         const clean = v.trim();
-        if (clean.length <= 5) return 'API key muito curta';
-        if (/[\s%]/.test(clean)) return 'API key contém caracteres inválidos (espaços ou %)';
+        if (clean.length <= 5) return 'API key is too short';
+        if (/[\s%]/.test(clean)) return 'API key contains invalid characters (spaces or %)';
         return true;
       },
     });
 
     if (apiKeyRaw === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     let baseUrl = currentConfig?.baseUrl;
     const changeBaseUrl = await confirmWithEsc({
-      message: 'Deseja alterar a base URL também?',
+      message: 'Would you also like to change the base URL?',
       default: false,
     });
 
     if (changeBaseUrl === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     if (changeBaseUrl) {
       const newBaseUrl = await inputWithEsc({
-        message: 'Nova base URL:',
+        message: 'New base URL:',
         default: baseUrl || PROVIDER_METADATA[provider].defaultBaseUrl,
       });
       if (newBaseUrl === null) {
-        console.log(chalk.yellow('\n❌ Cancelado.\n'));
+        console.log(chalk.yellow('\n❌ Cancelled.\n'));
         return;
       }
       baseUrl = newBaseUrl;
@@ -515,41 +521,41 @@ export class ConfigCommandsService {
       baseUrl,
     });
 
-    console.log(chalk.green(`\n✓ API key de ${PROVIDER_METADATA[provider].name} atualizada.\n`));
+    console.log(chalk.green(`\n✓ API key for ${PROVIDER_METADATA[provider].name} updated.\n`));
   }
 
   private async setRemoteInteractive(): Promise<void> {
     await this.configManager.loadConfig();
     const config = this.configManager.getConfig();
 
-    console.log(chalk.cyan('\n🌐 Configuração do Acesso Remoto (Web UI)'));
-    console.log(chalk.gray('(pressione ESC para cancelar)\n'));
+    console.log(chalk.cyan('\n🌐 Remote Access Configuration (Web UI)'));
+    console.log(chalk.gray('(press ESC to cancel)\n'));
 
     const enableRemote = await confirmWithEsc({
-      message: 'Deseja habilitar o acesso remoto (Web UI) via ngrok?',
+      message: 'Enable remote access (Web UI) via ngrok?',
       default: config.remote?.enabled ?? false,
     });
 
     if (enableRemote === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
 
     if (!enableRemote) {
       config.remote = { enabled: false };
       await this.configManager.saveConfig(config);
-      console.log(chalk.green(`\n✓ Acesso Remoto desabilitado.\n`));
+      console.log(chalk.green(`\n✓ Remote Access disabled.\n`));
       return;
     }
 
     const passwordRaw = await inputWithEsc({
-      message: 'Defina uma senha para acessar a Web UI:',
+      message: 'Set a password to access the Web UI:',
       default: config.remote?.password || '',
-      validate: (v) => v.trim().length > 0 ? true : 'A senha não pode ser vazia',
+      validate: (v) => v.trim().length > 0 ? true : 'Password cannot be empty',
     });
 
     if (passwordRaw === null) {
-      console.log(chalk.yellow('\n❌ Cancelado.\n'));
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
       return;
     }
     const password = passwordRaw.trim();
@@ -557,7 +563,7 @@ export class ConfigCommandsService {
     let openaiApiKey = config.remote?.openaiApiKey;
     if (!openaiApiKey && config.providers.openai?.apiKey) {
       const useExistingOpenAI = await confirmWithEsc({
-        message: 'Deseja usar sua API Key da OpenAI atual para transcrição Whisper de áudio?',
+        message: 'Use your current OpenAI API Key for Whisper audio transcription?',
         default: true,
       });
       if (useExistingOpenAI === null) return;
@@ -568,15 +574,15 @@ export class ConfigCommandsService {
 
     if (!openaiApiKey) {
       const requestKey = await confirmWithEsc({
-        message: 'Deseja configurar uma API Key da OpenAI específica para transcrição de áudio?',
+        message: 'Configure a specific OpenAI API Key for audio transcription?',
         default: false,
       });
 
       if (requestKey === null) return;
       if (requestKey) {
         const keyRaw = await inputWithEsc({
-          message: 'OpenAI API Key para Whisper:',
-          validate: (v) => v.trim().length > 10 ? true : 'Insira uma key válida',
+          message: 'OpenAI API Key for Whisper:',
+          validate: (v) => v.trim().length > 10 ? true : 'Enter a valid key',
         });
         if (keyRaw === null) return;
         openaiApiKey = keyRaw.trim();
@@ -585,7 +591,7 @@ export class ConfigCommandsService {
 
     let ngrokAuthToken = config.remote?.ngrokAuthToken;
     const requestNgrokToken = await inputWithEsc({
-      message: '(Opcional) Ngrok Authtoken (Necessário para o túnel online):\nDeixe em branco se já configurou globalmente seu ngrok:',
+      message: '(Optional) Ngrok Authtoken (required for online tunnel):\nLeave blank if you already configured ngrok globally:',
       default: ngrokAuthToken || '',
     });
     if (requestNgrokToken === null) return;
@@ -604,6 +610,30 @@ export class ConfigCommandsService {
     };
 
     await this.configManager.saveConfig(config);
-    console.log(chalk.green(`\n✓ Acesso Remoto configurado com sucesso!\n`));
+    console.log(chalk.green(`\n✓ Remote Access configured successfully!\n`));
+  }
+
+  private async changeLanguageInteractive(): Promise<void> {
+    console.log(chalk.cyan('\n🌐 Change Language'));
+    console.log(chalk.gray('(press ESC to cancel)\n'));
+
+    const lang = await selectWithEsc<'en' | 'pt'>({
+      message: 'Select language / Selecione o idioma:',
+      choices: [
+        { name: 'English', value: 'en' },
+        { name: 'Português', value: 'pt' },
+      ],
+    });
+
+    if (lang === null) {
+      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      return;
+    }
+
+    const config = this.configManager.getConfig();
+    (config as any).language = lang;
+    await this.configManager.saveConfig(config);
+    this.i18nService.setLanguage(lang);
+    console.log(chalk.green(`\n✓ Language set to ${lang === 'pt' ? 'Português' : 'English'}.\n`));
   }
 }

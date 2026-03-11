@@ -46,15 +46,24 @@ export class GitCommandsService {
   }
 
   async cmdCommit(args: string[], smartInput: ISmartInput): Promise<void> {
+    const w = (s: string) => process.stdout.write(s);
     const msg = args.join(' ');
     if (!msg) {
       await this.generateAndCommit(smartInput);
     } else {
+      if (!this.commitGenerator.hasChanges()) {
+        w(`${Colors.yellow}  Nothing to commit${Colors.reset}\r\n\r\n`);
+        return;
+      }
       const { execSync } = require('child_process');
       try {
         execSync('git add -A', { cwd: process.cwd() });
         execSync('git commit -F -', { cwd: process.cwd(), input: `${msg}\n`, encoding: 'utf-8' });
-      } catch {}
+        w(`${Colors.green}✓ Committed: ${msg}${Colors.reset}\r\n\r\n`);
+      } catch (e: any) {
+        const errorMessage = e.stderr?.toString().trim() || e.message || 'git commit failed';
+        w(`${Colors.red}  ✗ ${errorMessage}${Colors.reset}\r\n\r\n`);
+      }
     }
   }
 
@@ -165,6 +174,8 @@ export class GitCommandsService {
           return;
         }
         finalMessage = refined;
+      } else {
+        w(`${Colors.yellow}  Could not retrieve diff, using original message${Colors.reset}\r\n`);
       }
     }
 
@@ -233,26 +244,35 @@ export class GitCommandsService {
       const { execSync } = require('child_process');
       try {
         const log = execSync(`git log --oneline -${result.committed}`, { cwd: process.cwd(), encoding: 'utf-8' });
-        w(colorize('  Commits criados:\r\n', 'bold'));
+        w(colorize('  Commits created:\r\n', 'bold'));
         log.split('\n').filter(l => l.trim()).forEach((line: string) => {
           w(`    ${colorize(line, 'muted')}\r\n`);
         });
         w('\r\n');
       } catch {}
 
-      w(colorize('  Pushing...\r\n', 'muted'));
-      const pushResult = this.commitGenerator.executePush();
+      const confirmPush = await smartInput.askChoice(`Push ${result.committed} commit(s) to remote? [y/N]`, [
+        { key: 'y', label: 'yes', description: 'Push to remote' },
+        { key: 'n', label: 'no', description: 'Skip push' },
+      ]);
 
-      if (pushResult.success) {
-        w(`${Colors.green}  ✓ Pushed${Colors.reset}\r\n\r\n`);
+      if (confirmPush === 'y') {
+        w(colorize('  Pushing...\r\n', 'muted'));
+        const pushResult = this.commitGenerator.executePush();
+
+        if (pushResult.success) {
+          w(`${Colors.green}  ✓ Pushed${Colors.reset}\r\n\r\n`);
+        } else {
+          w(`${Colors.red}  ✗ Push failed:${Colors.reset} ${pushResult.error}\r\n\r\n`);
+        }
       } else {
-        w(`${Colors.red}  ✗ Push failed:${Colors.reset} ${pushResult.error}\r\n\r\n`);
+        w(colorize('  Push skipped\r\n\r\n', 'muted'));
       }
     } else {
       w(`${Colors.red}  ✗ Failed after ${result.committed} commit(s):${Colors.reset} ${result.error}\r\n`);
 
       if (result.originalHead && result.committed > 0) {
-        w(`${colorize('  Rollback disponível:', 'warning')}\r\n`);
+        w(`${colorize('  Rollback available:', 'warning')}\r\n`);
         w(`  ${colorize(`git reset --soft ${result.originalHead}`, 'cyan')}\r\n\r\n`);
       } else {
         w('\r\n');
@@ -354,7 +374,11 @@ export class GitCommandsService {
       try {
         const { execSync } = require('child_process');
         execSync(`git push origin ${branch}`, { cwd: process.cwd() });
-      } catch {}
+      } catch (e: any) {
+        const errorMessage = (e as any).stderr?.toString().trim() || (e as any).message || 'unknown error';
+        w(`${Colors.red}  ✗ Push failed: ${errorMessage}${Colors.reset}\r\n\r\n`);
+        return;
+      }
     }
 
     const result = await this.prGenerator.createPR(finalTitle, finalDescription, baseBranch);
@@ -393,7 +417,7 @@ export class GitCommandsService {
       files = args.filter(a => !a.startsWith('/'));
     } else {
       w(`\r\n${Colors.cyan}🔍 Analyzing staged files...${Colors.reset}\r\n`);
-      files = this.codeReviewService['getChangedFiles'](true);
+      files = this.codeReviewService.getChangedFiles(true);
     }
 
     if (files.length === 0) {

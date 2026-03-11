@@ -46,7 +46,7 @@ export class ProjectCommandsService {
     const w = (s: string) => process.stdout.write(s);
 
     w('\r\n');
-    w(colorize(Icons.folder + ' ', 'accent') + colorize('Análise de Projeto', 'bold') + '\r\n');
+    w(colorize(Icons.folder + ' ', 'accent') + colorize('Project Analysis', 'bold') + '\r\n');
     w(colorize(Box.horizontal.repeat(30), 'subtle') + '\r\n\r\n');
 
     const castDir = path.join(process.cwd(), '.cast');
@@ -57,43 +57,43 @@ export class ProjectCommandsService {
       await fs.mkdir(castDir, { recursive: true });
     } catch { }
 
-    w(colorize('  🔍 Analisando estrutura do projeto...\r\n', 'info'));
+    w(colorize('  🔍 Analyzing project structure...\r\n', 'info'));
 
     try {
       const context = await this.projectAnalyzer.analyze();
 
-      w(colorize(`  ✓ Linguagem principal: ${context.primaryLanguage}\r\n`, 'success'));
+      w(colorize(`  ✓ Primary language: ${context.primaryLanguage}\r\n`, 'success'));
       if (context.languages.length > 1) {
-        w(colorize(`  ✓ Outras linguagens: ${context.languages.slice(1).join(', ')}\r\n`, 'success'));
+        w(colorize(`  ✓ Other languages: ${context.languages.slice(1).join(', ')}\r\n`, 'success'));
       }
       if (context.architecture) {
-        w(colorize(`  ✓ Arquitetura detectada: ${context.architecture.pattern} (${context.architecture.confidence})\r\n`, 'success'));
+        w(colorize(`  ✓ Architecture detected: ${context.architecture.pattern} (${context.architecture.confidence})\r\n`, 'success'));
       }
-      w(colorize(`  ✓ ${context.modules.length} módulo(s) encontrado(s)\r\n`, 'success'));
-      w(colorize(`  ✓ ${context.rawData.allFiles.length} arquivo(s) de código\r\n`, 'success'));
+      w(colorize(`  ✓ ${context.modules.length} module(s) found\r\n`, 'success'));
+      w(colorize(`  ✓ ${context.rawData.allFiles.length} code file(s)\r\n`, 'success'));
 
       const markdown = this.projectAnalyzer.generateMarkdown(context);
       await fs.writeFile(contextPath, markdown, 'utf-8');
 
-      w(`\r\n${colorize('✓', 'success')} Contexto básico gerado: ${colorize(contextPath, 'accent')}\r\n`);
-      w(colorize('  O Cast usará este contexto em todas as conversas!\r\n\r\n', 'muted'));
+      w(`\r\n${colorize('✓', 'success')} Basic context generated: ${colorize(contextPath, 'accent')}\r\n`);
+      w(colorize('  Cast will use this context in all conversations!\r\n\r\n', 'muted'));
 
       if (useAgent) {
-        w(colorize('  🤖 Gerando instruções para análise profunda...\r\n\r\n', 'info'));
+        w(colorize('  🤖 Generating instructions for deep analysis...\r\n\r\n', 'info'));
 
         const agentInstructions = this.projectAnalyzer.generateAgentInstructions(context);
         await fs.writeFile(agentInstructionsPath, agentInstructions, 'utf-8');
 
-        w(`${colorize('✓', 'success')} Instruções para agente: ${colorize(agentInstructionsPath, 'accent')}\r\n\r\n`);
+        w(`${colorize('✓', 'success')} Agent instructions: ${colorize(agentInstructionsPath, 'accent')}\r\n\r\n`);
 
         const mentionText = `@[${agentInstructionsPath}]`;
-        w(colorize(`  Iniciando agente com ${mentionText}...\r\n`, 'bold'));
+        w(colorize(`  Starting agent with ${mentionText}...\r\n`, 'bold'));
 
         return mentionText;
       }
 
       const showPreview = await confirmWithEsc({
-        message: 'Deseja ver um preview do contexto gerado?',
+        message: 'Preview generated context?',
         default: true,
       });
 
@@ -106,13 +106,13 @@ export class ProjectCommandsService {
           w('  ' + truncated + '\r\n');
         });
         if (markdown.split('\n').length > 40) {
-          w(colorize('  ... (mais conteúdo no arquivo)\r\n', 'muted'));
+          w(colorize('  ... (more content in file)\r\n', 'muted'));
         }
         w(colorize('─'.repeat(60), 'subtle') + '\r\n\r\n');
       }
 
     } catch (error: any) {
-      w(`\r\n${colorize('✗', 'error')} Erro ao analisar projeto: ${error.message}\r\n\r\n`);
+      w(`\r\n${colorize('✗', 'error')} Error analyzing project: ${error.message}\r\n\r\n`);
     } finally {
       smartInput.resume();
     }
@@ -123,7 +123,7 @@ export class ProjectCommandsService {
     const contextPath = path.join(process.cwd(), '.cast', 'context.md');
 
     w('\r\n');
-    w(colorize(Icons.file + ' ', 'accent') + colorize('Contexto do Projeto', 'bold') + '\r\n');
+    w(colorize(Icons.file + ' ', 'accent') + colorize('Project Context', 'bold') + '\r\n');
     w(colorize(Box.horizontal.repeat(30), 'subtle') + '\r\n\r\n');
 
     try {
@@ -131,8 +131,8 @@ export class ProjectCommandsService {
       w(content);
       w('\r\n');
     } catch {
-      w(colorize('  ⚠️  Nenhum context.md encontrado!\r\n', 'warning'));
-      w(colorize('  Use "/project" ou "/project analyze" para gerar.\r\n\r\n', 'muted'));
+      w(colorize('  ⚠️  No context.md found!\r\n', 'warning'));
+      w(colorize('  Use "/project" or "/project analyze" to generate one.\r\n\r\n', 'muted'));
     }
   }
 
@@ -148,10 +148,10 @@ export class ProjectCommandsService {
         stdio: 'ignore'
       }).unref();
 
-      console.log(`\r\n  ${colorize('✓', 'success')} Abrindo ${contextPath} no editor...\r\n`);
+      console.log(`\r\n  ${colorize('✓', 'success')} Opening ${contextPath} in editor...\r\n`);
     } catch {
-      console.log(`\r\n  ${colorize('✗', 'error')} Não foi possível abrir o editor.\r\n`);
-      console.log(`  ${colorize('Arquivo:', 'muted')} ${contextPath}\r\n\r\n`);
+      console.log(`\r\n  ${colorize('✗', 'error')} Could not open editor.\r\n`);
+      console.log(`  ${colorize('File:', 'muted')} ${contextPath}\r\n\r\n`);
     }
   }
 
@@ -162,31 +162,31 @@ export class ProjectCommandsService {
     w(colorize(Icons.folder + ' ', 'accent') + colorize('Project Context Commands', 'bold') + '\r\n');
     w(colorize(Box.horizontal.repeat(35), 'subtle') + '\r\n\r\n');
 
-    w(colorize('Comandos:', 'bold') + '\r\n');
-    w(`  ${colorize('/project', 'cyan')}           → Análise rápida do projeto\r\n`);
-    w(`  ${colorize('/project-deep', 'cyan')}      → Análise profunda (gera instruções para agente)\r\n`);
-    w(`  ${colorize('/project analyze', 'cyan')}    → Gera context.md (mesmo que /project)\r\n`);
-    w(`  ${colorize('/project deep', 'cyan')}       → Análise + instruções para agente\r\n`);
-    w(`  ${colorize('/project show', 'cyan')}       → Mostra o contexto atual\r\n`);
-    w(`  ${colorize('/project edit', 'cyan')}       → Abre no editor\r\n\r\n`);
+    w(colorize('Commands:', 'bold') + '\r\n');
+    w(`  ${colorize('/project', 'cyan')}           → Quick project analysis\r\n`);
+    w(`  ${colorize('/project-deep', 'cyan')}      → Deep analysis (generates agent instructions)\r\n`);
+    w(`  ${colorize('/project analyze', 'cyan')}    → Generate context.md (same as /project)\r\n`);
+    w(`  ${colorize('/project deep', 'cyan')}       → Analysis + agent instructions\r\n`);
+    w(`  ${colorize('/project show', 'cyan')}       → Show current context\r\n`);
+    w(`  ${colorize('/project edit', 'cyan')}       → Open in editor\r\n\r\n`);
 
-    w(colorize('Modo Rápido vs Profundo:', 'bold') + '\r\n\r\n');
+    w(colorize('Quick vs Deep Mode:', 'bold') + '\r\n\r\n');
 
-    w(colorize('⚡ Modo Rápido (/project):', 'accent') + '\r\n');
-    w(`  • Detecta linguagem (TypeScript, Python, Go, Rust, Java, etc.)\r\n`);
-    w(`  • Identifica arquitetura (MVC, Clean, Hexagonal, DDD, etc.)\r\n`);
-    w(`  • Lista módulos e suas responsabilidades\r\n`);
-    w(`  • Extrai dependências principais\r\n`);
-    w(`  • Funciona com QUALQUER linguagem/framework\r\n\r\n`);
+    w(colorize('⚡ Quick Mode (/project):', 'accent') + '\r\n');
+    w(`  • Detects language (TypeScript, Python, Go, Rust, Java, etc.)\r\n`);
+    w(`  • Identifies architecture (MVC, Clean, Hexagonal, DDD, etc.)\r\n`);
+    w(`  • Lists modules and their responsibilities\r\n`);
+    w(`  • Extracts main dependencies\r\n`);
+    w(`  • Works with ANY language/framework\r\n\r\n`);
 
-    w(colorize('🤖 Modo Profundo (/project-deep):', 'accent') + '\r\n');
-    w(`  • Faz tudo do modo rápido\r\n`);
-    w(`  • Gera instruções para um agente especialista\r\n`);
-    w(`  • O agente pode analisar fluxos de dados completos\r\n`);
-    w(`  • Documenta casos de uso e regras de negócio\r\n`);
-    w(`  • Identifica débito técnico\r\n\r\n`);
+    w(colorize('🤖 Deep Mode (/project-deep):', 'accent') + '\r\n');
+    w(`  • Does everything from quick mode\r\n`);
+    w(`  • Generates instructions for a specialist agent\r\n`);
+    w(`  • Agent can analyze complete data flows\r\n`);
+    w(`  • Documents use cases and business rules\r\n`);
+    w(`  • Identifies technical debt\r\n\r\n`);
 
-    w(colorize('Suporte a Linguagens:', 'bold') + '\r\n');
+    w(colorize('Language Support:', 'bold') + '\r\n');
     w(`  TypeScript/JavaScript, Python, Go, Rust, Java, PHP, Ruby, C#\r\n\r\n`);
   }
 }

@@ -15,6 +15,10 @@ import { AgentCommandsService } from './commands/agent-commands.service';
 import { McpCommandsService } from './commands/mcp-commands.service';
 import { ConfigCommandsService } from '../../config/services/config-commands.service';
 import { ProjectCommandsService } from './commands/project-commands.service';
+import { SnapshotCommandsService } from './commands/snapshot-commands.service';
+import { StatsCommandsService } from './commands/stats-commands.service';
+import { ReplayCommandsService } from './commands/replay-commands.service';
+import { VaultCommandsService } from './commands/vault-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
 import { RemoteServerService } from '../../remote/services/remote-server.service';
@@ -50,6 +54,10 @@ export class ReplService {
     private readonly mcpCommands: McpCommandsService,
     private readonly configCommands: ConfigCommandsService,
     private readonly projectCommands: ProjectCommandsService,
+    private readonly snapshotCommandsService: SnapshotCommandsService,
+    private readonly statsCommandsService: StatsCommandsService,
+    private readonly replayCommandsService: ReplayCommandsService,
+    private readonly vaultCommandsService: VaultCommandsService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly kanbanServer: KanbanServerService,
     private readonly remoteServer: RemoteServerService,
@@ -118,13 +126,15 @@ export class ReplService {
     this.smartInput?.pause();
 
     try {
-      console.log('');
-      process.stdout.write(`${Colors.yellow}  Permission required to execute command:${Colors.reset}\r\n`);
-      process.stdout.write(`  ${command}\r\n\r\n`);
+      process.stdout.write('\r\n');
+      process.stdout.write(`  ${Colors.yellow}Permission required${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.dim}${'─'.repeat(40)}${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.dim}${command}${Colors.reset}\r\n`);
+      process.stdout.write('\r\n');
 
       if (dangerLevel === DangerLevel.DANGEROUS) {
         process.stdout.write(
-          `${Colors.red}  ⚠️  WARNING: This command is potentially DANGEROUS!${Colors.reset}\r\n`,
+          `  ${Colors.red}Warning: this command is potentially dangerous${Colors.reset}\r\n\r\n`,
         );
       }
 
@@ -196,6 +206,10 @@ export class ReplService {
       { text: '/mcp', display: '/mcp', description: 'MCP servers' },
       { text: '/kanban', display: '/kanban', description: 'Open kanban board' },
       { text: '/remote', display: '/remote', description: 'Start remote web interface via ngrok' },
+      { text: '/rollback', display: '/rollback', description: 'Rollback file to previous snapshot' },
+      { text: '/stats', display: '/stats', description: 'Show session usage stats' },
+      { text: '/replay', display: '/replay', description: 'Save or view session replays' },
+      { text: '/vault', display: '/vault', description: 'Manage code snippet vault' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -326,16 +340,16 @@ export class ReplService {
     if (this.isProcessing && this.abortController) {
       this.abortController.abort();
       this.stopSpinner();
-      process.stdout.write(`\r\n${Colors.yellow}  Cancelled${Colors.reset}\r\n\r\n`);
+      process.stdout.write(`\r\n  ${Colors.yellow}Interrupted${Colors.reset}\r\n\r\n`);
       this.isProcessing = false;
     } else {
-      process.stdout.write(`${Colors.dim}  (Use /exit to quit)${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.dim}Use /exit or Ctrl+D to quit${Colors.reset}\r\n`);
       this.smartInput?.showPrompt();
     }
   }
 
   private handleExit(): void {
-    process.stdout.write(`${Colors.dim}  Goodbye!${Colors.reset}\r\n`);
+    process.stdout.write(`\r\n  ${Colors.dim}Goodbye${Colors.reset}\r\n\r\n`);
     this.stop();
     process.exit(0);
   }
@@ -435,10 +449,12 @@ export class ReplService {
         if (this.remoteServer.getIsRunning()) {
           const remoteUrl = this.remoteServer.getPublicUrl();
           if (remoteUrl) {
-            process.stdout.write(`  Kanban: ${remoteUrl}/kanban\r\n`);
+            process.stdout.write(`  Kanban board → ${remoteUrl}/kanban\r\n`);
           } else {
-            process.stdout.write(`  Kanban: acesse pelo remote + /kanban\r\n`);
+            process.stdout.write(`  Kanban board → http://localhost:3333\r\n`);
           }
+        } else {
+          process.stdout.write(`  Kanban board → http://localhost:3333\r\n`);
         }
         break;
 
@@ -446,23 +462,36 @@ export class ReplService {
         await this.remoteServer.start();
         break;
 
+      case 'rollback':
+        await this.snapshotCommandsService.cmdRollback(args.join(' '));
+        break;
+      case 'stats':
+        this.statsCommandsService.cmdStats();
+        break;
+      case 'replay':
+        this.replayCommandsService.cmdReplay(args.join(' '));
+        break;
+      case 'vault':
+        this.vaultCommandsService.cmdVault(args.join(' '));
+        break;
+
       default:
-        process.stdout.write(`${Colors.red}  Unknown: /${cmd}${Colors.reset}  ${Colors.dim}Try /help${Colors.reset}\r\n`);
+        process.stdout.write(`  ${Colors.red}Unknown command:${Colors.reset} ${Colors.dim}/${cmd}${Colors.reset}  ${Colors.dim}Run /help for reference${Colors.reset}\r\n`);
     }
   }
 
   private async handleCompact(): Promise<void> {
     const msgCount = this.deepAgent.getMessageCount();
     if (msgCount < 4) {
-      process.stdout.write(`${Colors.dim}  Nothing to compact (${msgCount} messages)${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.dim}Nothing to compact — only ${msgCount} messages${Colors.reset}\r\n`);
       return;
     }
-    process.stdout.write(`${Colors.dim}  Summarizing ${msgCount} messages...${Colors.reset}\r\n`);
+    process.stdout.write(`  ${Colors.dim}Summarizing ${msgCount} messages...${Colors.reset}\r\n`);
     const result = await this.deepAgent.compactHistory();
     if (result.compacted) {
-      process.stdout.write(`${Colors.green}  Compacted: ${result.messagesBefore} → ${result.messagesAfter} messages${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.green}✓${Colors.reset}${Colors.dim} History compacted: ${result.messagesBefore} → ${result.messagesAfter} messages${Colors.reset}\r\n`);
     } else {
-      process.stdout.write(`${Colors.yellow}  Could not compact (summarization failed)${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.yellow}Could not compact — summarization failed${Colors.reset}\r\n`);
     }
   }
 
@@ -509,25 +538,62 @@ export class ReplService {
       let firstChunk = true;
       let fullResponse = '';
 
+      // Map tool names to human-readable spinner labels
+      const toolLabel = (chunk: string): string | null => {
+        if (chunk.includes('▶ read file') || chunk.includes('▶ read_file')) return 'Reading';
+        if (chunk.includes('▶ write file') || chunk.includes('▶ write_file')) return 'Writing';
+        if (chunk.includes('▶ edit file') || chunk.includes('▶ edit_file')) return 'Editing';
+        if (chunk.includes('▶ shell')) return 'Running';
+        if (chunk.includes('▶ glob') || chunk.includes('▶ grep') || chunk.includes('▶ ls')) return 'Searching';
+        if (chunk.includes('▶ web search') || chunk.includes('▶ web_search')) return 'Searching web';
+        if (chunk.includes('▶ web fetch') || chunk.includes('▶ web_fetch')) return 'Fetching';
+        if (chunk.includes('▶ memory')) return 'Memory';
+        if (chunk.includes('▶ task')) return 'Tasks';
+        if (chunk.includes('▶')) return 'Working';
+        return null;
+      };
+
+      const isMetaOutput = (chunk: string): boolean =>
+        chunk.includes('tokens:') || chunk.includes('conversation compacted');
+
+      // Tool result chunks (formatToolEnd) start with dim ANSI codes and are indented
+      // They do NOT start with a plain printable character — real text responses do
+      const isToolResultChunk = (chunk: string): boolean =>
+        chunk.startsWith('\x1b[2m') || (chunk.startsWith('\n\x1b') && !chunk.includes('▶'));
+
       for await (const chunk of this.deepAgent.chat(mentionResult.expandedMessage)) {
         if (this.abortController?.signal.aborted) break;
 
-        const isToolOutput = chunk.includes('\x1b[') && (
-          chunk.includes('⏿') ||
-          chunk.includes('tokens:') ||
-          chunk.includes('conversation compacted')
-        );
+        // Detect tool invocation — update spinner label before stopping
+        const newLabel = toolLabel(chunk);
+        if (newLabel) {
+          this.updateSpinner(newLabel);
+        }
 
-        if (firstChunk && !isToolOutput) {
+        const isMeta = isMetaOutput(chunk);
+        const isToolChunk = newLabel !== null;
+
+        if (isToolChunk) {
+          // Stop spinner before tool output to avoid clobbering lines
           this.stopSpinner();
-          process.stdout.write(`\r\n${Colors.magenta}${Colors.bold}${Icons.chestnut} Cast${Colors.reset}\r\n`);
-          firstChunk = false;
-        }
-
-        if (!isToolOutput) {
+          process.stdout.write(chunk);
+          // Restart spinner after tool output (if no text response yet)
+          if (firstChunk) {
+            this.startSpinner('Working');
+          }
+        } else if (isMeta || isToolResultChunk(chunk)) {
+          // Tool results or meta info — print as-is without triggering response header
+          process.stdout.write(chunk);
+        } else {
+          // Real AI text chunk — print response header on first one
+          if (firstChunk) {
+            this.stopSpinner();
+            process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
+            firstChunk = false;
+          }
           fullResponse += chunk;
+          process.stdout.write(chunk);
         }
-        process.stdout.write(chunk);
       }
 
       if (!firstChunk) {
@@ -539,7 +605,7 @@ export class ReplService {
       this.stopSpinner();
       const msg = (error as Error).message;
       if (!msg.includes('abort')) {
-        process.stdout.write(`\r\n${Colors.red}  Error: ${msg}${Colors.reset}\r\n\r\n`);
+        process.stdout.write(`\r\n  ${Colors.red}Error${Colors.reset}  ${Colors.dim}${msg}${Colors.reset}\r\n\r\n`);
       }
     } finally {
       this.isProcessing = false;
@@ -620,15 +686,22 @@ export class ReplService {
     return lines.join('\n');
   }
 
+  private spinnerLabel = 'Thinking';
+
   private startSpinner(label: string): void {
+    this.spinnerLabel = label;
     let i = 0;
     this.spinnerTimer = setInterval(() => {
       const spinner = Icons.spinner[i % Icons.spinner.length];
       i++;
       process.stdout.write(
-        `\r${Colors.cyan}${spinner}${Colors.reset} ${Colors.dim}${label}...${Colors.reset}`
+        `\r${Colors.dim}${spinner}${Colors.reset} ${Colors.dim}${this.spinnerLabel}...${Colors.reset}`
       );
     }, 80);
+  }
+
+  private updateSpinner(label: string): void {
+    this.spinnerLabel = label;
   }
 
   private stopSpinner(): void {
@@ -641,26 +714,41 @@ export class ReplService {
 
   private cmdTools(): void {
     const allTools = this.toolsRegistry.getAllTools();
-    const tools: [string, string][] = allTools.map(t => [t.name, t.description.slice(0, 60)]);
+    const w = (s: string) => process.stdout.write(s);
 
-    if (tools.length > 0) {
-      const maxLen = Math.max(...tools.map(([n]) => n.length));
+    w('\r\n');
 
-      process.stdout.write('\r\n');
-      process.stdout.write(`${Colors.bold}Built-in Tools (${tools.length}):${Colors.reset}\r\n`);
-      for (const [name, desc] of tools) {
-        process.stdout.write(`  ${Colors.cyan}${name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
+    if (allTools.length > 0) {
+      const maxLen = Math.max(...allTools.map(t => t.name.length));
+      w(`  ${Colors.bold}Built-in${Colors.reset}  ${Colors.dim}(${allTools.length})${Colors.reset}\r\n`);
+      w(`  ${Colors.dim}${'─'.repeat(48)}${Colors.reset}\r\n`);
+      for (const t of allTools) {
+        const desc = t.description.length > 55 ? t.description.slice(0, 52) + '...' : t.description;
+        w(`  ${Colors.cyan}${t.name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
       }
     }
 
     const mcpTools = this.mcpRegistry.getAllMcpTools();
     if (mcpTools.length > 0) {
-      process.stdout.write(`\r\n${Colors.bold}MCP Tools (${mcpTools.length}):${Colors.reset}\r\n`);
-      for (const t of mcpTools.slice(0, 10)) {
-        process.stdout.write(`  ${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${t.description.slice(0, 50)}${Colors.reset}\r\n`);
+      w('\r\n');
+      const shown = mcpTools.slice(0, 15);
+      const maxLen = Math.max(...shown.map(t => t.name.length));
+      w(`  ${Colors.bold}MCP${Colors.reset}  ${Colors.dim}(${mcpTools.length})${Colors.reset}\r\n`);
+      w(`  ${Colors.dim}${'─'.repeat(48)}${Colors.reset}\r\n`);
+      for (const t of shown) {
+        const desc = t.description.length > 50 ? t.description.slice(0, 47) + '...' : t.description;
+        w(`  ${Colors.cyan}${t.name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
+      }
+      if (mcpTools.length > 15) {
+        w(`  ${Colors.dim}... and ${mcpTools.length - 15} more. Run /mcp tools for full list${Colors.reset}\r\n`);
       }
     }
-    process.stdout.write('\r\n');
+
+    if (allTools.length === 0 && mcpTools.length === 0) {
+      w(`  ${Colors.dim}No tools available${Colors.reset}\r\n`);
+    }
+
+    w('\r\n');
   }
 
   private getModelDisplayName(): string {

@@ -16,6 +16,11 @@ import { ProjectInitResult } from '../../project/types';
 import { Task } from '../../tasks/types/task.types';
 import { McpServerSummary } from '../../mcp/types';
 import { PermissionService } from '../../permissions/services/permission.service';
+import { SnapshotService } from '../../snapshots/services/snapshot.service';
+import { StatsService } from '../../stats/services/stats.service';
+import { ReplayService } from '../../replay/services/replay.service';
+import { I18nService } from '../../i18n/services/i18n.service';
+import { FileWatcherService, FILE_CHANGE_EVENT } from '../../watcher/services/file-watcher.service';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -38,6 +43,7 @@ export class DeepAgentService {
   private cachedMcpTools: any[] = [];
   private cachedMcpDiscoveryTools: any[] = [];
   private cachedSubagents: any[] = [];
+  private pendingContextRefresh = false;
 
   constructor(
     private readonly multiLlmService: MultiLlmService,
@@ -50,7 +56,16 @@ export class DeepAgentService {
     private readonly memoryService: MemoryService,
     private readonly markdownRenderer: MarkdownRendererService,
     private readonly permissionService: PermissionService,
-  ) {}
+    private readonly snapshotService: SnapshotService,
+    private readonly statsService: StatsService,
+    private readonly replayService: ReplayService,
+    private readonly i18nService: I18nService,
+    private readonly fileWatcherService: FileWatcherService,
+  ) {
+    this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
+      this.pendingContextRefresh = true;
+    });
+  }
 
   async initialize(): Promise<ProjectInitResult> {
     const projectPath = await this.projectLoader.detectProject();
@@ -81,6 +96,13 @@ export class DeepAgentService {
     }
 
     this.model = this.multiLlmService.createStreamingModel('default');
+
+    const modelConfig = (() => {
+      try { return (this.multiLlmService as any).configManager?.getModelConfig('default'); } catch { return null; }
+    })();
+    if (modelConfig?.model) {
+      this.replayService.setModel(`${modelConfig.provider}/${modelConfig.model}`);
+    }
 
     const contextPrompt = this.projectContext.getContextPrompt();
     const projectStructure = await this.projectContext.getProjectStructureSummary(process.cwd());
@@ -184,6 +206,10 @@ export class DeepAgentService {
 
     const parts: string[] = [];
 
+    // Add language instruction at top
+    const langInstruction = this.i18nService.getAgentLanguageInstruction();
+    parts.unshift(langInstruction);
+
     parts.push(
       `You are Cast, an autonomous AI coding assistant running as a CLI tool.`,
       `You are a highly capable agent that can independently explore codebases, make decisions, execute multi-step plans, and delegate work to specialized sub-agents. You help developers with software engineering tasks including writing code, debugging, refactoring, and answering questions about codebases.`,
@@ -219,6 +245,13 @@ export class DeepAgentService {
       `- Don't add features, refactor code, or make "improvements" beyond what was asked`,
       `- Don't add docstrings, comments, or type annotations to code you didn't change`,
       `- Preserve existing code style and conventions`,
+      ``,
+      `## Tool Use Discipline`,
+      `- ALWAYS read a file before editing it — never edit from memory`,
+      `- After EVERY edit_file or write_file, re-read the file to verify the change was applied correctly`,
+      `- When exploring: glob → grep → read (narrow before broad)`,
+      `- Never call the same tool twice with the same inputs — if it failed, try a different approach`,
+      `- Before editing any file that exports public symbols, call analyze_impact(file) to understand downstream effects`,
       ``,
     );
 
@@ -378,15 +411,41 @@ export class DeepAgentService {
         `# Sub-Agent Orchestration`,
         ``,
         `You have ${subagents.length} specialized sub-agents available. Each has domain-specific knowledge and tools.`,
+        `Use list_agents for a full interactive listing at any time.`,
         ``,
         `## Available Sub-Agents`,
+        ``,
       );
       for (const sa of subagents) {
-        const mcpAnnotation = sa.mcp && sa.mcp.length > 0 ? ` [MCP: ${sa.mcp.join(', ')}]` : '';
-        parts.push(`- **${sa.name}**: ${sa.description}${mcpAnnotation}`);
+        const mcpNote = sa.mcp && sa.mcp.length > 0 ? `\n**MCP access:** ${sa.mcp.join(', ')}` : '';
+        // Extract up to 3 bullet-point lines from the agent's system prompt as capability preview
+        const bullets: string[] = [];
+        if (sa.systemPrompt) {
+          for (const line of sa.systemPrompt.split('\n')) {
+            if (bullets.length >= 3) break;
+            const m = line.trim().match(/^(?:[-*]|\d+\.)\s+(.+)/);
+            if (m && m[1]) {
+              const text = m[1].trim();
+              if (text.length > 0) bullets.push(text.length > 80 ? text.slice(0, 77) + '...' : text);
+            }
+          }
+        }
+        const specializes = bullets.length > 0
+          ? bullets.map((b) => `  - ${b}`).join('\n')
+          : `  (see list_agents for details)`;
+        parts.push(
+          `### ${sa.name}`,
+          `**Role:** ${sa.description}${mcpNote}`,
+          `**Specializes in:**`,
+          specializes,
+          `**Dispatch in background:**`,
+          `  → delegate to agent: "${sa.name}" with a focused task description`,
+          `  → include all necessary context in the task`,
+          `  → track with task_create before dispatching`,
+          ``,
+        );
       }
       parts.push(
-        ``,
         `## When to Delegate to Sub-Agents`,
         `- Task requires specialized domain knowledge (React, testing, API design, databases)`,
         `- Multiple independent subtasks can be worked on in parallel`,
@@ -421,7 +480,7 @@ export class DeepAgentService {
         ``,
         `## MCP-Aware Delegation`,
         `When a task involves heavy interaction with an external service (e.g., fetching Figma designs, managing GitHub issues):`,
-        `- Check which sub-agents have MCP access (annotated with [MCP: name] above)`,
+        `- Check which sub-agents have MCP access (shown in [MCP access] above)`,
         `- Delegate MCP-heavy work to the sub-agent with the right MCP connection`,
         `- If no sub-agent has the needed MCP, handle it yourself using the MCP tools directly`,
         `- Include the MCP server name in the task description so the sub-agent knows which tools to use`,
@@ -461,6 +520,18 @@ export class DeepAgentService {
       `- If tests exist, run them after changes: shell("npm test") or equivalent.`,
       `- When you encounter an error, analyze and fix it — don't just report it.`,
       `- If blocked, try a different approach. If still blocked, ask the user.`,
+      ``,
+      `## Error Recovery Protocol`,
+      `1. Build fails after your change → read the error, read the changed files, fix the root cause`,
+      `2. Tool call returns an error → try a different approach, NOT the same call again`,
+      `3. Test fails → analyze the failure message before touching code`,
+      `4. Unexpected file state → read it first, understand what happened`,
+      `5. NEVER give up and report "I can't do this". Always try at least 3 different approaches.`,
+      ``,
+      `## Self-Verification (run before saying "done")`,
+      `- Re-read every file you edited`,
+      `- Run npm run build (or equivalent) to verify no compilation errors`,
+      `- Summarize: what changed, what files, what was the outcome`,
       ``,
     );
 
@@ -663,7 +734,9 @@ export class DeepAgentService {
         }
     }
 
-    return `\n${dim}  ${cyan}${icon}${reset}${dim} ${toolName}${detail}${reset}\n`;
+    // Format: dim run marker + tool name in subtle cyan + dimmed detail
+    const toolLabel = toolName.replace(/_/g, ' ');
+    return `\n${dim}  \u25b6 ${reset}${dim}${cyan}${toolLabel}${reset}${dim}${detail}${reset}\n`;
   }
 
   private formatToolEnd(toolName: string, output: string): string {
@@ -671,52 +744,71 @@ export class DeepAgentService {
 
     const dim = '\x1b[2m';
     const green = '\x1b[32m';
+    const red = '\x1b[31m';
     const reset = '\x1b[0m';
+
+    // Helper: render a compact result line
+    const ok = (msg: string) => `${dim}    ${green}\u2713${reset}${dim} ${msg}${reset}\n`;
+    const err = (msg: string) => `${dim}    ${red}\u2717${reset}${dim} ${msg}${reset}\n`;
+    const rows = (lines: string[], max: number, lineMax = 130) => {
+      const visible = lines.slice(0, max);
+      const more = lines.length > max ? lines.length - max : 0;
+      let out = visible.map(l => `${dim}    ${l.slice(0, lineMax)}${reset}`).join('\n');
+      if (more > 0) out += `\n${dim}    \u2026 ${more} more${reset}`;
+      return out + '\n';
+    };
 
     switch (toolName) {
       case 'read_file': {
         const lineCount = output.split('\n').length;
-        return `${dim}    ${green}\u2713${reset}${dim} ${lineCount} lines${reset}\n`;
+        const bytes = output.length;
+        return ok(`${lineCount} lines, ${bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(1) + ' KB'}`);
       }
       case 'write_file':
-        return `${dim}    ${green}\u2713${reset}${dim} ${output.slice(0, 120)}${reset}\n`;
+        return ok(output.slice(0, 100));
       case 'edit_file': {
-        if (output.startsWith('Error')) {
-          return `${dim}    \x1b[31m${output.slice(0, 150)}${reset}\n`;
+        if (output.startsWith('Error') || output.startsWith('error')) {
+          return err(output.slice(0, 140));
         }
-        return `${dim}    ${green}\u2713${reset}${dim} ${output.slice(0, 120)}${reset}\n`;
+        return ok(output.slice(0, 100));
       }
       case 'glob': {
         const lines = output.split('\n').filter(l => l.trim());
-        const fileCount = lines.length;
-        const preview = lines.slice(0, 5).map(l => `${dim}    ${l.slice(0, 100)}${reset}`).join('\n');
-        const more = fileCount > 5 ? `\n${dim}    ... (${fileCount - 5} more)${reset}` : '';
-        return `${preview}${more}\n`;
+        if (lines.length === 0) return `${dim}    no matches${reset}\n`;
+        return rows(lines, 6, 100);
       }
       case 'grep': {
         const lines = output.split('\n').filter(l => l.trim());
-        const preview = lines.slice(0, 5).map(l => `${dim}    ${l.slice(0, 120)}${reset}`).join('\n');
-        const more = lines.length > 5 ? `\n${dim}    ... (${lines.length - 5} more)${reset}` : '';
-        return `${preview}${more}\n`;
+        if (lines.length === 0) return `${dim}    no matches${reset}\n`;
+        return rows(lines, 6, 120);
       }
       case 'shell':
       case 'shell_background': {
-        const lines = output.split('\n');
-        const preview = lines.slice(0, 8).map(l => `${dim}    ${l.slice(0, 150)}${reset}`).join('\n');
-        const more = lines.length > 8 ? `\n${dim}    ... (${lines.length - 8} more lines)${reset}` : '';
-        return `${preview}${more}\n`;
+        const lines = output.split('\n').filter((_, i) => i === 0 || output.split('\n')[i].trim());
+        return rows(lines, 8, 150);
       }
       case 'ls': {
         const lines = output.split('\n').filter(l => l.trim());
-        const preview = lines.slice(0, 10).map(l => `${dim}    ${l}${reset}`).join('\n');
-        const more = lines.length > 10 ? `\n${dim}    ... (${lines.length - 10} more)${reset}` : '';
-        return `${preview}${more}\n`;
+        return rows(lines, 10, 100);
+      }
+      case 'web_search': {
+        const lines = output.split('\n').filter(l => l.trim());
+        return rows(lines, 5, 120);
+      }
+      case 'web_fetch': {
+        const lines = output.split('\n').filter(l => l.trim());
+        return rows(lines, 4, 120);
+      }
+      case 'memory_write':
+        return ok('saved');
+      case 'memory_read':
+      case 'memory_search': {
+        const lines = output.split('\n').filter(l => l.trim());
+        return rows(lines, 4, 120);
       }
       default: {
-        const lines = output.split('\n');
-        const preview = lines.slice(0, 3).map(l => `${dim}    ${l.slice(0, 120)}${reset}`).join('\n');
-        const more = lines.length > 3 ? `\n${dim}    ... (${lines.length - 3} more lines)${reset}` : '';
-        return `${preview}${more}\n`;
+        const lines = output.split('\n').filter(l => l.trim());
+        return rows(lines, 4, 120);
       }
     }
   }
@@ -775,6 +867,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     this.messages.push(new HumanMessage(message));
+    this.replayService.recordEntry({ role: 'user', content: message });
     this.lastToolOutputs = [];
 
     let stream: any;
@@ -857,9 +950,15 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
     if (fullResponse) {
       this.messages.push(new AIMessage(fullResponse));
+      this.replayService.recordEntry({ role: 'assistant', content: fullResponse });
     }
 
     this.tokenCount += interactionInputTokens + interactionOutputTokens;
+
+    if (interactionInputTokens > 0 || interactionOutputTokens > 0) {
+      const modelName = (this.model as any)?.modelName || (this.model as any)?.model || 'unknown';
+      this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens);
+    }
 
     const fmt = (n: number) => n.toLocaleString();
     yield `\n\x1b[2m  \u2500 tokens: ${fmt(interactionInputTokens)} in / ${fmt(interactionOutputTokens)} out (session: ${fmt(this.tokenCount)})\x1b[0m\n`;

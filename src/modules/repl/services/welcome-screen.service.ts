@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { colorize, Box, Icons } from '../utils/theme';
+import { colorize, Icons } from '../utils/theme';
 
 export interface WelcomeScreenContext {
   projectPath?: string;
@@ -8,115 +8,68 @@ export interface WelcomeScreenContext {
   agentCount: number;
 }
 
-const stripAnsi = (str: string): string => {
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
-};
-
-const visiblePadEnd = (str: string, targetLength: number): string => {
-  const visibleLength = stripAnsi(str).length;
-  const padding = targetLength - visibleLength;
-  return padding > 0 ? str + ' '.repeat(padding) : str;
-};
-
 @Injectable()
 export class WelcomeScreenService {
   constructor() {}
 
   printWelcomeScreen(context: WelcomeScreenContext): void {
     const w = (s: string) => process.stdout.write(s + '\r\n');
-    const width = 56;
-    const innerWidth = width - 4;
+    const ww = (s: string) => process.stdout.write(s);
 
     w('');
 
-    w(colorize(Box.topLeft + Box.horizontal.repeat(innerWidth + 2) + Box.topRight, 'primary'));
+    // Logo — minimal, clean
+    w(`  ${colorize('cast', 'primary')}${colorize('code', 'bold')}  ${colorize('multi-agent CLI', 'muted')}`);
+    w('');
 
-    const logoText = `${Icons.chestnut} CAST CODE ${Icons.chestnut}`;
-    const logoPadding = Math.floor((innerWidth - logoText.length) / 2);
-    w(
-      colorize(Box.vertical, 'primary') + ' ' +
-      ' '.repeat(logoPadding) +
-      colorize(logoText, 'bold') +
-      ' '.repeat(innerWidth - logoPadding - logoText.length) +
-      ' ' + colorize(Box.vertical, 'primary')
-    );
-
-    const subtitle = 'Multi-Agent CLI Assistant';
-    const subPadding = Math.floor((innerWidth - subtitle.length) / 2);
-    w(
-      colorize(Box.vertical, 'primary') + ' ' +
-      ' '.repeat(subPadding) +
-      colorize(subtitle, 'muted') +
-      ' '.repeat(innerWidth - subPadding - subtitle.length) +
-      ' ' + colorize(Box.vertical, 'primary')
-    );
-
-    w(colorize(Box.leftT + Box.horizontal.repeat(innerWidth + 2) + Box.rightT, 'primary'));
-
+    // Model & directory info
+    const maxLabel = 5;
     const labelColor = 'muted' as const;
-    const maxLabel = 9;
 
-    const modelLine = ` ${colorize('Model:'.padEnd(maxLabel), labelColor)}${colorize(context.model, 'cyan')} `;
-    w(
-      colorize(Box.vertical, 'primary') +
-      visiblePadEnd(modelLine, innerWidth) +
-      colorize(Box.vertical, 'primary')
-    );
+    w(`  ${colorize('model', labelColor)}  ${colorize(context.model, 'cyan')}`);
 
     if (context.projectPath) {
-      const maxPathLen = innerWidth - maxLabel - 3;
+      const maxPathLen = 60;
       let displayPath = context.projectPath;
       if (displayPath.length > maxPathLen) {
         displayPath = '...' + displayPath.slice(displayPath.length - maxPathLen + 3);
       }
-      const projectLine = ` ${colorize('Project:'.padEnd(maxLabel), labelColor)}${colorize(displayPath, 'accent')} `;
-      w(
-        colorize(Box.vertical, 'primary') +
-        visiblePadEnd(projectLine, innerWidth) +
-        colorize(Box.vertical, 'primary')
-      );
+      // Replace home directory with ~
+      const home = process.env.HOME || '';
+      if (home && displayPath.startsWith(home)) {
+        displayPath = '~' + displayPath.slice(home.length);
+      }
+      w(`  ${colorize('dir  ', labelColor)} ${colorize(displayPath, 'accent')}`);
     }
 
-    const toolsLine = ` ${colorize('Tools:'.padEnd(maxLabel), labelColor)}${colorize(context.toolCount.toString(), 'green')} ${colorize('available', labelColor)} `;
-    w(
-      colorize(Box.vertical, 'primary') +
-      visiblePadEnd(toolsLine, innerWidth) +
-      colorize(Box.vertical, 'primary')
-    );
+    w('');
 
-    const agentsLine = ` ${colorize('Agents:'.padEnd(maxLabel), labelColor)}${colorize(context.agentCount.toString(), 'magenta')} ${colorize('ready', labelColor)} `;
-    w(
-      colorize(Box.vertical, 'primary') +
-      visiblePadEnd(agentsLine, innerWidth) +
-      colorize(Box.vertical, 'primary')
-    );
+    // Stats row
+    const toolsStr = colorize(context.toolCount.toString(), 'green') + colorize(' tools', 'muted');
+    const agentsStr = colorize(context.agentCount.toString(), 'magenta') + colorize(' agents', 'muted');
+    w(`  ${toolsStr}    ${agentsStr}`);
 
-    w(colorize(Box.leftT + Box.horizontal.repeat(innerWidth + 2) + Box.rightT, 'primary'));
+    w('');
 
-    const tips = [
-      { cmd: '/help', desc: 'Show all commands' },
-      { cmd: '/init', desc: 'Map project context' },
-      { cmd: '/mcp add', desc: 'Connect Figma MCP' },
-      { cmd: '@file', desc: 'Add file context' },
-      { cmd: 'Tab',   desc: 'Accept suggestions' },
-    ];
+    // Key shortcuts — clean inline format
+    const tip = (cmd: string, desc: string) =>
+      `  ${colorize(cmd, 'cyan')} ${colorize(desc, 'muted')}`;
 
-    for (const tip of tips) {
-      const tipLine = ` ${colorize(Icons.arrow, 'primary')} ${colorize(tip.cmd, 'cyan')} ${colorize(tip.desc, 'muted')} `;
-      w(
-        colorize(Box.vertical, 'primary') +
-        visiblePadEnd(tipLine, innerWidth) +
-        colorize(Box.vertical, 'primary')
-      );
-    }
+    w(colorize('  Quick start', 'subtle'));
+    w(tip('/help', '   all commands'));
+    w(tip('/init', '   map project context'));
+    w(tip('@file', '   inject file into prompt'));
+    w(tip('Tab', '    accept suggestion'));
+    w(tip('Ctrl+C', ' cancel  ') + colorize('  Ctrl+D', 'cyan') + colorize(' exit', 'muted'));
 
-    w(colorize(Box.bottomLeft + Box.horizontal.repeat(innerWidth + 2) + Box.bottomRight, 'primary'));
     w('');
   }
 
   printBanner(): void {
     process.stdout.write('\r\n');
-    process.stdout.write(colorize(`  ${Icons.chestnut} CAST CODE ${Icons.chestnut}`, 'primary') + '\r\n');
+    process.stdout.write(
+      `  ${colorize('cast', 'primary')}${colorize('code', 'bold')}` + '\r\n'
+    );
     process.stdout.write('\r\n');
   }
 
@@ -128,16 +81,16 @@ export class WelcomeScreenService {
   }): void {
     const parts: string[] = [];
 
-    parts.push(colorize(Icons.chestnut, 'primary') + ' ' + colorize(context.model, 'cyan'));
+    parts.push(colorize(context.model, 'cyan'));
 
     if (context.branch) {
-      const branchIcon = context.hasChanges ? Icons.circle : Icons.branch;
       const branchColor = context.hasChanges ? 'warning' : 'success';
+      const branchIcon = context.hasChanges ? Icons.circle : Icons.branch;
       parts.push(colorize(branchIcon, branchColor) + ' ' + colorize(context.branch, 'muted'));
     }
 
     if (context.messageCount && context.messageCount > 0) {
-      parts.push(colorize(Icons.bullet, 'muted') + ' ' + colorize(context.messageCount.toString(), 'muted') + ' msgs');
+      parts.push(colorize(context.messageCount.toString(), 'muted') + ' msgs');
     }
 
     process.stdout.write('\r\n  ' + parts.join('  ') + '\r\n\r\n');
