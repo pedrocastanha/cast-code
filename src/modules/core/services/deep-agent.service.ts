@@ -21,6 +21,8 @@ import { StatsService } from '../../stats/services/stats.service';
 import { ReplayService } from '../../replay/services/replay.service';
 import { I18nService } from '../../i18n/services/i18n.service';
 import { FileWatcherService, FILE_CHANGE_EVENT } from '../../watcher/services/file-watcher.service';
+import { PromptLoaderService } from './prompt-loader.service';
+import { PromptClassifierService } from './prompt-classifier.service';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -39,6 +41,7 @@ export class DeepAgentService {
   private lastToolOutputs: { tool: string; output: string }[] = [];
 
   private cachedSystemPrompt: string = '';
+  private cachedBasePrompt: string = '';
   private cachedExtraTools: any[] = [];
   private cachedMcpTools: any[] = [];
   private cachedMcpDiscoveryTools: any[] = [];
@@ -61,9 +64,19 @@ export class DeepAgentService {
     private readonly replayService: ReplayService,
     private readonly i18nService: I18nService,
     private readonly fileWatcherService: FileWatcherService,
+    private readonly promptLoader: PromptLoaderService,
+    private readonly promptClassifier: PromptClassifierService,
   ) {
     this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
       this.pendingContextRefresh = true;
+    });
+
+    this.i18nService.onLanguageChange(() => {
+      this.promptLoader.invalidateCache();
+      if (this.cachedExtraTools.length > 0 || this.cachedSubagents.length > 0) {
+        this.cachedBasePrompt = this.buildBasePrompt(this.cachedExtraTools, this.cachedSubagents);
+        this.cachedSystemPrompt = '';
+      }
     });
   }
 
@@ -116,15 +129,8 @@ export class DeepAgentService {
     const mcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
     const mcpServerSummaries = this.mcpRegistry.getServerSummaries();
 
-    const systemPrompt = this.buildSystemPrompt(
-      contextPrompt,
-      memoryPrompt,
-      subagents,
-      allTools,
-      mcpTools,
-      mcpServerSummaries,
-      projectStructure,
-    );
+    this.cachedBasePrompt = this.buildBasePrompt(allTools, subagents);
+    const systemPrompt = this.cachedBasePrompt;
 
     this.cachedSystemPrompt = systemPrompt;
     this.cachedExtraTools = extraTools;
@@ -150,6 +156,8 @@ export class DeepAgentService {
 
   async reinitializeModel(): Promise<void> {
     this.model = this.multiLlmService.createStreamingModel('default');
+    this.cachedBasePrompt = this.buildBasePrompt(this.cachedExtraTools, this.cachedSubagents);
+    this.cachedSystemPrompt = this.cachedBasePrompt;
     this.agent = createDeepAgent({
       model: this.model,
       systemPrompt: this.cachedSystemPrompt,
@@ -187,6 +195,63 @@ export class DeepAgentService {
     } catch {
       return 'Not a git repository';
     }
+  }
+
+  private buildBasePrompt(tools: any[], subagents: any[]): string {
+    const toolNames = tools.map((t: any) => t.name).join(', ');
+    const langInstruction = this.i18nService.getAgentLanguageInstruction();
+
+    let base = this.promptLoader.getPrompt('base');
+    base = base.replace('{{tool_names}}', toolNames);
+    base = base.replace('{{language_instruction}}', langInstruction);
+
+    if (subagents.length > 0) {
+      const agentList = subagents.map((sa: any) => `- **${sa.name}**: ${sa.description}`).join('\n');
+      base = base.replace('{{subagents_section}}', `## Sub-Agents\nYou have ${subagents.length} sub-agents:\n${agentList}`);
+    } else {
+      base = base.replace('{{subagents_section}}', '');
+    }
+
+    const gitStatus = this.getGitStatus();
+    if (gitStatus) base += `\n\n## Current Git Status\n\`\`\`\n${gitStatus}\n\`\`\``;
+
+    return base;
+  }
+
+  private buildContextualPrompt(message: string, hasMentions: boolean): string {
+    const layers = this.promptClassifier.classify(message, {
+      hasMcpConnected: this.cachedMcpTools.length > 0,
+      hasProjectContext: this.projectContext.hasContext(),
+      hasMemory: this.memoryService.isInitialized(),
+      mentionsInMessage: hasMentions,
+    });
+
+    const parts = [this.cachedBasePrompt];
+
+    for (const layer of layers) {
+      const content = this.promptLoader.getPrompt(layer);
+      if (content) {
+        if (layer === 'mcp') {
+          const serverList = this.mcpRegistry.getServerSummaries()
+            .map((s: McpServerSummary) => `- **${s.name}** (${s.status}) — ${s.toolCount} tools`)
+            .join('\n');
+          parts.push(content.replace('{{mcp_servers}}', serverList));
+        } else {
+          parts.push(content);
+        }
+      }
+    }
+
+    if (this.projectContext.hasContext()) {
+      parts.push(`## Project Context\n${this.projectContext.getContextPrompt()}`);
+    }
+
+    if (this.memoryService.isInitialized()) {
+      const mem = this.memoryService.getCachedMemoryPrompt();
+      if (mem) parts.push(`## Memory\n${mem}`);
+    }
+
+    return parts.join('\n\n');
   }
 
   private buildSystemPrompt(
@@ -866,6 +931,19 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       yield `\n\x1b[2m  \u2500 conversation compacted (${this.messages.length} messages retained)\x1b[0m\n`;
     }
 
+    const hasMentions = message.includes('@');
+    const contextualPrompt = this.buildContextualPrompt(message, hasMentions);
+    if (contextualPrompt !== this.cachedSystemPrompt) {
+      this.cachedSystemPrompt = contextualPrompt;
+      this.agent = createDeepAgent({
+        model: this.model,
+        systemPrompt: contextualPrompt,
+        tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
+        subagents: this.cachedSubagents,
+        backend: () => new FilesystemBackend({ rootDir: process.cwd() }),
+      });
+    }
+
     this.messages.push(new HumanMessage(message));
     this.replayService.recordEntry({ role: 'user', content: message });
     this.lastToolOutputs = [];
@@ -961,7 +1039,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     const fmt = (n: number) => n.toLocaleString();
-    yield `\n\x1b[2m  \u2500 tokens: ${fmt(interactionInputTokens)} in / ${fmt(interactionOutputTokens)} out (session: ${fmt(this.tokenCount)})\x1b[0m\n`;
+    yield `\n\x1b[2m  \u2500 in: ${fmt(interactionInputTokens)} | ctx: ${fmt(this.tokenCount)} | out: ${fmt(interactionOutputTokens)}\x1b[0m\n`;
   }
 
   clearHistory() {
