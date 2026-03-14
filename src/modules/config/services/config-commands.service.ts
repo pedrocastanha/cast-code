@@ -65,6 +65,10 @@ export class ConfigCommandsService {
           console.log(this.configManager.getConfigPath());
           break;
 
+        case 'edit-template':
+          await this.editTemplateInteractive(smartInput);
+          break;
+
         default:
           if (smartInput) {
             await this.showConfigMenu(smartInput);
@@ -113,6 +117,7 @@ export class ConfigCommandsService {
         { key: '7', label: 'Configure Remote UI', description: 'Enable/Disable or change password' },
         { key: '8', label: 'View config file path', description: 'Location of config.yaml' },
         { key: 'l', label: 'Change language', description: 'Switch UI language' },
+        { key: 't', label: 'Edit prompt template', description: 'Customize AI system prompts' },
         { key: '9', label: 'Exit', description: 'Return to chat' },
       ]));
 
@@ -148,6 +153,9 @@ export class ConfigCommandsService {
           break;
         case 'l':
           await this.runInquirerFlow(smartInput, () => this.changeLanguageInteractive());
+          break;
+        case 't':
+          await this.editTemplateInteractive(smartInput);
           break;
         case '9':
           return;
@@ -611,6 +619,68 @@ export class ConfigCommandsService {
 
     await this.configManager.saveConfig(config);
     console.log(chalk.green(`\n✓ Remote Access configured successfully!\n`));
+  }
+
+  private async editTemplateInteractive(smartInput?: ISmartInput): Promise<void> {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const { execSync } = require('child_process');
+
+    const userDir = path.join(os.homedir(), '.cast', 'prompts');
+
+    if (!fs.existsSync(userDir)) {
+      console.log(chalk.yellow('\n⚠️  No prompt templates found. Start a chat session first to seed the templates.\n'));
+      return;
+    }
+
+    const files = fs.readdirSync(userDir).filter((f: string) => f.endsWith('.md'));
+    if (files.length === 0) {
+      console.log(chalk.yellow('\n⚠️  No templates found in ' + userDir + '\n'));
+      return;
+    }
+
+    const descriptions: Record<string, string> = {
+      'base.md': 'Core system prompt (loaded on every message)',
+      'git.md': 'Extra context for git / commit messages',
+      'pr.md': 'Pull request descriptions',
+      'release.md': 'Release notes',
+      'planning.md': 'Planning and architecture mode',
+      'mcp.md': 'MCP tools context',
+      'mentions.md': 'File / URL mentions context',
+    };
+
+    const choices = files.map((f: string) => ({
+      name: `${f.padEnd(14)} ${chalk.gray(descriptions[f] || '')}`,
+      value: f,
+    }));
+
+    if (smartInput) {
+      const selected = await smartInput.askChoice('Which template to edit?', choices.map((c: any) => ({ key: c.value, label: c.name, description: '' })));
+      if (!selected) return;
+      this.openFileInEditor(path.join(userDir, selected), execSync);
+    } else {
+      const selected = await selectWithEsc<string>({ message: 'Which template to edit?', choices });
+      if (selected === null) return;
+      this.openFileInEditor(path.join(userDir, selected), execSync);
+    }
+  }
+
+  private openFileInEditor(filePath: string, execSync: any): void {
+    const editor = process.env.EDITOR || process.env.VISUAL;
+    try {
+      execSync(`code "${filePath}"`, { stdio: 'ignore' });
+      console.log(chalk.green(`\n✓ Opened in VS Code: ${filePath}\n`));
+      return;
+    } catch {}
+    if (editor) {
+      try {
+        execSync(`${editor} "${filePath}"`, { stdio: 'ignore' });
+        console.log(chalk.green(`\n✓ Opened in ${editor}: ${filePath}\n`));
+        return;
+      } catch {}
+    }
+    console.log(chalk.cyan(`\nEdit this file: ${filePath}\n`));
   }
 
   private async changeLanguageInteractive(): Promise<void> {
