@@ -20,6 +20,7 @@ import { StatsCommandsService } from './commands/stats-commands.service';
 import { ReplayCommandsService } from './commands/replay-commands.service';
 import { VaultCommandsService } from './commands/vault-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
+import { FilesystemToolsService } from '../../tools/services/filesystem-tools.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
 import { RemoteServerService } from '../../remote/services/remote-server.service';
 import { PermissionService } from '../../permissions/services/permission.service';
@@ -62,6 +63,7 @@ export class ReplService {
     private readonly kanbanServer: KanbanServerService,
     private readonly remoteServer: RemoteServerService,
     private readonly permissionService: PermissionService,
+    private readonly filesystemTools: FilesystemToolsService,
   ) { }
 
   async start(): Promise<void> {
@@ -116,6 +118,10 @@ export class ReplService {
       this.handlePermissionPrompt(command, dangerLevel),
     );
 
+    this.filesystemTools.setFileWriteHandler((filePath, diffPreview, isNew) =>
+      this.handleFileWritePrompt(filePath, diffPreview, isNew),
+    );
+
     this.smartInput.start();
   }
 
@@ -123,6 +129,7 @@ export class ReplService {
     command: string,
     dangerLevel: DangerLevel,
   ): Promise<PermissionResponse> {
+    this.stopSpinner();
     this.smartInput?.pause();
 
     try {
@@ -170,6 +177,54 @@ export class ReplService {
         default:
           return { allowed: false, scope: PermissionScope.ONCE };
       }
+    } finally {
+      this.smartInput?.resume();
+    }
+  }
+
+  private async handleFileWritePrompt(filePath: string, diffPreview: string, isNew: boolean): Promise<boolean> {
+    this.stopSpinner();
+    this.smartInput?.pause();
+
+    try {
+      const rel = filePath.startsWith(process.cwd())
+        ? filePath.slice(process.cwd().length + 1)
+        : filePath;
+
+      process.stdout.write('\r\n');
+      process.stdout.write(`  ${Colors.yellow}${isNew ? 'Create' : 'Edit'} file${Colors.reset}  ${Colors.cyan}${rel}${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.dim}${'─'.repeat(50)}${Colors.reset}\r\n`);
+
+      if (!isNew && diffPreview) {
+        const lines = diffPreview.split('\n');
+        for (const line of lines) {
+          const trimmed = line;
+          if (trimmed.startsWith('+')) {
+            process.stdout.write(`  ${Colors.green}${trimmed}${Colors.reset}\r\n`);
+          } else if (trimmed.startsWith('-')) {
+            process.stdout.write(`  ${Colors.red}${trimmed}${Colors.reset}\r\n`);
+          } else {
+            process.stdout.write(`  ${Colors.dim}${trimmed}${Colors.reset}\r\n`);
+          }
+        }
+        process.stdout.write('\r\n');
+      } else if (isNew) {
+        process.stdout.write(`  ${Colors.dim}(new file)${Colors.reset}\r\n\r\n`);
+      }
+
+      const choices = [
+        { key: 'yes', label: 'Allow', description: 'Apply this change' },
+        { key: 'session', label: 'Allow all', description: 'Allow all file changes this session' },
+        { key: 'no', label: 'Deny', description: 'Skip this change' },
+      ] as const;
+
+      const choice = await this.smartInput!.askChoice('Apply change?', [...choices]);
+
+      if (choice === 'session') {
+        this.filesystemTools.setFileWriteHandler(() => Promise.resolve(true));
+      }
+
+      return choice !== 'no';
     } finally {
       this.smartInput?.resume();
     }
@@ -255,6 +310,7 @@ export class ReplService {
           const fullPath = path.join(dir, e.name);
           const relPath = path.relative(process.cwd(), fullPath);
           if (e.isDirectory()) {
+            results.push(relPath + '/');
             walk(fullPath);
           } else {
             results.push(relPath);
@@ -331,7 +387,7 @@ export class ReplService {
       return matched.slice(0, 20).map(f => ({
         text: '@' + f,
         display: '@' + f,
-        description: 'file',
+        description: f.endsWith('/') ? 'dir' : 'file',
       }));
     }
   }
@@ -404,7 +460,7 @@ export class ReplService {
       case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
       case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
       case 'commit':
-        await this.gitCommands.cmdCommit(args, this.smartInput!);
+        process.stdout.write(`  ${Colors.dim}Use /up to commit and push, or /split-up to split into multiple commits.${Colors.reset}\r\n`);
         break;
       case 'up':
         await this.gitCommands.cmdUp(this.smartInput!);

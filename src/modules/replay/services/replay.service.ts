@@ -56,8 +56,25 @@ export class ReplayService {
   }
 
   list(): ReplaySummary[] {
+    const results: ReplaySummary[] = [];
+
+    const currentPath = path.join(REPLAYS_DIR, '_current.json');
+    if (fs.existsSync(currentPath)) {
+      try {
+        const data: ReplaySession = JSON.parse(fs.readFileSync(currentPath, 'utf8'));
+        results.push({
+          name: '(current session)',
+          project: path.basename(data.project || process.cwd()),
+          model: data.model || 'unknown',
+          date: new Date(data.createdAt).toLocaleDateString(),
+          messages: data.entries.filter(e => e.role === 'user').length,
+          fileName: '_current.json',
+        });
+      } catch {}
+    }
+
     const files = fs.readdirSync(REPLAYS_DIR).filter(f => f.endsWith('.json') && !f.startsWith('_'));
-    return files
+    const saved = files
       .map(f => {
         try {
           const data: ReplaySession = JSON.parse(fs.readFileSync(path.join(REPLAYS_DIR, f), 'utf8'));
@@ -75,6 +92,8 @@ export class ReplayService {
       })
       .filter((s): s is ReplaySummary => s !== null)
       .sort((a, b) => b.date.localeCompare(a.date));
+
+    return [...results, ...saved];
   }
 
   getSession(name: string): ReplaySession | null {

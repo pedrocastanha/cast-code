@@ -4,6 +4,9 @@ import { z } from 'zod';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { glob } from 'glob';
+import { diffLines } from 'diff';
+
+type FileWriteHandler = (filePath: string, diffPreview: string, isNew: boolean) => Promise<boolean>;
 
 const DEFAULT_IGNORE = [
   'node_modules/**',
@@ -25,9 +28,30 @@ const MAX_READ_FILES = 200;
 @Injectable()
 export class FilesystemToolsService {
   private readFiles: Set<string> = new Set();
+  private fileWriteHandler: FileWriteHandler | null = null;
+
+  setFileWriteHandler(handler: FileWriteHandler): void {
+    this.fileWriteHandler = handler;
+  }
 
   clearSession(): void {
     this.readFiles.clear();
+  }
+
+  private computeDiff(oldContent: string, newContent: string): string {
+    const changes = diffLines(oldContent, newContent);
+    const lines: string[] = [];
+    for (const change of changes) {
+      const prefix = change.added ? '+' : change.removed ? '-' : ' ';
+      const text = (change.value ?? '').replace(/\n$/, '');
+      for (const line of text.split('\n')) {
+        lines.push(`${prefix} ${line}`);
+      }
+    }
+    if (lines.length > 60) {
+      return lines.slice(0, 60).join('\n') + `\n... (${lines.length - 60} more lines)`;
+    }
+    return lines.join('\n');
   }
 
   private trackRead(readFiles: Set<string>, filePath: string): void {
@@ -193,6 +217,16 @@ export class FilesystemToolsService {
             this.trackRead(readFiles, resolvedPath);
           }
 
+          if (this.fileWriteHandler) {
+            let diffPreview = '';
+            if (fileExists) {
+              const oldContent = await fs.readFile(resolvedPath, 'utf-8');
+              diffPreview = this.computeDiff(oldContent, content);
+            }
+            const allowed = await this.fileWriteHandler(resolvedPath, diffPreview, !fileExists);
+            if (!allowed) return 'File write cancelled by user.';
+          }
+
           const dir = path.dirname(resolvedPath);
           await fs.mkdir(dir, { recursive: true });
           await fs.writeFile(resolvedPath, content, 'utf-8');
@@ -269,6 +303,12 @@ export class FilesystemToolsService {
           const newContent = replaceAll
             ? content.replaceAll(oldString, newString)
             : content.replace(oldString, newString);
+
+          if (this.fileWriteHandler) {
+            const diffPreview = this.computeDiff(content, newContent);
+            const allowed = await this.fileWriteHandler(resolvedPath, diffPreview, false);
+            if (!allowed) return 'File edit cancelled by user.';
+          }
 
           await fs.writeFile(resolvedPath, newContent, 'utf-8');
 

@@ -8,6 +8,7 @@ import * as crypto from 'crypto';
 export class MemoryService {
   private memoryDir: string = '';
   private initialized = false;
+  private cachedMemoryContent: string = '';
 
   async initialize(projectPath: string): Promise<void> {
     const hash = crypto
@@ -48,14 +49,19 @@ export class MemoryService {
       const content = await fs.readFile(memoryFile, 'utf-8');
       const lines = content.split('\n');
 
-      if (lines.length > 200) {
-        return lines.slice(0, 200).join('\n') + '\n... (truncated at 200 lines)';
-      }
+      const result = lines.length > 200
+        ? lines.slice(0, 200).join('\n') + '\n... (truncated at 200 lines)'
+        : content;
 
-      return content;
+      this.cachedMemoryContent = result;
+      return result;
     } catch {
       return '';
     }
+  }
+
+  getCachedMemoryPrompt(): string {
+    return this.cachedMemoryContent;
   }
 
   async write(filename: string, content: string): Promise<string> {

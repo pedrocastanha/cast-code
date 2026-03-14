@@ -6,11 +6,17 @@ import { pt } from '../locales/pt';
 export class I18nService {
   private locale: typeof en = en;
   private language: 'en' | 'pt' = 'en';
+  private changeCallbacks: (() => void)[] = [];
+
+  onLanguageChange(cb: () => void): void {
+    this.changeCallbacks.push(cb);
+  }
 
   /** Called by ConfigManagerService or config command after language is set */
   setLanguage(lang: 'en' | 'pt'): void {
     this.language = lang;
     this.locale = lang === 'pt' ? pt : en;
+    this.changeCallbacks.forEach(cb => cb());
   }
 
   getLanguage(): 'en' | 'pt' {

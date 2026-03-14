@@ -131,36 +131,39 @@ export class AgentCommandsService {
       return;
     }
 
-    const description = await smartInput.question(colorize('  Description: ', 'cyan'));
-    const skillsInput = await smartInput.question(colorize('  Skills (comma-separated): ', 'cyan'));
-    const skills = skillsInput.trim()
-      ? skillsInput.split(',').map((s: string) => s.trim()).filter(Boolean)
-      : [];
-
+    const slug = name.trim().toLowerCase().replace(/\s+/g, '-');
     const content = [
       '---',
       `name: ${name.trim()}`,
-      `description: "${description.trim()}"`,
-      skills.length > 0 ? `skills: [${skills.map((s: string) => `"${s}"`).join(', ')}]` : 'skills: []',
+      `description: "Describe when this agent should be invoked"`,
+      'model: fast',
+      'skills: []',
       'mcp: []',
       '---',
       '',
-      '# System Prompt',
+      '# Role',
       '',
       `You are ${name.trim()}, a specialized AI assistant.`,
-      description.trim() ? `Your specialty: ${description.trim()}.` : '',
       '',
-      'Follow the project conventions and be helpful.',
+      '# Guidelines',
+      '',
+      '- Follow the project conventions and established patterns',
+      '- Be concise and precise in your responses',
+      '- Ask clarifying questions before making significant changes',
+      '',
+      '# Output Format',
+      '',
+      'Respond with clear, actionable output. Use code blocks for code.',
       '',
     ].join('\n');
 
-    const filename = `${name.trim().toLowerCase().replace(/\s+/g, '-')}.md`;
-    const filePath = path.join(castDir, filename);
+    const filePath = path.join(castDir, `${slug}.md`);
     fs.writeFileSync(filePath, content);
 
     w('\r\n');
-    w(`  ${colorize(Icons.check, 'success')} Agent created: ${colorize(filePath, 'accent')}\r\n`);
-    w(`  ${colorize('Edit the file to customize the system prompt, then restart.', 'muted')}\r\n\r\n`);
+    w(`  ${colorize(Icons.check, 'success')} ${colorize(filePath, 'accent')}\r\n\r\n`);
+
+    this.openInEditor(filePath);
   }
 
   private async createSkillWizard(smartInput: ISmartInput): Promise<void> {
@@ -184,35 +187,60 @@ export class AgentCommandsService {
       return;
     }
 
-    const description = await smartInput.question(colorize('  Description: ', 'cyan'));
-
-    w(`\r\n  ${colorize('Available tools:', 'muted')} read_file, write_file, edit_file, glob, grep, ls, shell\r\n\r\n`);
-    const toolsInput = await smartInput.question(colorize('  Tools (comma-separated): ', 'cyan'));
-    const tools = toolsInput.trim()
-      ? toolsInput.split(',').map((t: string) => t.trim()).filter(Boolean)
-      : ['read_file', 'write_file', 'edit_file', 'glob', 'grep'];
-
+    const slug = name.trim().toLowerCase().replace(/\s+/g, '-');
     const content = [
       '---',
       `name: ${name.trim()}`,
-      `description: "${description.trim()}"`,
-      `tools: [${tools.map((t: string) => `"${t}"`).join(', ')}]`,
+      `description: "Describe what this skill does and when to use it"`,
+      'tools: [read_file, write_file, edit_file, glob, grep]',
       '---',
+      '',
+      '# Purpose',
+      '',
+      `Explain the goal of the ${name.trim()} skill.`,
       '',
       '# Guidelines',
       '',
-      `When using this skill:`,
+      '1. Step one',
+      '2. Step two',
+      '3. Step three',
       '',
-      `1. ${description.trim() || 'Be helpful and follow conventions'}`,
+      '# Output Format',
+      '',
+      'Describe what the output should look like.',
       '',
     ].join('\n');
 
-    const filename = `${name.trim().toLowerCase().replace(/\s+/g, '-')}.md`;
-    const filePath = path.join(castDir, filename);
+    const filePath = path.join(castDir, `${slug}.md`);
     fs.writeFileSync(filePath, content);
 
-    w('\r\n');
-    w(`  ${colorize(Icons.check, 'success')} Skill created: ${colorize(filePath, 'accent')}\r\n`);
-    w(`  ${colorize('Edit the file to add guidelines, then restart.', 'muted')}\r\n\r\n`);
+    const w2 = (s: string) => process.stdout.write(s);
+    w2('\r\n');
+    w2(`  ${colorize(Icons.check, 'success')} ${colorize(filePath, 'accent')}\r\n\r\n`);
+
+    this.openInEditor(filePath);
+  }
+
+  private openInEditor(filePath: string): void {
+    const { execSync } = require('child_process');
+    const w = (s: string) => process.stdout.write(s);
+
+    const editor = process.env.EDITOR || process.env.VISUAL;
+
+    try {
+      execSync(`code "${filePath}"`, { stdio: 'ignore' });
+      w(`  ${colorize('Opened in VS Code.', 'muted')}\r\n\r\n`);
+      return;
+    } catch {}
+
+    if (editor) {
+      try {
+        execSync(`${editor} "${filePath}"`, { stdio: 'ignore' });
+        w(`  ${colorize(`Opened in ${editor}.`, 'muted')}\r\n\r\n`);
+        return;
+      } catch {}
+    }
+
+    w(`  ${colorize('Open the file to edit:', 'muted')} ${colorize(filePath, 'cyan')}\r\n\r\n`);
   }
 }

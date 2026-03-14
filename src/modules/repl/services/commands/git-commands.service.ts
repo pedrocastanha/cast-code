@@ -83,7 +83,10 @@ export class GitCommandsService {
       return;
     }
 
-    w(`\r\n${Colors.green}✓ Generated:${Colors.reset} ${colorize(message, 'cyan')}\r\n\r\n`);
+    const cols = process.stdout.columns || 80;
+    const maxLen = cols - 4;
+    const displayMsg = message.length > maxLen ? message.slice(0, maxLen - 1) + '…' : message;
+    w(`\r\n${Colors.green}✓ Generated:${Colors.reset} ${colorize(displayMsg, 'cyan')}\r\n\r\n`);
 
     const confirm = await smartInput.askChoice('Commit?', [
       { key: 'y', label: 'yes', description: 'Commit with this message' },
@@ -123,11 +126,6 @@ export class GitCommandsService {
       return;
     }
 
-    const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
-    if (monorepoInfo.isMonorepo) {
-      w(`\r\n${colorize('Monorepo:', 'muted')} ${monorepoInfo.modules.join(', ')}\r\n`);
-    }
-
     w(`\r\n${Colors.cyan}🤖 Analyzing changes...${Colors.reset}\r\n`);
 
     const message = await this.commitGenerator.generateCommitMessage();
@@ -136,7 +134,10 @@ export class GitCommandsService {
       return;
     }
 
-    w(`\r\n${Colors.green}✓ Generated:${Colors.reset}\r\n  ${colorize(message, 'cyan')}\r\n\r\n`);
+    const cols = process.stdout.columns || 80;
+    const maxLen = cols - 4;
+    const displayMsg = message.length > maxLen ? message.slice(0, maxLen - 1) + '…' : message;
+    w(`\r\n${Colors.green}✓ Generated:${Colors.reset}\r\n  ${colorize(displayMsg, 'cyan')}\r\n\r\n`);
 
     const confirm = await smartInput.askChoice('Confirm and push?', [
       { key: 'y', label: 'yes', description: 'Commit and push' },

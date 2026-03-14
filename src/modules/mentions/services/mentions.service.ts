@@ -46,7 +46,7 @@ export class MentionsService {
   private parseMentions(message: string): ParsedMention[] {
     const mentions: ParsedMention[] = [];
 
-    const mentionRegex = /(?:^|\s)@(?:\[)?((?:https?:\/\/\S+)|(?:git:[a-z]+)|(?:\.?\/?[\w./-]+\.[\w]+)|(?:\.?\/?[\w./-]+\/))(?:\])?/g;
+    const mentionRegex = /(?:^|\s)@(?:\[)?((?:https?:\/\/\S+)|(?:git:[a-z]+)|(?:\.?\/?[\w./-]+\.[\w]+)|(?:\.?\/?[\w./-]+\/)|(?:\.?\/?[\w/-]+))(?:\])?/g;
 
     let match: RegExpExecArray | null;
 

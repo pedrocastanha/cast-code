@@ -107,7 +107,7 @@ export class ReplCommandsService {
 
   cmdClear(welcomeScreen: { printBanner: () => void }): void {
     this.deepAgent.clearHistory();
-    process.stdout.write('\x1b[2J\x1b[H');
+    process.stdout.write('\x1bc');
     welcomeScreen.printBanner();
     process.stdout.write(`  ${colorize(Icons.check, 'success')} ${colorize('Conversation cleared', 'muted')}\r\n\r\n`);
   }

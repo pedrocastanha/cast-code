@@ -46,11 +46,13 @@ export class VaultCommandsService {
 
   private listSnippets(): void {
     const snippets = this.vaultService.listSnippets();
+    console.log(UI.header('Snippet Vault', '🗃'));
+    console.log(colorize('  The vault stores reusable code snippets saved by the agent.', 'muted'));
+    console.log(colorize('  Use /vault show <name> to view, /vault promote <name> to convert to a skill.\n', 'muted'));
     if (snippets.length === 0) {
-      console.log(UI.warning('Vault is empty. The agent will save useful snippets here automatically.'));
+      console.log(UI.warning('  No snippets yet. Ask the agent to save useful code to the vault.'));
       return;
     }
-    console.log(UI.header('Snippet Vault', '🗃'));
     snippets.forEach(s => {
       console.log(UI.item(
         `${colorize(s.name, 'cyan')}  ` +

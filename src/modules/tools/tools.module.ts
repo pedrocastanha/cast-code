@@ -29,6 +29,6 @@ import { VaultModule } from '../vault/vault.module';
     ToolsRegistryService,
     ImpactAnalysisService,
   ],
-  exports: [ToolsRegistryService, DiscoveryToolsService, ImpactAnalysisService],
+  exports: [ToolsRegistryService, DiscoveryToolsService, ImpactAnalysisService, FilesystemToolsService],
 })
 export class ToolsModule {}
