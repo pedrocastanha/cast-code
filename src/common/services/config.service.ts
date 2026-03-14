@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import * as path from 'path';
 import { MarkdownParserService } from './markdown-parser.service';
-import { GLOBAL_CONFIG_DIR, DEFAULT_MODEL, DEFAULT_TEMPERATURE } from '../constants';
+import {
+  GLOBAL_CONFIG_DIR,
+  DEFAULT_MODEL,
+  DEFAULT_TEMPERATURE,
+} from '../constants';
 
 interface GlobalConfigFrontmatter {
   model?: string;
@@ -39,14 +43,20 @@ export class ConfigService {
         await this.markdownParser.parse<GlobalConfigFrontmatter>(configPath);
 
       this.config = {
-        model: frontmatter.model || process.env.OLLAMA_MODEL || this.config.model,
+        model:
+          frontmatter.model || process.env.OLLAMA_MODEL || this.config.model,
         temperature: frontmatter.temperature ?? this.config.temperature,
         apiKey: frontmatter.apiKey || process.env.OPENAI_API_KEY || '',
-        provider: frontmatter.provider || process.env.LLM_PROVIDER || this.config.provider,
-        ollamaBaseUrl: frontmatter.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || this.config.ollamaBaseUrl,
+        provider:
+          frontmatter.provider ||
+          process.env.LLM_PROVIDER ||
+          this.config.provider,
+        ollamaBaseUrl:
+          frontmatter.ollamaBaseUrl ||
+          process.env.OLLAMA_BASE_URL ||
+          this.config.ollamaBaseUrl,
       };
     }
-
   }
 
   getConfig(): GlobalConfig {
