@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { PromptLoaderService } from '../../core/services/prompt-loader.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -23,7 +24,10 @@ export interface ReleaseNotesData {
 
 @Injectable()
 export class ReleaseNotesService {
-  constructor(private readonly multiLlmService: MultiLlmService) {}
+  constructor(
+    private readonly multiLlmService: MultiLlmService,
+    private readonly promptLoader: PromptLoaderService,
+  ) {}
 
   async generateReleaseNotes(
     sinceTag?: string,
@@ -202,7 +206,7 @@ Categorize into these sections (return empty array if none):
 
     try {
       const response = await llm.invoke([
-        new SystemMessage('You are a technical writer creating release notes. Be concise and professional. Use Brazilian Portuguese.'),
+        new SystemMessage(this.promptLoader.getPrompt('release')),
         new HumanMessage(prompt),
       ]);
 

@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
+import { PromptLoaderService } from '../../core/services/prompt-loader.service';
 import { GitDiffInfo, SplitCommit, CommitGroup, ConventionalCommitType } from '../types/git.types';
 
 const COMMIT_TYPES: ConventionalCommitType[] = [
@@ -70,6 +71,7 @@ export class CommitGeneratorService {
   constructor(
     private readonly multiLlmService: MultiLlmService,
     private readonly monorepoDetector: MonorepoDetectorService,
+    private readonly promptLoader: PromptLoaderService,
   ) {}
 
   getDiffInfo(): GitDiffInfo | null {
@@ -117,7 +119,7 @@ export class CommitGeneratorService {
     const prompt = this.buildCommitPrompt(diffInfo, scope);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getCommitSystemPrompt()),
+      new SystemMessage(this.promptLoader.getPrompt('git')),
       new HumanMessage(prompt),
     ]);
 
@@ -357,7 +359,7 @@ Retorne APENAS uma linha no formato:
 Descrição obrigatoriamente em português (pt-BR).`;
 
     const response = await llm.invoke([
-      new SystemMessage(this.getCommitSystemPrompt()),
+      new SystemMessage(this.promptLoader.getPrompt('git')),
       new HumanMessage(prompt),
     ]);
 

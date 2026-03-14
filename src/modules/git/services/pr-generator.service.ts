@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
+import { PromptLoaderService } from '../../core/services/prompt-loader.service';
 
 export interface CommitInfo {
   hash: string;
@@ -35,6 +36,7 @@ export class PrGeneratorService {
   constructor(
     private readonly multiLlmService: MultiLlmService,
     private readonly monorepoDetector: MonorepoDetectorService,
+    private readonly promptLoader: PromptLoaderService,
   ) {}
 
   getCurrentBranch(): string {
@@ -368,19 +370,7 @@ export class PrGeneratorService {
   }
 
   private getSingleAgentSystemPrompt(): string {
-    const template = this.getPRTemplate();
-    return `You are a senior developer creating a Pull Request description. Analyze ALL commits and fill in the PR template below.
-
-Rules:
-- Output ONLY the filled template.
-- Keep headings, checklists, and ordering exactly as shown.
-- Fill ONLY these sections with content: "O que essa PR faz?", "O que foi mexido?", "O que eu fiz?".
-- Leave the other sections blank for the user to fill in.
-- Do not add any extra sections beyond the template.
-- Keep the final reminder line.
-
-PR TEMPLATE:
-${template}`;
+    return this.promptLoader.getPrompt('pr');
   }
 
   private parseSingleResponse(content: string, commits: CommitInfo[]): { 
