@@ -381,7 +381,7 @@ export class CommitGeneratorService {
       normalizedGroups.push({
         type: this.normalizeCommitType(group.type, this.inferTypeFromFiles(filesFromGroup)),
         files: filesFromGroup,
-        description: this.normalizeDescription(group.description, 'organiza mudanças relacionadas'),
+        description: this.normalizeDescription(group.description, this.lang() === 'en' ? 'organize related changes' : 'organiza mudanças relacionadas'),
         scope: this.normalizeScope(group.scope),
       });
     }
@@ -391,7 +391,7 @@ export class CommitGeneratorService {
       normalizedGroups.push({
         type: this.inferTypeFromFiles(missingFiles),
         files: missingFiles,
-        description: 'organiza arquivos restantes do diff',
+        description: this.lang() === 'en' ? 'organize remaining diff files' : 'organiza arquivos restantes do diff',
       });
     }
 
@@ -402,7 +402,7 @@ export class CommitGeneratorService {
     rawMessage: string,
     fallbackType: ConventionalCommitType,
     fallbackScope?: string,
-    fallbackDescription = 'atualiza código',
+    fallbackDescription?: string,
     fallbackBreaking = false,
   ): string {
     const candidateLine = this.extractCandidateCommitLine(rawMessage);
@@ -412,7 +412,8 @@ export class CommitGeneratorService {
     const scope = this.normalizeScope(match?.[2] ?? fallbackScope);
     const breaking = Boolean(match?.[3]) || fallbackBreaking;
     const rawDescription = match?.[4] ?? candidateLine;
-    const description = this.normalizeDescription(rawDescription, fallbackDescription);
+    const defaultFallback = this.lang() === 'en' ? 'update code' : 'atualiza código';
+    const description = this.normalizeDescription(rawDescription, fallbackDescription ?? defaultFallback);
 
     const breakingFlag = breaking ? '!' : '';
     const prefix = scope
@@ -504,7 +505,9 @@ export class CommitGeneratorService {
     normalized = normalized.replace(/[.;:!?]+$/, '').trim();
     if (!normalized) normalized = fallback;
 
-    normalized = this.translateLeadingVerb(normalized);
+    if (this.lang() !== 'en') {
+      normalized = this.translateLeadingVerb(normalized);
+    }
 
     if (/^[A-ZÀ-Ý]/.test(normalized)) {
       normalized = normalized.charAt(0).toLowerCase() + normalized.slice(1);
@@ -526,13 +529,13 @@ export class CommitGeneratorService {
   private truncateText(text: string, maxLength: number): string {
     if (text.length <= maxLength) return text;
 
-    const truncated = text.slice(0, maxLength).trimEnd();
+    const truncated = text.slice(0, maxLength - 1).trimEnd();
     const lastSpace = truncated.lastIndexOf(' ');
     if (lastSpace > maxLength * 0.6) {
-      return truncated.slice(0, lastSpace).trimEnd();
+      return truncated.slice(0, lastSpace).trimEnd() + '…';
     }
 
-    return truncated;
+    return truncated + '…';
   }
 
   private normalizeFiles(files: string[]): string[] {
