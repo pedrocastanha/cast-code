@@ -87,6 +87,12 @@ export class StatsService {
     this.currentSession = this.createNewSession();
   }
 
+  setDefaultModel(model: string): void {
+    if (!this.currentSession.model) {
+      this.currentSession.model = this.normalizeModelName(model);
+    }
+  }
+
   trackUsage(model: string, inputTokens: number, outputTokens: number): void {
     this.currentSession.model = this.normalizeModelName(model);
     this.currentSession.inputTokens += inputTokens;

@@ -6,6 +6,10 @@ import { colorize, UI } from '../../utils/theme';
 export class StatsCommandsService {
   constructor(private readonly statsService: StatsService) {}
 
+  setDefaultModel(model: string): void {
+    this.statsService.setDefaultModel(model);
+  }
+
   cmdStats(): void {
     const session = this.statsService.getSessionStats();
     const today = this.statsService.getTodayStats();

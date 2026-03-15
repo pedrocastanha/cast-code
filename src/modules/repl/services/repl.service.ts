@@ -70,6 +70,8 @@ export class ReplService {
     const initResult = await this.deepAgent.initialize();
     const agentCount = this.agentRegistry.resolveAllAgents().length;
 
+    this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
+
     this.welcomeScreen.printWelcomeScreen({
       projectPath: initResult.projectPath || undefined,
       model: this.getModelDisplayName(),
