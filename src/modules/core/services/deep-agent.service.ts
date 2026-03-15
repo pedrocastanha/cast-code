@@ -271,7 +271,6 @@ export class DeepAgentService {
 
     const parts: string[] = [];
 
-    // Add language instruction at top
     const langInstruction = this.i18nService.getAgentLanguageInstruction();
     parts.unshift(langInstruction);
 
@@ -485,7 +484,6 @@ export class DeepAgentService {
       );
       for (const sa of subagents) {
         const mcpNote = sa.mcp && sa.mcp.length > 0 ? `\n**MCP access:** ${sa.mcp.join(', ')}` : '';
-        // Extract up to 3 bullet-point lines from the agent's system prompt as capability preview
         const bullets: string[] = [];
         if (sa.systemPrompt) {
           for (const line of sa.systemPrompt.split('\n')) {
@@ -707,7 +705,6 @@ export class DeepAgentService {
       if (typeof i === 'string') return i;
       const v = i.file_path || i.path || i.filename || i.file || i.filepath;
       if (v) return String(v);
-      // Fallback: find any key whose name suggests a file path
       for (const key of Object.keys(i)) {
         if (key.toLowerCase().includes('path') || key.toLowerCase().includes('file')) {
           return String(i[key]);
@@ -801,7 +798,6 @@ export class DeepAgentService {
         }
     }
 
-    // Format: dim run marker + tool name in subtle cyan + dimmed detail
     const toolLabel = toolName.replace(/_/g, ' ');
     return `\n${dim}  \u25b6 ${reset}${dim}${cyan}${toolLabel}${reset}${dim}${detail}${reset}\n`;
   }
@@ -814,7 +810,6 @@ export class DeepAgentService {
     const red = '\x1b[31m';
     const reset = '\x1b[0m';
 
-    // Helper: render a compact result line
     const ok = (msg: string) => `${dim}    ${green}\u2713${reset}${dim} ${msg}${reset}\n`;
     const err = (msg: string) => `${dim}    ${red}\u2717${reset}${dim} ${msg}${reset}\n`;
     const rows = (lines: string[], max: number, lineMax = 130) => {
