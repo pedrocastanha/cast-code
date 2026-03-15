@@ -19,9 +19,7 @@ function appendHistory(line: string): void {
   try {
     fs.mkdirSync(path.dirname(HISTORY_FILE), { recursive: true });
     fs.appendFileSync(HISTORY_FILE, line + '\n', 'utf-8');
-  } catch {
-    // history persistence is best-effort
-  }
+  } catch { /* best-effort */ }
 }
 
 export interface Suggestion {
@@ -94,7 +92,6 @@ export class SmartInput implements ISmartInput {
 
     this.terminalWidth = process.stdout.columns || 80;
 
-    // Listener para redimensionamento
     process.stdout.on('resize', () => {
       this.terminalWidth = process.stdout.columns || 80;
     });
