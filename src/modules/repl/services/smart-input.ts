@@ -148,7 +148,12 @@ export class SmartInput implements ISmartInput {
 
     while (true) {
       const answer = await this.question(`${Colors.yellow}Choose (1-${choices.length}):${Colors.reset}`);
-      const idx = parseInt(answer) - 1;
+      const trimmed = answer.trim();
+      if (trimmed === '/exit' || trimmed === '/quit' || trimmed === 'q') {
+        process.stdout.write(`${Colors.dim}  Goodbye${Colors.reset}\r\n\r\n`);
+        process.exit(0);
+      }
+      const idx = parseInt(trimmed) - 1;
       if (idx >= 0 && idx < choices.length) {
         return choices[idx].key;
       }
