@@ -47,6 +47,7 @@ export class DeepAgentService {
   private cachedSubagents: any[] = [];
   private pendingContextRefresh = false;
   private projectRoot: string = process.cwd();
+  private cachedProjectStructure: string = '';
 
   constructor(
     private readonly multiLlmService: MultiLlmService,
@@ -119,7 +120,7 @@ export class DeepAgentService {
     }
 
     const contextPrompt = this.projectContext.getContextPrompt();
-    const projectStructure = await this.projectContext.getProjectStructureSummary(this.projectRoot);
+    this.cachedProjectStructure = await this.projectContext.getProjectStructureSummary(this.projectRoot);
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
 
     const subagents = this.agentRegistry.getSubagentDefinitions(contextPrompt);
@@ -241,6 +242,10 @@ export class DeepAgentService {
           parts.push(content);
         }
       }
+    }
+
+    if (this.cachedProjectStructure) {
+      parts.push(`## Project Structure\n\`\`\`\n${this.cachedProjectStructure}\n\`\`\`\n\nUse this as your reference for existing files. Only re-read a file if its content is unknown or it may have changed.`);
     }
 
     if (this.projectContext.hasContext()) {
@@ -931,6 +936,11 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     const summarized = await this.autoSummarize();
     if (summarized) {
       yield `\n\x1b[2m  \u2500 conversation compacted (${this.messages.length} messages retained)\x1b[0m\n`;
+    }
+
+    if (this.pendingContextRefresh) {
+      this.pendingContextRefresh = false;
+      this.cachedProjectStructure = await this.projectContext.getProjectStructureSummary(this.projectRoot);
     }
 
     const hasMentions = message.includes('@');
