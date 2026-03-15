@@ -279,6 +279,8 @@ export class DeepAgentService {
       `You are Cast, an autonomous AI coding assistant running as a CLI tool.`,
       `You are a highly capable agent that can independently explore codebases, make decisions, execute multi-step plans, and delegate work to specialized sub-agents. You help developers with software engineering tasks including writing code, debugging, refactoring, and answering questions about codebases.`,
       ``,
+      `Tone & personality: Be casual and direct — like a sharp senior dev colleague on Slack. Skip formalities and corporate speak. Be concise, practical, and conversational. Use informal language naturally. It's fine to be a little witty, but stay focused and don't over-explain. Get to the point fast.`,
+      ``,
     );
 
     if (projectStructure) {
@@ -830,12 +832,12 @@ export class DeepAgentService {
         return ok(`${lineCount} lines, ${bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(1) + ' KB'}`);
       }
       case 'write_file':
-        return ok(output.slice(0, 100));
+        return ok(output.length > 160 ? output.slice(0, 159) + '…' : output);
       case 'edit_file': {
         if (output.startsWith('Error') || output.startsWith('error')) {
-          return err(output.slice(0, 140));
+          return err(output.length > 160 ? output.slice(0, 159) + '…' : output);
         }
-        return ok(output.slice(0, 100));
+        return ok(output.length > 160 ? output.slice(0, 159) + '…' : output);
       }
       case 'glob': {
         const lines = output.split('\n').filter(l => l.trim());
@@ -963,6 +965,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     let lastToolName = '';
     let interactionInputTokens = 0;
     let interactionOutputTokens = 0;
+    const pendingToolInputs: { name: string; input: any }[] = [];
 
     try {
       for await (const event of stream) {
@@ -989,11 +992,28 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             interactionInputTokens += usage.input_tokens || usage.prompt_tokens || usage.promptTokens || 0;
             interactionOutputTokens += usage.output_tokens || usage.completion_tokens || usage.completionTokens || 0;
           }
+          const toolCalls = output?.tool_calls ?? output?.additional_kwargs?.tool_calls;
+          if (Array.isArray(toolCalls)) {
+            for (const tc of toolCalls) {
+              try {
+                const args = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args;
+                pendingToolInputs.push({ name: tc.name, input: args });
+              } catch {}
+            }
+          }
         }
 
         if (event.event === 'on_tool_start') {
           lastToolName = event.name;
-          yield this.formatToolStart(event.name, event.data?.input);
+          let toolInput = event.data?.input;
+          if (!toolInput || Object.keys(toolInput ?? {}).length === 0) {
+            const idx = pendingToolInputs.findIndex(t => t.name === event.name);
+            if (idx !== -1) {
+              toolInput = pendingToolInputs[idx].input;
+              pendingToolInputs.splice(idx, 1);
+            }
+          }
+          yield this.formatToolStart(event.name, toolInput);
         }
 
         if (event.event === 'on_tool_end') {
