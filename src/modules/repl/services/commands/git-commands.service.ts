@@ -220,8 +220,14 @@ export class GitCommandsService {
     
     for (let i = 0; i < commits.length; i++) {
       const commit = commits[i];
-      w(`  ${colorize((i + 1).toString() + '.', 'cyan')} ${commit.message}\r\n`);
-      w(`     ${colorize('Files: ' + commit.files.join(', '), 'muted')}\r\n`);
+      const cols = process.stdout.columns || 80;
+      const msgMax = Math.max(20, cols - 6);
+      const msgDisplay = commit.message.length > msgMax ? commit.message.slice(0, msgMax - 1) + '…' : commit.message;
+      const filesStr = commit.files.join(', ');
+      const filesMax = Math.max(20, cols - 12);
+      const filesDisplay = filesStr.length > filesMax ? filesStr.slice(0, filesMax - 1) + '…' : filesStr;
+      w(`  ${colorize((i + 1).toString() + '.', 'cyan')} ${msgDisplay}\r\n`);
+      w(`     ${colorize('Files: ' + filesDisplay, 'muted')}\r\n`);
     }
 
     w('\r\n');
