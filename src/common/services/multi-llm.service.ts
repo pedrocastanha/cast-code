@@ -66,6 +66,7 @@ export class MultiLlmService {
           ...(this.requiresResponsesApi(model) ? { useResponsesApi: true } : {}),
           streaming,
           streamUsage: streaming,
+          ...(streaming ? { parallelToolCalls: true } : {}),
         });
 
       case 'deepseek':

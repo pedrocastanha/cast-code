@@ -573,6 +573,9 @@ export class ReplService {
             return;
           }
           messageToProcess = plannedMessage;
+        } else {
+          // No plan selected: wrap with execution directive so the agent acts immediately
+          messageToProcess = `[EXECUTE NOW — no explanation, no questions, use tools immediately]\n\n${message}`;
         }
       }
 
