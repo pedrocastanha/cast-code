@@ -1,263 +1,236 @@
 # Cast Code
 
-A multi-agent coding CLI for day-to-day engineering work. Cast feels like an AI teammate living inside your terminal — it reads your codebase, plans work, uses tools, and delegates to specialist sub-agents.
+> Uma CLI multi-agente que pensa, planeja e escreve código junto com você — direto no seu terminal.
 
-Inspired by [Claude Code](https://claude.ai/code), [OpenAI Codex](https://openai.com/codex), and [Kimi](https://kimi.ai).
-Built by [pedrocastanha](https://github.com/pedrocastanha).
+Cast é um assistente autônomo de IA para engenheiros. Ele lê o codebase, delega para sub-agentes especialistas, escreve e edita arquivos, gera commits, cria PRs e se conecta a ferramentas externas via MCP — tudo com um único comando `cast`.
 
----
-
-## Why
-
-The main goal is to accelerate product delivery, especially frontend work from design prototypes.
-
-Typical workflow:
-- connect Figma Desktop MCP
-- map project context with `/init`
-- ask Cast to scaffold screens, components, and styles
-- let engineers focus on integration and business logic
+Feito por [pedrocastanha](https://github.com/pedrocastanha). Inspirado no Claude Code, OpenAI Codex e Kimi.
 
 ---
 
-## Install
+## Instalação
 
 ```bash
 npm install -g cast-code
 cast
 ```
 
-> Requires Node.js >= 20. Works on bash, zsh, fish, dash, ksh and any POSIX-compatible shell on Linux and macOS.
+> Requer Node.js ≥ 20. Funciona no Linux e macOS (bash, zsh, fish e qualquer shell POSIX).
 
-### `cast` not found after install?
+<details>
+<summary><strong>cast não encontrado após instalar?</strong></summary>
 
-The npm global bin directory may not be in your PATH. Find it with `npm prefix -g`, then add `<prefix>/bin` to your shell config:
+O diretório global de binários do npm pode não estar no seu `PATH`. Descubra com `npm prefix -g` e adicione `<prefix>/bin` ao seu shell:
 
-| Shell | File | Line |
+| Shell | Arquivo | Linha |
 |---|---|---|
-| bash | `~/.bashrc` or `~/.bash_profile` | `export PATH="$(npm prefix -g)/bin:$PATH"` |
+| bash | `~/.bashrc` ou `~/.bash_profile` | `export PATH="$(npm prefix -g)/bin:$PATH"` |
 | zsh | `~/.zshrc` | `export PATH="$(npm prefix -g)/bin:$PATH"` |
 | fish | `~/.config/fish/config.fish` | `fish_add_path (npm prefix -g)/bin` |
-| dash / ksh | `~/.profile` | `export PATH="$(npm prefix -g)/bin:$PATH"` |
 
-Reload your shell (`source ~/.zshrc`, `source ~/.bashrc`, or open a new terminal), then run `cast`.
+Recarregue o shell e rode `cast`.
+</details>
 
 ---
 
-## First Run
+## O que o Cast faz
 
-On first launch the setup wizard runs automatically. To reconfigure at any time:
-
-```bash
-/config init
-```
-
-Config is stored at `~/.cast/config.yaml`.
+| Capacidade | Como |
+|---|---|
+| Explorar e entender o codebase | Lê arquivos, busca padrões, mapeia a estrutura |
+| Escrever, editar e refatorar código | Ciclo completo: leitura → plano → escrita → verificação |
+| Gerar commits semânticos | `/up` — IA lê o diff e escreve a mensagem |
+| Dividir commits inteligentemente | `/split-up` — agrupa mudanças por intenção lógica |
+| Criar descrições de pull request | `/pr` — gera corpo de PR com contexto rico |
+| Revisar código | `/review [arquivos]` — aponta problemas com contexto |
+| Delegar para agentes especialistas | `coder`, `architect`, `reviewer`, `frontend`, `backend`, `devops`, `tester` |
+| Conectar a 30+ ferramentas externas | MCP — Figma, GitHub, bancos de dados, browser e mais |
+| Trabalhar pelo celular | `/remote` — interface web segura via ngrok com entrada por voz |
 
 ---
 
 ## Providers
 
-Cast supports multiple LLM providers. Configure via `/config init` or set environment variables:
+O Cast funciona com qualquer um destes:
 
-| Variable | Provider |
+| Provider | Variável de ambiente |
 |---|---|
-| `ANTHROPIC_API_KEY` | Anthropic / Claude |
-| `OPENAI_API_KEY` | OpenAI / GPT |
-| `GOOGLE_API_KEY` | Google Gemini |
+| OpenAI (GPT-4.1, o3…) | `OPENAI_API_KEY` |
+| Anthropic (Claude 4) | `ANTHROPIC_API_KEY` |
+| Google (Gemini 2.5) | `GOOGLE_API_KEY` |
+| Ollama (modelos locais) | *(sem chave)* |
 
-You can also assign different models per purpose — `default`, `subAgent`, `coder`, `architect`, `reviewer`, `planner`, `cheap` — to tune cost and performance by task type.
+Você pode atribuir modelos diferentes por papel — `default`, `subAgent`, `coder`, `architect`, `reviewer`, `planner`, `cheap` — para equilibrar custo e qualidade por tarefa.
+
+Configure com `/config init` ou edite `~/.cast/config.yaml` diretamente.
 
 ---
 
-## Commands
+## Comandos
 
 ### Core
-
-| Command | Description |
+| Comando | O que faz |
 |---|---|
-| `/help` | Show command guide |
-| `/init` | Analyze project and generate context |
-| `/project-deep` | Deep context + specialist brief |
-| `/context` | Show session, tools, agents, skills, MCP status |
-| `/clear` | Clear conversation history |
-| `/compact` | Compact context window |
-| `/kanban` | Open Kanban board (local web UI on port 3333) |
-| `/remote` | Start remote web interface via ngrok |
-| `/exit` | Exit CLI |
-
-### Config
-
-| Command | Description |
-|---|---|
-| `/config` | Config menu |
-| `/config show` | Show current config |
-| `/config path` | Print config file path |
-| `/config add-provider` | Add a new LLM provider |
-| `/config set-model` | Set model by purpose |
-
-### MCP
-
-| Command | Description |
-|---|---|
-| `/mcp` | MCP hub menu |
-| `/mcp list` | List configured servers |
-| `/mcp tools` | List available tools |
-| `/mcp add` | Add server (from templates or custom) |
-| `/mcp remove` | Remove a server |
-| `/mcp what` | Explain what MCP is |
+| `/help` | Mostra todos os comandos |
+| `/init` | Analisa o projeto e gera contexto |
+| `/project-deep` | Contexto profundo + briefing para agente especialista |
+| `/context` | Sessão atual: ferramentas, agentes, skills, MCP |
+| `/clear` | Limpa o histórico da conversa |
+| `/compact` | Comprime o contexto para economizar tokens |
+| `/stats` | Uso de tokens e custo da sessão |
+| `/kanban` | Abre o quadro Kanban (localhost:3333) |
+| `/remote` | Expõe interface web via ngrok |
+| `/exit` | Sair |
 
 ### Git
-
-| Command | Description |
+| Comando | O que faz |
 |---|---|
-| `/status`, `/diff`, `/log` | Git status, diff, log |
-| `/commit` | AI-generated commit message |
-| `/up`, `/split-up` | Push / push with split commits |
-| `/pr` | Generate pull request description |
-| `/review` | Code review |
-| `/fix`, `/ident`, `/release` | Fix issues, identify patterns, generate release notes |
+| `/status`, `/diff`, `/log` | Status, diff, log do git |
+| `/up` | Mensagem de commit gerada por IA → confirmar → push |
+| `/split-up` | Divide mudanças em commits lógicos |
+| `/pr` | Gera título + descrição de PR |
+| `/review [arquivos]` | Revisão de código por IA |
+| `/fix <arquivo>` | Corrige problemas automaticamente em um arquivo |
+| `/release [tag]` | Gera notas de release |
+| `/unit-test` | Gera testes para as mudanças da branch |
 
-### Agents & Skills
-
-| Command | Description |
+### Agentes & Skills
+| Comando | O que faz |
 |---|---|
-| `/agents` | List specialist agents |
-| `/agents create` | Create a custom agent |
-| `/skills` | List skills |
-| `/skills create` | Create a custom skill |
+| `/agents` | Lista todos os agentes especialistas |
+| `/agents create` | Cria um agente customizado |
+| `/skills` | Lista todas as skills |
+| `/skills create` | Cria uma skill customizada |
+
+### Config & MCP
+| Comando | O que faz |
+|---|---|
+| `/config` | Menu de configuração |
+| `/mcp list` | Lista os servidores MCP configurados |
+| `/mcp add` | Adiciona um servidor (30+ templates ou customizado) |
 
 ---
 
-## Mentions
+## Injeção de contexto com `@`
 
-Inject context directly into any prompt:
+Mencione qualquer arquivo, diretório ou fonte de dados para injetá-lo direto no seu prompt:
 
 ```
-@src/components/Button.tsx     — single file
-@src/components/              — entire directory
-@git:status                   — current git status
-@git:diff                     — current diff
+@src/auth/service.ts           → injeta o conteúdo do arquivo
+@src/components/               → injeta a listagem do diretório
+@git:status                    → injeta o git status atual
+@git:diff                      → injeta o diff atual
+@https://docs.example.com      → busca e injeta a URL
 ```
 
 ---
 
-## Plan Mode
+## Sistema multi-agente
 
-For complex requests Cast enters plan mode:
-- asks clarifying questions
-- generates a structured plan
-- lets you refine, approve, or cancel
-- executes with the approved plan as context
+O Cast vem com 7 agentes especialistas built-in:
+
+- **coder** — implementação de propósito geral
+- **architect** — design de sistema e decisões de arquitetura
+- **reviewer** — revisão de código e verificação de qualidade
+- **frontend** — implementação de UI/UX
+- **backend** — trabalho em APIs e lado do servidor
+- **devops** — infraestrutura e deployment
+- **tester** — geração de testes e garantia de qualidade
+
+O Cast roteia as tarefas para o agente certo automaticamente, ou você pode endereçá-los diretamente. Adicione seus próprios agentes em `.cast/agents/` em qualquer projeto.
 
 ---
 
 ## MCP — Model Context Protocol
 
-Cast ships with templates for 30+ MCP servers across categories: Dev Tools, Design, Data, Search, Cloud, Productivity, Payments, and Browser.
+O Cast integra com 30+ ferramentas externas via MCP em diversas categorias:
 
-### Figma Desktop (recommended)
+**Dev Tools** · GitHub · GitLab · Jira · Linear
+**Design** · Figma Desktop · Storybook
+**Dados** · PostgreSQL · MySQL · SQLite · Redis
+**Busca** · Brave · Perplexity · Exa
+**Cloud** · AWS · Vercel · Cloudflare
+**Produtividade** · Slack · Notion · Google Drive
+**Browser** · Playwright · Puppeteer
 
-1. Install [Figma Desktop](https://www.figma.com/downloads/)
-2. Open a Design file and enter Dev Mode (`<>` button, top right)
-3. In the Inspect panel, enable **"Enable desktop MCP server"**
-4. In Cast: `/mcp add` → Design → Figma Desktop
-5. Restart Cast, then `/mcp` → Conectar servidores
+### Figma Desktop (recomendado para frontend)
 
-For HTTP servers that require OAuth, Cast handles the full OAuth 2.0 + PKCE flow automatically and stores tokens in `~/.cast/mcp-auth/`.
+1. Instale o [Figma Desktop](https://www.figma.com/downloads/) e abra um arquivo em Dev Mode
+2. No painel Inspect → ative **"Enable desktop MCP server"**
+3. No Cast: `/mcp add` → Design → Figma Desktop
+4. Reinicie o Cast — agora você pode pedir ao Cast para implementar componentes direto dos seus designs no Figma
 
----
-
-## Remote Access
-
-Cast can expose a password-protected web UI accessible from any browser — phone, tablet, or remote computer — via a secure ngrok tunnel.
-
-### Setup
-
-1. Enable remote access and set a password:
-   ```bash
-   /config init
-   ```
-   Toggle **Remote Access → enabled**, set a **password**, and optionally add your **ngrok auth token** (for persistent URLs) and **OpenAI API key** (for voice input via Whisper).
-
-2. Start the remote server:
-   ```bash
-   /remote
-   ```
-
-   Cast prints a public URL and your password:
-   ```
-   🌐 Remote Access Online!
-   Link:  https://xxxx-xxxx.ngrok-free.app
-   Password: your-password
-   ```
-
-3. Open the URL in any browser, enter your password, and you're in.
-
-### What the remote UI can do
-
-| Feature | Details |
-|---|---|
-| Live output | All agent responses stream to the browser in real time |
-| Send messages | Type prompts from the browser — they execute in the local CLI |
-| Voice input | Record audio in the browser; Cast transcribes via Whisper and sends as a prompt |
-| Kanban board | Access the task board at `<remote-url>/kanban` |
-
-### Requirements
-
-- `remote.enabled: true` and `remote.password` set in `~/.cast/config.yaml`
-- `npx` available (ngrok is fetched automatically via `npx ngrok`)
-- For persistent ngrok URLs: a free [ngrok account](https://ngrok.com) + auth token
-- For voice input: `remote.openaiApiKey` set (uses Whisper API)
+Para servidores HTTP que exigem OAuth, o Cast gerencia o fluxo completo de OAuth 2.0 + PKCE automaticamente.
 
 ---
 
-## Technical Stack
+## Acesso remoto
 
-- **Runtime**: Node.js >= 20, TypeScript
-- **Framework**: NestJS (dependency injection, modular architecture)
-- **LLM**: LangChain + LangGraph (multi-agent orchestration, streaming)
-- **MCP**: `@modelcontextprotocol/sdk` (stdio and HTTP/SSE transports, OAuth 2.0 + PKCE)
+O Cast pode servir uma interface web protegida por senha — acessível pelo celular, tablet ou qualquer máquina remota.
+
+```bash
+/remote
+```
+
+```
+🌐 Remote Access Online!
+Link:     https://xxxx.ngrok-free.app
+Password: sua-senha
+```
+
+Suporta streaming de saída em tempo real, envio de prompts pelo browser e **entrada por voz** via Whisper.
+
+---
+
+## Modo de planejamento
+
+Para tarefas complexas o Cast entra em modo de planejamento — faz perguntas de esclarecimento, propõe um plano estruturado e só executa após sua aprovação. Você pode refinar, rejeitar ou simplesmente dizer "vai" para prosseguir sem plano.
+
+---
+
+## Stack técnica
+
+- **Runtime**: Node.js ≥ 20, TypeScript
+- **Framework**: NestJS (DI, modular)
+- **Orquestração**: LangChain + LangGraph (multi-agente, streaming)
+- **MCP**: `@modelcontextprotocol/sdk` (stdio + HTTP/SSE, OAuth 2.0 + PKCE)
 - **Providers**: Anthropic, OpenAI, Google Gemini, Ollama
-- **Config**: YAML stored at `~/.cast/config.yaml`
-- **Auth tokens**: stored at `~/.cast/mcp-auth/<server>/`
+- **Config**: YAML em `~/.cast/config.yaml`
 
-### Project layout
+### Estrutura dos módulos
 
 ```
 src/modules/
-  repl/        interactive CLI, commands, SmartInput
-  core/        deep agent orchestration, system prompt, plan mode
-  agents/      specialist sub-agents (coder, architect, reviewer…)
-  skills/      skill definitions and knowledge loading
-  mcp/         MCP client, OAuth provider, server registry, templates
-  project/     project analysis and context generation
-  tasks/       task management and plan execution tools
-  git/         commit, PR, review, and release generators
-  config/      provider and model configuration
-  memory/      session memory tools
-  mentions/    @-mention context injection
+  repl/        CLI interativa, comandos, SmartInput, autocomplete
+  core/        agente principal, system prompt, modo de plano, streaming
+  agents/      sub-agentes especialistas
+  skills/      definições de skills e carregamento de conhecimento
+  mcp/         cliente MCP, OAuth, registro de servidores, 30+ templates
+  git/         geração de commits, split-commit, PR, revisão, release
+  project/     análise de projeto e geração de contexto
+  tools/       ferramentas de filesystem, shell, busca, web
+  config/      configuração de providers e modelos
+  mentions/    injeção de contexto via @-mention
+  stats/       rastreamento de tokens e custo da sessão
 ```
 
 ---
 
-## Local Development
+## Desenvolvimento local
 
 ```bash
 npm install
 npm run build
-npm run start
-```
-
-Watch mode:
-
-```bash
-npm run start:dev
+npm run start       # executa uma vez
+npm run start:dev   # modo watch (recompila ao salvar)
 ```
 
 ---
 
-## Notes
+## Dicas
 
-- Keep `.cast/context.md` updated — the richer the context, the better the answers.
-- Project-level agents and skills live in `.cast/agents/` and `.cast/skills/` at the repo root.
-- Run `/context` to verify what Cast can currently see.
+- Rode `/init` ao começar em um novo projeto — ele mapeia o codebase para o contexto
+- Mantenha `.cast/context.md` atualizado com notas específicas do projeto
+- Use `/compact` quando a sessão ficar longa para evitar atingir os limites de tokens
+- Rode `/context` para verificar o que o Cast está vendo no momento
+- Agentes e skills no nível do projeto ficam em `.cast/agents/` e `.cast/skills/`
