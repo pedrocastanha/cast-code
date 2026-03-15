@@ -4,8 +4,18 @@ import { execSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
-import { PromptLoaderService } from '../../core/services/prompt-loader.service';
+
+import { I18nService } from '../../i18n/services/i18n.service';
 import { GitDiffInfo, SplitCommit, CommitGroup, ConventionalCommitType } from '../types/git.types';
+import {
+  commitSystemPrompt,
+  splitSystemPrompt,
+  refineSystemPrompt,
+  buildCommitHumanPrompt,
+  buildSplitHumanPrompt,
+  buildGroupHumanPrompt,
+  buildRefineHumanPrompt,
+} from './commit-prompts';
 
 const COMMIT_TYPES: ConventionalCommitType[] = [
   'feat',
@@ -71,8 +81,12 @@ export class CommitGeneratorService {
   constructor(
     private readonly multiLlmService: MultiLlmService,
     private readonly monorepoDetector: MonorepoDetectorService,
-    private readonly promptLoader: PromptLoaderService,
+    private readonly i18nService: I18nService,
   ) {}
+
+  private lang(): string {
+    return this.i18nService.getLanguage();
+  }
 
   getDiffInfo(): GitDiffInfo | null {
     try {
@@ -119,7 +133,7 @@ export class CommitGeneratorService {
     const prompt = this.buildCommitPrompt(diffInfo, scope);
 
     const response = await llm.invoke([
-      new SystemMessage(this.promptLoader.getPrompt('git')),
+      new SystemMessage(commitSystemPrompt(this.lang())),
       new HumanMessage(prompt),
     ]);
 
@@ -138,7 +152,7 @@ export class CommitGeneratorService {
     const splitPrompt = this.buildSplitPrompt(diffInfo, allFiles);
 
     const splitResponse = await llm.invoke([
-      new SystemMessage(this.getSplitSystemPrompt()),
+      new SystemMessage(splitSystemPrompt(this.lang())),
       new HumanMessage(splitPrompt),
     ]);
 
@@ -240,16 +254,10 @@ export class CommitGeneratorService {
       maxUntrackedLines: 40,
     });
     const currentMetadata = this.extractTypeAndScope(currentMessage);
-
-    const prompt = `Mensagem atual: ${currentMessage}
-
-Sugestão do usuário: ${userSuggestion}
-
-Contexto do diff:
-${context}`;
+    const prompt = buildRefineHumanPrompt(this.lang(), currentMessage, userSuggestion, context);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getRefineSystemPrompt()),
+      new SystemMessage(refineSystemPrompt(this.lang())),
       new HumanMessage(prompt),
     ]);
 
@@ -258,7 +266,7 @@ ${context}`;
       message,
       currentMetadata.type ?? 'chore',
       currentMetadata.scope,
-      'atualiza código',
+      'update code',
       currentMetadata.breaking ?? false,
     );
   }
@@ -291,31 +299,17 @@ ${context}`;
   }
 
   private buildCommitPrompt(diffInfo: GitDiffInfo, scope?: string): string {
+    const lang = this.lang();
     const scopeHint = scope
-      ? `Escopo provável do monorepo: "${scope}".`
-      : 'Escopo do monorepo não identificado automaticamente.';
+      ? (lang === 'en' ? `Likely monorepo scope: "${scope}".` : `Escopo provável do monorepo: "${scope}".`)
+      : (lang === 'en' ? 'Monorepo scope not automatically identified.' : 'Escopo do monorepo não identificado automaticamente.');
     const fullDiff = this.buildDiffContext(diffInfo, {
       maxLength: 12000,
       maxCharsPerFile: 1800,
       maxUntrackedFiles: 4,
       maxUntrackedLines: 60,
     });
-
-    return `Analise TODO o contexto de mudanças e gere UMA mensagem de commit no padrão Conventional Commits.
-
-${scopeHint}
-
-Regras obrigatórias:
-- Formato: "type(scope): descrição", "type: descrição" ou com breaking "type(scope)!: descrição"
-- Tipos permitidos: ${COMMIT_TYPES.join(', ')}
-- Descrição em português (pt-BR), objetiva, no imperativo e sem ponto final
-- Máximo de 72 caracteres no assunto completo
-- A mensagem deve refletir a intenção principal do conjunto total de mudanças
-- Se for breaking change, inclua "!" após o type/scope
-- Considere staged, unstaged e arquivos novos
-
-Contexto do diff:
-${fullDiff}`;
+    return buildCommitHumanPrompt(lang, scopeHint, fullDiff);
   }
 
   private buildSplitPrompt(diffInfo: GitDiffInfo, files: string[]): string {
@@ -326,40 +320,18 @@ ${fullDiff}`;
       maxUntrackedFiles: 6,
       maxUntrackedLines: 80,
     });
-
-    return `Analise o diff completo e divida em commits lógicos no padrão Conventional Commits.
-
-Regras obrigatórias:
-- Cada arquivo da lista deve aparecer exatamente uma vez no resultado
-- Inclua TODOS os arquivos listados
-- Separe mudanças por coesão funcional (feature, fix, docs, refactor etc.)
-- Evite misturar objetivos diferentes no mesmo commit
-- Tipos permitidos: ${COMMIT_TYPES.join(', ')}
-- Descrição em português (pt-BR), no imperativo e sem ponto final
-
-Arquivos esperados:
-${allFiles.join(', ') || '(nenhum arquivo detectado)'}
-
-Contexto do diff:
-${fullDiff}`;
+    const lang = this.lang();
+    const filesList = allFiles.join(', ') || (lang === 'en' ? '(no files detected)' : '(nenhum arquivo detectado)');
+    return buildSplitHumanPrompt(lang, filesList, fullDiff);
   }
 
   private async generateMessageForGroup(group: CommitGroup): Promise<string> {
     const llm = this.multiLlmService.createModel('cheap');
     const scopePart = group.scope ? `(${group.scope})` : '';
-    const prompt = `Gere uma mensagem Conventional Commit (máximo 72 caracteres) para este grupo:
-
-Tipo: ${group.type}${scopePart}
-Arquivos: ${group.files.join(', ')}
-Resumo: ${group.description}
-
-Retorne APENAS uma linha no formato:
-"type(scope): descrição", "type: descrição" ou "type(scope)!: descrição"
-
-Descrição obrigatoriamente em português (pt-BR).`;
+    const prompt = buildGroupHumanPrompt(this.lang(), group.type, scopePart, group.files, group.description);
 
     const response = await llm.invoke([
-      new SystemMessage(this.promptLoader.getPrompt('git')),
+      new SystemMessage(commitSystemPrompt(this.lang())),
       new HumanMessage(prompt),
     ]);
 
@@ -386,78 +358,6 @@ Descrição obrigatoriamente em português (pt-BR).`;
     } catch {}
 
     return null;
-  }
-
-  private getCommitSystemPrompt(): string {
-    return `Você é especialista em mensagens de commit no padrão Conventional Commits.
-
-Tipos permitidos:
-${COMMIT_TYPES.join(', ')}
-
-Formato obrigatório:
-- Com escopo: <type>(<scope>): <descrição>
-- Sem escopo: <type>: <descrição>
-- Breaking change no assunto: <type>(<scope>)!: <descrição> (ou <type>!: <descrição>)
-
-Regras:
-- Assunto completo com no máximo 72 caracteres
-- Descrição em português (pt-BR)
-- Verbo no imperativo
-- Sem ponto final
-- Seja específico e evite mensagens genéricas
-- Use escopo quando ele estiver claro
-- Tipos feat e fix devem ser usados de forma semântica (feature e correção)
-
-Retorne SOMENTE a linha do commit, sem explicações.`;
-  }
-
-  private getSplitSystemPrompt(): string {
-    return `Você é especialista em organizar diffs em commits lógicos.
-
-Tarefa:
-- Agrupar mudanças por coesão funcional
-- Separar corretamente feature, fix, docs, refactor etc.
-- Garantir que todos os arquivos apareçam exatamente uma vez
-
-Formato de resposta:
-Retorne SOMENTE JSON válido:
-\`\`\`json
-{
-  "commits": [
-    {
-      "type": "feat",
-      "files": ["src/chatbot/service.ts"],
-      "description": "adiciona service de chatbot"
-    },
-    {
-      "type": "docs",
-      "files": ["README.md"],
-      "description": "atualiza documentação de uso"
-    }
-  ]
-}
-\`\`\`
-
-Regras:
-- Tipos permitidos: ${COMMIT_TYPES.join(', ')}
-- Cada commit com propósito claro
-- Descrição em português (pt-BR), no imperativo, sem ponto final
-- Máximo recomendado de 5 arquivos por commit
-- Pode retornar 1 commit apenas se o diff for pequeno e coeso
-
-Retorne SOMENTE o JSON, sem texto adicional.`;
-  }
-
-  private getRefineSystemPrompt(): string {
-    return `Você está refinando uma mensagem de commit a partir do feedback do usuário.
-
-Instruções:
-- Respeite Conventional Commits
-- Mantenha no máximo 72 caracteres
-- Mensagem em português (pt-BR), no imperativo e sem ponto final
-- Incorpore a sugestão do usuário sem perder precisão técnica
-
-Retorne SOMENTE a nova linha de commit.`;
   }
 
   private normalizeCommitGroups(commitGroups: CommitGroup[], files: string[]): CommitGroup[] {
