@@ -142,6 +142,7 @@ export class ConfigManagerService {
         ...(parsed.models || {}),
       },
       remote: parsed.remote,
+      language: parsed.language,
     };
   }
 }
