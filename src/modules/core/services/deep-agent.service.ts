@@ -84,6 +84,7 @@ export class DeepAgentService {
   async initialize(): Promise<ProjectInitResult> {
     const projectPath = await this.projectLoader.detectProject();
     this.projectRoot = projectPath ?? process.cwd();
+    this.toolsRegistry.setRootDir(this.projectRoot);
 
     if (projectPath) {
       const projectConfig = await this.projectLoader.loadProject(projectPath);
@@ -123,7 +124,8 @@ export class DeepAgentService {
     this.cachedProjectStructure = await this.projectContext.getProjectStructureSummary(this.projectRoot);
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
 
-    const subagents = this.agentRegistry.getSubagentDefinitions(contextPrompt);
+    const subagentContext = `Working directory: ${this.projectRoot}\n\n${contextPrompt}`.trim();
+    const subagents = this.agentRegistry.getSubagentDefinitions(subagentContext);
     const allTools = this.toolsRegistry.getAllTools();
     const mcpTools = this.mcpRegistry.getAllMcpTools();
 
@@ -243,6 +245,15 @@ export class DeepAgentService {
         }
       }
     }
+
+    parts.push(
+      `## Environment`,
+      `- Working directory: ${this.projectRoot}`,
+      `- Platform: ${process.platform}`,
+      ``,
+      `**IMPORTANT:** Always use RELATIVE paths for all file operations (e.g. \`src/index.ts\`, NOT \`/src/index.ts\` or \`${this.projectRoot}/src/index.ts\`).`,
+      `All paths are resolved relative to the working directory above.`,
+    );
 
     if (this.cachedProjectStructure) {
       parts.push(`## Project Structure\n\`\`\`\n${this.cachedProjectStructure}\n\`\`\`\n\nUse this as your reference for existing files. Only re-read a file if its content is unknown or it may have changed.`);
@@ -1069,7 +1080,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     const fmt = (n: number) => n.toLocaleString();
-    yield `\n\x1b[2m  \u2500 in: ${fmt(interactionInputTokens)} | ctx: ${fmt(this.tokenCount)} | out: ${fmt(interactionOutputTokens)}\x1b[0m\n`;
+    yield `\n\x1b[2m  \u2500 in: ${fmt(interactionInputTokens)} | out: ${fmt(interactionOutputTokens)}\x1b[0m\n`;
   }
 
   clearHistory() {

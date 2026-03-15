@@ -84,4 +84,9 @@ export class ToolsRegistryService {
   registerTool(t: StructuredTool) {
     this.tools.set(t.name, t);
   }
+
+  setRootDir(dir: string): void {
+    this.filesystemTools.setRootDir(dir);
+    this.shellTools.setRootDir(dir);
+  }
 }

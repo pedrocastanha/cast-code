@@ -29,9 +29,14 @@ const MAX_READ_FILES = 200;
 export class FilesystemToolsService {
   private readFiles: Set<string> = new Set();
   private fileWriteHandler: FileWriteHandler | null = null;
+  private rootDir: string = this.rootDir;
 
   setFileWriteHandler(handler: FileWriteHandler): void {
     this.fileWriteHandler = handler;
+  }
+
+  setRootDir(dir: string): void {
+    this.rootDir = dir;
   }
 
   clearSession(): void {
@@ -95,7 +100,7 @@ export class FilesystemToolsService {
 
           const resolvedPath = path.isAbsolute(filePath)
             ? filePath
-            : path.resolve(process.cwd(), filePath);
+            : path.resolve(this.rootDir, filePath);
 
           try {
             const stat = await fs.stat(resolvedPath);
@@ -125,7 +130,7 @@ export class FilesystemToolsService {
             if (err.code === 'ENOENT') {
               const basename = path.basename(filePath);
               const matches = await glob(`**/${basename}`, {
-                cwd: process.cwd(),
+                cwd: this.rootDir,
                 ignore: DEFAULT_IGNORE,
               });
 
@@ -204,7 +209,7 @@ export class FilesystemToolsService {
 
           const resolvedPath = path.isAbsolute(filePath)
             ? filePath
-            : path.resolve(process.cwd(), filePath);
+            : path.resolve(this.rootDir, filePath);
 
           let fileExists = false;
           try {
@@ -269,7 +274,7 @@ export class FilesystemToolsService {
 
           const resolvedPath = path.isAbsolute(filePath)
             ? filePath
-            : path.resolve(process.cwd(), filePath);
+            : path.resolve(this.rootDir, filePath);
 
           if (oldString === newString) {
             return 'Error: old_string and new_string are identical. No changes needed.';
@@ -347,8 +352,8 @@ export class FilesystemToolsService {
       async ({ pattern, cwd }) => {
         try {
           const searchDir = cwd
-            ? (path.isAbsolute(cwd) ? cwd : path.resolve(process.cwd(), cwd))
-            : process.cwd();
+            ? (path.isAbsolute(cwd) ? cwd : path.resolve(this.rootDir, cwd))
+            : this.rootDir;
 
           const files = await glob(pattern, {
             cwd: searchDir,
@@ -356,7 +361,7 @@ export class FilesystemToolsService {
           });
 
           if (files.length === 0) {
-            return `No files found matching "${pattern}" in ${searchDir}.\nTip: The working directory is ${process.cwd()}. Use "**/*.ext" to search recursively.`;
+            return `No files found matching "${pattern}" in ${searchDir}.\nTip: The working directory is ${this.rootDir}. Use "**/*.ext" to search recursively.`;
           }
 
           const sorted = files.sort();
@@ -412,7 +417,7 @@ export class FilesystemToolsService {
             return 'Error: pattern is required';
           }
 
-          const baseDir = searchPath || process.cwd();
+          const baseDir = searchPath || this.rootDir;
           const files = await glob(filePattern || '**/*', {
             cwd: baseDir,
             nodir: true,
@@ -564,11 +569,11 @@ export class FilesystemToolsService {
       async (input) => {
         try {
           const directory =
-            (input as any).directory || (input as any).path || process.cwd();
+            (input as any).directory || (input as any).path || this.rootDir;
 
           const resolvedPath = path.isAbsolute(directory)
             ? directory
-            : path.resolve(process.cwd(), directory);
+            : path.resolve(this.rootDir, directory);
 
           const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
 

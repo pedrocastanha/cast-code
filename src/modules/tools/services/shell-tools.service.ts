@@ -24,8 +24,13 @@ interface ShellSessionState {
 export class ShellToolsService {
   private backgroundProcesses: Map<string, any> = new Map();
   private processCounter = 0;
+  private rootDir: string = process.cwd();
 
   constructor(private permissionService: PermissionService) {}
+
+  setRootDir(dir: string): void {
+    this.rootDir = dir;
+  }
 
   private buildTools(state: ShellSessionState) {
     return [
@@ -61,7 +66,7 @@ export class ShellToolsService {
 
         try {
           const { stdout, stderr } = await execAsync(command, {
-            cwd: cwd || process.cwd(),
+            cwd: cwd || this.rootDir,
             timeout: timeout || 120000, // Default 2min, max 10min
             maxBuffer: 10 * 1024 * 1024,
           });
@@ -119,7 +124,7 @@ export class ShellToolsService {
           const logFd = require('fs').openSync(outputFile, 'w');
 
           const child = spawn(command, {
-            cwd: cwd || process.cwd(),
+            cwd: cwd || this.rootDir,
             shell: true,
             detached: true,
             stdio: ['ignore', logFd, logFd],

@@ -62,6 +62,8 @@ export class AgentRegistryService {
       systemPrompt += `\n\n# Your Available Tools\nYou have access to these tools ONLY: ${toolNames}\nDo NOT attempt to use tools not in this list.`;
     }
 
+    systemPrompt += `\n\n# Execution Rules\n- Always use RELATIVE paths (e.g. \`src/index.ts\`). NEVER use absolute paths starting with \`/\` or \`~\`.\n- Execute your task completely. Do NOT ask for confirmation or leave work half-done.\n- After writing a file, re-read it to verify the result.`;
+
     if (projectContext) {
       systemPrompt += `\n\n# Project Context\n${projectContext}`;
     }
