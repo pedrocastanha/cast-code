@@ -26,7 +26,6 @@ import { PromptClassifierService } from './prompt-classifier.service';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
-const RECURSION_LIMIT = 100;
 const DEEPAGENT_BUILTIN_TOOLS = new Set([
   'read_file', 'write_file', 'edit_file', 'glob', 'grep', 'ls',
   'write_todos', 'task',
@@ -949,7 +948,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     try {
       stream = this.agent.streamEvents(
         { messages: this.messages },
-        { version: 'v2', recursionLimit: RECURSION_LIMIT },
+        { version: 'v2', recursionLimit: 1000000 },
       );
     } catch (error) {
       yield `\n\x1b[31m  Error starting agent: ${(error as Error).message}\x1b[0m\n`;
