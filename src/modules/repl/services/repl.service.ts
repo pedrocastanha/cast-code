@@ -79,10 +79,6 @@ export class ReplService {
       agentCount,
     });
 
-    // Intercept stdout to broadcast to remote UI.
-    // Only broadcast while isProcessing=true (AI responding / tools running).
-    // This prevents SmartInput cursor-movement / autocomplete renders from
-    // being sent to the remote client and corrupting the local terminal state.
     const originalWrite = process.stdout.write.bind(process.stdout);
     process.stdout.write = (chunk: Uint8Array | string, encoding?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean => {
       if (this.isBroadcasting) {
@@ -99,9 +95,7 @@ export class ReplService {
       return originalWrite(chunk, encoding as any, cb as any);
     };
 
-    // Callback when remote UI sends a message
     this.remoteServer.onMessage(async (msg) => {
-      // To show properly on UI and terminal
       process.stdout.write(`\r\x1b[K${Colors.cyan}${Colors.bold}>${Colors.reset} ${msg}\r\n`);
       await this.handleLine(msg);
     });
@@ -596,7 +590,6 @@ export class ReplService {
       let firstChunk = true;
       let fullResponse = '';
 
-      // Map tool names to human-readable spinner labels
       const toolLabel = (chunk: string): string | null => {
         if (chunk.includes('▶ read file') || chunk.includes('▶ read_file')) return 'Reading';
         if (chunk.includes('▶ write file') || chunk.includes('▶ write_file')) return 'Writing';
@@ -614,15 +607,12 @@ export class ReplService {
       const isMetaOutput = (chunk: string): boolean =>
         chunk.includes('tokens:') || chunk.includes('conversation compacted');
 
-      // Tool result chunks (formatToolEnd) start with dim ANSI codes and are indented
-      // They do NOT start with a plain printable character — real text responses do
       const isToolResultChunk = (chunk: string): boolean =>
         chunk.startsWith('\x1b[2m') || (chunk.startsWith('\n\x1b') && !chunk.includes('▶'));
 
       for await (const chunk of this.deepAgent.chat(mentionResult.expandedMessage)) {
         if (this.abortController?.signal.aborted) break;
 
-        // Detect tool invocation — update spinner label before stopping
         const newLabel = toolLabel(chunk);
         if (newLabel) {
           this.updateSpinner(newLabel);
@@ -632,18 +622,14 @@ export class ReplService {
         const isToolChunk = newLabel !== null;
 
         if (isToolChunk) {
-          // Stop spinner before tool output to avoid clobbering lines
           this.stopSpinner();
           process.stdout.write(chunk);
-          // Restart spinner after tool output (if no text response yet)
           if (firstChunk) {
             this.startSpinner('Working');
           }
         } else if (isMeta || isToolResultChunk(chunk)) {
-          // Tool results or meta info — print as-is without triggering response header
           process.stdout.write(chunk);
         } else {
-          // Real AI text chunk — print response header on first one
           if (firstChunk) {
             this.stopSpinner();
             process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
