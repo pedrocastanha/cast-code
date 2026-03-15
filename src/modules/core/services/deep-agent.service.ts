@@ -46,6 +46,7 @@ export class DeepAgentService {
   private cachedMcpDiscoveryTools: any[] = [];
   private cachedSubagents: any[] = [];
   private pendingContextRefresh = false;
+  private projectRoot: string = process.cwd();
 
   constructor(
     private readonly multiLlmService: MultiLlmService,
@@ -81,6 +82,7 @@ export class DeepAgentService {
 
   async initialize(): Promise<ProjectInitResult> {
     const projectPath = await this.projectLoader.detectProject();
+    this.projectRoot = projectPath ?? process.cwd();
 
     if (projectPath) {
       const projectConfig = await this.projectLoader.loadProject(projectPath);
@@ -117,7 +119,7 @@ export class DeepAgentService {
     }
 
     const contextPrompt = this.projectContext.getContextPrompt();
-    const projectStructure = await this.projectContext.getProjectStructureSummary(process.cwd());
+    const projectStructure = await this.projectContext.getProjectStructureSummary(this.projectRoot);
     const memoryPrompt = await this.memoryService.getMemoryPrompt();
 
     const subagents = this.agentRegistry.getSubagentDefinitions(contextPrompt);
@@ -142,7 +144,7 @@ export class DeepAgentService {
       systemPrompt,
       tools: [...extraTools, ...mcpTools, ...mcpDiscoveryTools],
       subagents,
-      backend: () => new FilesystemBackend({ rootDir: process.cwd() }),
+      backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
     });
 
     return {
@@ -162,7 +164,7 @@ export class DeepAgentService {
       systemPrompt: this.cachedSystemPrompt,
       tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
       subagents: this.cachedSubagents,
-      backend: () => new FilesystemBackend({ rootDir: process.cwd() }),
+      backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
     });
   }
 
@@ -170,15 +172,15 @@ export class DeepAgentService {
     try {
       const branch = execSync('git rev-parse --abbrev-ref HEAD 2>/dev/null', {
         encoding: 'utf-8',
-        cwd: process.cwd(),
+        cwd: this.projectRoot,
       }).trim();
       const status = execSync('git status --short 2>/dev/null', {
         encoding: 'utf-8',
-        cwd: process.cwd(),
+        cwd: this.projectRoot,
       }).trim();
       const log = execSync('git log --oneline -5 2>/dev/null', {
         encoding: 'utf-8',
-        cwd: process.cwd(),
+        cwd: this.projectRoot,
       }).trim();
 
       let result = `Branch: ${branch}`;
@@ -666,7 +668,7 @@ export class DeepAgentService {
 
     parts.push(
       `# Environment`,
-      `- Working directory: ${process.cwd()}`,
+      `- Working directory: ${this.projectRoot}`,
       `- Platform: ${process.platform}`,
       `- Node.js: ${process.version}`,
       ``,
@@ -940,7 +942,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
         systemPrompt: contextualPrompt,
         tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
         subagents: this.cachedSubagents,
-        backend: () => new FilesystemBackend({ rootDir: process.cwd() }),
+        backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
       });
     }
 
