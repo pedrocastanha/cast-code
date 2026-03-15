@@ -729,7 +729,12 @@ export class ReplService {
       lines.push(...clarifications);
     }
     lines.push('');
-    lines.push('Execute the task following this approved plan and report progress by step.');
+    lines.push('IMPORTANT EXECUTION RULES:');
+    lines.push('- Execute ALL steps from start to finish WITHOUT stopping or pausing between them.');
+    lines.push('- Do NOT ask "shall I continue?", "should I proceed?", or any variation of that.');
+    lines.push('- Use write_todos to create todos for each step and mark them complete as you go.');
+    lines.push('- Only return control to the user after ALL steps are fully completed.');
+    lines.push('- If a step fails, fix it and continue — do not stop to ask for guidance.');
     return lines.join('\n');
   }
 

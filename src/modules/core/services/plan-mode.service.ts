@@ -110,7 +110,8 @@ Be specific about file paths and changes.`;
 Request: ${userMessage}
 
 Rules:
-- Ask only high-impact questions (constraints, scope boundaries, compatibility, deadlines).
+- Ask only high-impact questions (constraints, scope boundaries, compatibility, existing patterns to follow).
+- NEVER ask about deadlines or delivery timelines — the answer is always "now".
 - Return ONLY numbered questions, one per line.
 - If request is already clear, return "NONE".`;
 
