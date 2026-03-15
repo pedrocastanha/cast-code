@@ -10,6 +10,7 @@ import {
   ProviderType,
   ProvidersConfig,
 } from '../types/config.types';
+import { I18nService } from '../../i18n/services/i18n.service';
 
 const CONFIG_VERSION = 1;
 const GLOBAL_CONFIG_DIR = path.join(homedir(), '.cast');
@@ -31,6 +32,8 @@ export class ConfigManagerService {
   private config: CastConfig = DEFAULT_CONFIG;
   private loaded = false;
 
+  constructor(private readonly i18nService: I18nService) {}
+
   async loadConfig(): Promise<CastConfig> {
     try {
       const content = await fs.readFile(CONFIG_FILE, 'utf-8');
@@ -43,6 +46,9 @@ export class ConfigManagerService {
       }
       this.config = { ...DEFAULT_CONFIG };
       this.loaded = true;
+    }
+    if (this.config.language) {
+      this.i18nService.setLanguage(this.config.language);
     }
     return this.config;
   }

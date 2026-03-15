@@ -61,6 +61,7 @@ export interface RemoteConfig {
 
 export interface CastConfig {
   version: number;
+  language?: 'en' | 'pt';
   providers: ProvidersConfig;
   models: ModelsConfig;
   remote?: RemoteConfig;
