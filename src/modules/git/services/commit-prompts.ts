@@ -5,8 +5,6 @@ const COMMIT_TYPES: ConventionalCommitType[] = [
   'perf', 'test', 'build', 'ci', 'chore',
 ];
 
-// ─── System prompts ───────────────────────────────────────────────────────────
-
 export function commitSystemPrompt(lang: string): string {
   if (lang === 'en') {
     return `You are an expert at writing Conventional Commits messages.
@@ -132,8 +130,6 @@ Instruções:
 
 Retorne SOMENTE a nova linha de commit.`;
 }
-
-// ─── Human messages ───────────────────────────────────────────────────────────
 
 export function buildCommitHumanPrompt(lang: string, scopeHint: string, fullDiff: string): string {
   const types = COMMIT_TYPES.join(', ');
