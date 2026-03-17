@@ -419,7 +419,7 @@ export class CommitGeneratorService {
     const prefix = scope
       ? `${type}(${scope})${breakingFlag}: `
       : `${type}${breakingFlag}: `;
-    const maxDescriptionLength = Math.max(12, 72 - prefix.length);
+    const maxDescriptionLength = Math.max(12, 100 - prefix.length);
     const truncatedDescription = this.truncateText(description, maxDescriptionLength);
 
     return `${prefix}${truncatedDescription}`;

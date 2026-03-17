@@ -17,7 +17,7 @@ Required format:
 - Breaking:      <type>(<scope>)!: <description>
 
 Rules:
-- Full subject max 72 characters
+- Full subject max 100 characters
 - Description in English, imperative mood, no trailing period
 - Be specific; avoid generic messages
 - Use scope when clear
@@ -36,7 +36,7 @@ Formato obrigatório:
 - Breaking:      <type>(<scope>)!: <descrição>
 
 Regras:
-- Assunto completo com no máximo 72 caracteres
+- Assunto completo com no máximo 100 caracteres
 - Descrição em português (pt-BR), no imperativo, sem ponto final
 - Seja específico e evite mensagens genéricas
 - Use escopo quando estiver claro
@@ -113,7 +113,7 @@ export function refineSystemPrompt(lang: string): string {
 
 Instructions:
 - Follow Conventional Commits
-- Max 72 characters
+- Max 100 characters
 - Description in English, imperative mood, no trailing period
 - Incorporate the user's suggestion without losing technical precision
 
@@ -124,7 +124,7 @@ Return ONLY the new commit line.`;
 
 Instruções:
 - Respeite Conventional Commits
-- Máximo 72 caracteres
+- Máximo 100 caracteres
 - Descrição em português (pt-BR), no imperativo, sem ponto final
 - Incorpore a sugestão do usuário sem perder precisão técnica
 
@@ -143,7 +143,7 @@ Mandatory rules:
 - Format: "type(scope): description", "type: description", or breaking "type(scope)!: description"
 - Allowed types: ${types}
 - Description in English, imperative mood, no trailing period, concise
-- Max 72 characters total
+- Max 100 characters total
 - The message must reflect the main intent of the full set of changes
 - If breaking change, include "!" after type/scope
 - Consider staged, unstaged and new files
@@ -160,7 +160,7 @@ Regras obrigatórias:
 - Formato: "type(scope): descrição", "type: descrição" ou com breaking "type(scope)!: descrição"
 - Tipos permitidos: ${types}
 - Descrição em português (pt-BR), no imperativo, sem ponto final, objetiva
-- Máximo de 72 caracteres no assunto completo
+- Máximo de 100 caracteres no assunto completo
 - A mensagem deve refletir a intenção principal do conjunto total de mudanças
 - Se for breaking change, inclua "!" após o type/scope
 - Considere staged, unstaged e arquivos novos
@@ -215,7 +215,7 @@ export function buildGroupHumanPrompt(
   description: string,
 ): string {
   if (lang === 'en') {
-    return `Generate a Conventional Commit message (max 72 characters) for this group:
+    return `Generate a Conventional Commit message (max 100 characters) for this group:
 
 Type: ${type}${scopePart}
 Files: ${files.join(', ')}
@@ -227,7 +227,7 @@ Return ONLY one line in the format:
 Description in English, imperative mood, no trailing period.`;
   }
 
-  return `Gere uma mensagem Conventional Commit (máximo 72 caracteres) para este grupo:
+  return `Gere uma mensagem Conventional Commit (máximo 100 caracteres) para este grupo:
 
 Tipo: ${type}${scopePart}
 Arquivos: ${files.join(', ')}

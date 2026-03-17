@@ -4,31 +4,31 @@ You are generating a PR description. Fill in the template below with actual cont
 
 Generate the PR description using this exact structure:
 
-## 🚀 O que essa PR faz?
+## 🚀 What does this PR do?
 <Describe the main purpose and goal of this PR in 2-3 sentences>
 
-## 🛠️ O que foi mexido?
+## 🛠️ What was changed?
 <List the main components, services, or areas changed>
 
-## 💡 O que eu fiz? (Resumo técnico)
+## 💡 What did I do? (Technical summary)
 <Technical summary: approach taken, key decisions, patterns used>
 
-## 🧪 Como testar?
+## 🧪 How to test?
 <Step-by-step instructions to test the changes>
 
-## ✅ Checklist do Dev
-- [ ] Testes adicionados ou atualizados
-- [ ] Sem breaking changes não documentadas
-- [ ] Código revisado localmente
+## ✅ Dev Checklist
+- [ ] Tests added or updated
+- [ ] No undocumented breaking changes
+- [ ] Code reviewed locally
 
-## 📸 Prints / GIFs (Se for UI)
+## 📸 Screenshots / GIFs (If UI)
 <Add screenshots/GIFs if there are UI changes, otherwise write N/A>
 
-## 🔗 Link da Task
+## 🔗 Task Link
 <Task/ticket link if available, otherwise write N/A>
 
 Rules:
 - Replace all content inside <...> with actual information derived from the commits
 - Keep all section headings exactly as shown above — they are required
 - Be concise and specific — no generic placeholder text
-- Write section content in the configured language
+- Write section content in English
