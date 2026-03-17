@@ -371,26 +371,42 @@ export class PrGeneratorService {
     return `Branch: ${branchName}\nBase: ${baseBranch}\nCommits: ${commits.length}\n\n${commitsInfo}`;
   }
 
+  private lang(): 'en' | 'pt' {
+    return this.i18nService.getLanguage();
+  }
+
   private getSingleAgentSystemPrompt(): string {
-    const base = this.promptLoader.getPrompt('pr');
+    const lang = this.lang();
+    const base = this.promptLoader.getPrompt(`pr.${lang}`) || this.promptLoader.getPrompt('pr');
     const langInstruction = this.i18nService.getAgentLanguageInstruction();
     return `${base}\n\n${langInstruction}`;
   }
 
-  private parseSingleResponse(content: string, commits: CommitInfo[]): { 
-    title: string; 
-    description: string; 
-    commitSummaries: { hash: string; summary: string; details: string }[] 
+  private getRequiredHeading(): string {
+    return this.lang() === 'en' ? '## 🚀 What does this PR do?' : '## 🚀 O que essa PR faz?';
+  }
+
+  private getReviewReminder(): string {
+    return this.lang() === 'en'
+      ? "Don't forget to review this description"
+      : 'Não se esqueça de revisar essa descrição';
+  }
+
+  private parseSingleResponse(content: string, commits: CommitInfo[]): {
+    title: string;
+    description: string;
+    commitSummaries: { hash: string; summary: string; details: string }[]
   } {
     const title = '';
     let description = content.trim();
-    const requiredHeading = '## 🚀 O que essa PR faz?';
+    const requiredHeading = this.getRequiredHeading();
     const hasRequiredHeading = description.includes(requiredHeading);
+    const reviewReminder = this.getReviewReminder();
 
     if (!hasRequiredHeading) {
       description = this.getPRTemplate();
-    } else if (!description.includes('Não se esqueça de revisar essa descrição')) {
-      description = `${description.trim()}\n\nNão se esqueça de revisar essa descrição`;
+    } else if (!description.includes(reviewReminder)) {
+      description = `${description.trim()}\n\n${reviewReminder}`;
     }
 
     const commitSummaries: { hash: string; summary: string; details: string }[] = [];
@@ -439,13 +455,34 @@ export class PrGeneratorService {
 
   private normalizeTemplate(raw: string): string {
     const trimmed = raw.trimEnd();
-    if (trimmed.includes('Não se esqueça de revisar essa descrição')) {
+    const reminder = this.getReviewReminder();
+    if (trimmed.includes(reminder)) {
       return trimmed;
     }
-    return `${trimmed}\n\nNão se esqueça de revisar essa descrição`;
+    return `${trimmed}\n\n${reminder}`;
   }
 
   private buildDefaultTemplate(): string {
+    if (this.lang() === 'en') {
+      return [
+        '## 🚀 What does this PR do?',
+        '',
+        '## 🛠️ What was changed?',
+        '',
+        '## 💡 What did I do? (Technical summary)',
+        '',
+        '## 🧪 How to test?',
+        '',
+        '## ✅ Dev Checklist',
+        '',
+        '## 📸 Screenshots / GIFs (If UI)',
+        '',
+        '## 🔗 Task Link',
+        '',
+        "Don't forget to review this description",
+      ].join('\n');
+    }
+
     return [
       '## 🚀 O que essa PR faz?',
       '',
