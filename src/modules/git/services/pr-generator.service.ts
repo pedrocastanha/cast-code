@@ -4,6 +4,7 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
 import { PromptLoaderService } from '../../core/services/prompt-loader.service';
+import { I18nService } from '../../i18n/services/i18n.service';
 
 export interface CommitInfo {
   hash: string;
@@ -37,6 +38,7 @@ export class PrGeneratorService {
     private readonly multiLlmService: MultiLlmService,
     private readonly monorepoDetector: MonorepoDetectorService,
     private readonly promptLoader: PromptLoaderService,
+    private readonly i18nService: I18nService,
   ) {}
 
   getCurrentBranch(): string {
@@ -370,7 +372,9 @@ export class PrGeneratorService {
   }
 
   private getSingleAgentSystemPrompt(): string {
-    return this.promptLoader.getPrompt('pr');
+    const base = this.promptLoader.getPrompt('pr');
+    const langInstruction = this.i18nService.getAgentLanguageInstruction();
+    return `${base}\n\n${langInstruction}`;
   }
 
   private parseSingleResponse(content: string, commits: CommitInfo[]): { 
