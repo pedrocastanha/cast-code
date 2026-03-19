@@ -46,6 +46,7 @@ export class DiscoveryToolsService {
       this.createListAgentsTool(),
       this.createSaveSnippetTool(),
       this.createAnalyzeImpactTool(),
+      this.createListCommandsTool(),
     ];
   }
 
@@ -170,6 +171,112 @@ export class DiscoveryToolsService {
           code: z.string().describe('The complete code content'),
           description: z.string().describe('What this snippet does and when to use it'),
           language: z.string().optional().describe('Programming language (default: typescript)'),
+        }),
+      },
+    );
+  }
+
+  private createListCommandsTool() {
+    const COMMANDS: { section: string; items: { name: string; desc: string }[] }[] = [
+      {
+        section: 'General',
+        items: [
+          { name: '/help', desc: 'show command reference' },
+          { name: '/clear', desc: 'clear conversation history' },
+          { name: '/compact', desc: 'summarize and compress history' },
+          { name: '/context', desc: 'show session info (model, tokens, agents, MCP)' },
+          { name: '/exit', desc: 'quit' },
+        ],
+      },
+      {
+        section: 'Git',
+        items: [
+          { name: '/status', desc: 'git status' },
+          { name: '/diff [ref]', desc: 'git diff' },
+          { name: '/log', desc: 'recent commits' },
+          { name: '/commit [msg]', desc: 'AI-assisted or manual commit' },
+          { name: '/up', desc: 'smart commit & push' },
+          { name: '/split-up', desc: 'split staged changes into multiple commits' },
+          { name: '/pr', desc: 'create PR with AI-generated description' },
+          { name: '/unit-test', desc: 'generate unit tests for branch changes' },
+          { name: '/review [files]', desc: 'AI code review' },
+          { name: '/fix <file>', desc: 'auto-fix code issues in a file' },
+          { name: '/ident', desc: 'format all code files' },
+          { name: '/release [tag]', desc: 'generate release notes' },
+        ],
+      },
+      {
+        section: 'Agents & Skills',
+        items: [
+          { name: '/agents', desc: 'list loaded agents' },
+          { name: '/agents create', desc: 'create new agent' },
+          { name: '/skills', desc: 'list loaded skills' },
+          { name: '/skills create', desc: 'create new skill' },
+        ],
+      },
+      {
+        section: 'Project & Config',
+        items: [
+          { name: '/init', desc: 'analyze project & generate context file' },
+          { name: '/project show', desc: 'display current project context' },
+          { name: '/project edit', desc: 'open project context in editor' },
+          { name: '/project-deep', desc: 'deep analysis + agent brief' },
+          { name: '/model', desc: 'show current model' },
+          { name: '/config', desc: 'show/edit configuration' },
+        ],
+      },
+      {
+        section: 'Tools & MCP',
+        items: [
+          { name: '/tools', desc: 'list available tools' },
+          { name: '/mcp list', desc: 'list MCP servers' },
+          { name: '/mcp tools', desc: 'list MCP tools' },
+          { name: '/mcp add', desc: 'add MCP server' },
+          { name: '/mcp help', desc: 'MCP setup guide' },
+          { name: '/kanban', desc: 'open kanban task board' },
+          { name: '/remote', desc: 'start remote web interface via ngrok' },
+        ],
+      },
+      {
+        section: 'Session & History',
+        items: [
+          { name: '/rollback [file]', desc: 'restore file from snapshot' },
+          { name: '/stats', desc: 'show session token & cost stats' },
+          { name: '/replay [list|save|show]', desc: 'save/view session replays' },
+          { name: '/vault [list|show|promote]', desc: 'manage code snippet vault' },
+        ],
+      },
+    ];
+
+    return tool(
+      async (input: { command?: string }) => {
+        const query = input.command?.trim().toLowerCase().replace(/^\//, '');
+
+        if (query) {
+          for (const section of COMMANDS) {
+            for (const item of section.items) {
+              const itemName = item.name.toLowerCase().replace(/^\//, '').split(' ')[0];
+              if (itemName === query || item.name.toLowerCase().includes(query)) {
+                return `**${item.name}** — ${item.desc}\nSection: ${section.section}`;
+              }
+            }
+          }
+          return `Command "/${query}" not found. Use list_commands without arguments to see all available commands.`;
+        }
+
+        const sections = COMMANDS.map((s) => {
+          const rows = s.items.map((i) => `- \`${i.name}\` — ${i.desc}`).join('\n');
+          return `### ${s.section}\n${rows}`;
+        });
+
+        return `## REPL Commands\n\n${sections.join('\n\n')}`;
+      },
+      {
+        name: 'list_commands',
+        description:
+          'List available REPL slash commands (e.g. /commit, /pr, /review, /kanban). Call this when the user mentions a /command or asks what commands are available in cast. Optionally pass a command name to get info about a specific one.',
+        schema: z.object({
+          command: z.string().optional().describe('Specific command to look up, e.g. "pr" or "/commit". Omit to list all.'),
         }),
       },
     );

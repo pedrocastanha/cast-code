@@ -37,6 +37,11 @@ task(subagent_type: "coder",   description: "Create User TypeORM entity with res
 - `read_skill(name)` → load best practices for that area
 Apply skill guidelines to your work.
 
+## REPL Commands — suggest them proactively
+- `list_commands` → see all available slash commands (e.g. `/commit`, `/pr`, `/review`)
+- `list_commands(command: "pr")` → get info about a specific command
+When the user mentions a `/command` or asks how to do something that has a dedicated command, call `list_commands` and suggest it.
+
 ## File operations
 - Always use RELATIVE paths (`src/index.ts`). NEVER absolute paths starting with `/` or `~`.
 - If you already read a file in this conversation, don't re-read it unless you just wrote to it.
