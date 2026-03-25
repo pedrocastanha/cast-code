@@ -1,0 +1,240 @@
+/* ============================================
+   CAST-CODE ROOMS — Design System
+   ============================================ */
+
+:root {
+  /* ============================================
+     BASE COLORS — Global
+     ============================================ */
+  
+  /* Backgrounds */
+  --bg: #09090b;                    /* zinc-950 — fundo principal */
+  --surface: rgba(24, 24, 27, 0.85); /* zinc-900 translúcido */
+  --surface-solid: #18181b;         /* zinc-900 sólido */
+  --card: rgba(39, 39, 42, 0.6);    /* zinc-800 translúcido */
+  
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.15);
+  
+  /* Text */
+  --text: #fafafa;                  /* zinc-50 */
+  --text-muted: #a1a1aa;            /* zinc-400 */
+  --text-dim: #52525b;              /* zinc-600 */
+  
+  /* ============================================
+     ACCENT COLORS
+     ============================================ */
+  
+  --cyan: #38bdf8;    /* sky-400 */
+  --green: #4ade80;   /* green-400 */
+  --yellow: #facc15;  /* yellow-400 */
+  --red: #f87171;     /* red-400 */
+  --orange: #fb923c;  /* orange-400 */
+  --purple: #c084fc;  /* purple-400 */
+  --teal: #2dd4bf;    /* teal-400 */
+  
+  /* ============================================
+     INSTANCE COLORS — Visual identification
+     ============================================ */
+  
+  --instance-1: #38bdf8;  /* azul */
+  --instance-2: #4ade80;  /* verde */
+  --instance-3: #f472b6;  /* rosa */
+  --instance-4: #fb923c;  /* laranja */
+  --instance-5: #a78bfa;  /* violeta */
+  --instance-6: #facc15;  /* amarelo */
+  
+  /* ============================================
+     ROOM PALETTES — Bar do Código
+     ============================================ */
+  
+  --room-bar-bg: #0a0600;
+  --room-bar-floor: #1f1006;
+  --room-bar-accent: #d4a054;
+  --room-bar-wall: #2d1a08;
+  --room-bar-light: #ff9f2e;
+  
+  /* ============================================
+     ROOM PALETTES — Escritório S.A.
+     ============================================ */
+  
+  --room-office-bg: #060a0f;
+  --room-office-floor: #0d1520;
+  --room-office-accent: #4a9eff;
+  --room-office-wall: #0f1f35;
+  --room-office-light: #7eb8ff;
+  
+  /* ============================================
+     ROOM PALETTES — Academia do Bug
+     ============================================ */
+  
+  --room-gym-bg: #080806;
+  --room-gym-floor: #1a1a10;
+  --room-gym-accent: #c8ff00;
+  --room-gym-wall: #1f1f0d;
+  --room-gym-light: #ddff44;
+  
+  /* ============================================
+     ROOM PALETTES — Parque do Deploy
+     ============================================ */
+  
+  --room-park-bg: #040a04;
+  --room-park-floor: #0d1f0d;
+  --room-park-accent: #4caf50;
+  --room-park-wall: #0a1a0a;
+  --room-park-light: #76ff7a;
+  
+  /* ============================================
+     ROOM PALETTES — Estação Orbital
+     ============================================ */
+  
+  --room-space-bg: #020408;
+  --room-space-floor: #050d1a;
+  --room-space-accent: #00d4ff;
+  --room-space-wall: #071020;
+  --room-space-light: #40e8ff;
+  
+  /* ============================================
+     TYPOGRAPHY
+     ============================================ */
+  
+  /* Font families */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  
+  /* Font sizes */
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  
+  /* Font weights */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  
+  /* ============================================
+     SPACING — Multiples of 4px
+     ============================================ */
+  
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  
+  /* ============================================
+     BORDER RADIUS
+     ============================================ */
+  
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+  
+  /* ============================================
+     LAYOUT DIMENSIONS
+     ============================================ */
+  
+  --header-height: 52px;
+  --sidebar-width: 320px;
+  --canvas-min-width: 600px;
+  
+  /* ============================================
+     ANIMATIONS — Durations
+     ============================================ */
+  
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+  
+  /* ============================================
+     ANIMATIONS — Easings
+     ============================================ */
+  
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);   /* snappy */
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);         /* material */
+  
+  /* ============================================
+     SHADOWS — Glow effects
+     ============================================ */
+  
+  --shadow-glow-cyan: 0 0 20px -4px rgba(56, 189, 248, 0.4);
+  --shadow-glow-green: 0 0 20px -4px rgba(74, 222, 128, 0.4);
+  --shadow-glow-yellow: 0 0 20px -4px rgba(250, 204, 21, 0.4);
+  --shadow-glow-red: 0 0 20px -4px rgba(248, 113, 113, 0.4);
+  --shadow-glow-orange: 0 0 20px -4px rgba(251, 146, 60, 0.4);
+  --shadow-glow-purple: 0 0 20px -4px rgba(192, 132, 252, 0.4);
+  --shadow-glow-teal: 0 0 20px -4px rgba(45, 212, 191, 0.4);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
+  
+  /* ============================================
+     CANVAS CONSTANTS
+     ============================================ */
+  
+  --tile-w: 64px;
+  --tile-h: 32px;
+  --grid-w: 10;
+  --grid-h: 8;
+}
+
+/* ============================================
+   GLOBAL STYLES
+   ============================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar customizada */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* ============================================
+   UTILITIES
+   ============================================ */
+
+.glow-cyan { box-shadow: var(--shadow-glow-cyan); }
+.glow-green { box-shadow: var(--shadow-glow-green); }
+.glow-yellow { box-shadow: var(--shadow-glow-yellow); }
+.glow-red { box-shadow: var(--shadow-glow-red); }
+.glow-orange { box-shadow: var(--shadow-glow-orange); }
+.glow-purple { box-shadow: var(--shadow-glow-purple); }
+.glow-teal { box-shadow: var(--shadow-glow-teal); }

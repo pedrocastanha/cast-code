@@ -1,0 +1,4 @@
+/* Import design system variables */
+@import './styles/variables.css';
+
+/* Reset básico já incluso no variables.css */
