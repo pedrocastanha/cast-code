@@ -1,10 +1,3 @@
-/**
- * LTM Service
- * 
- * Main orchestrator for Long Term Memory functionality.
- * Listens to RoomEventBusService events and auto-stores important events.
- * Provides unified API for memory operations.
- */
 
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { RoomEventBusService } from './room-event-bus.service';
@@ -41,11 +34,11 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    // Listen to events and auto-store important ones
+    if (process.env.CAST_BRIDGE_MODE === '1') return;
+
     this.eventListener = (event: CastEvent) => this.handleEvent(event);
     this.eventBus.on('*', this.eventListener);
 
-    // Load existing memories into index on startup
     this.rebuildIndex();
   }
 
@@ -55,14 +48,11 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Get memories by searching with query and filters
-   */
-  getMemories(query: string, filters?: MemoryFilters): MemoryEntry[] {
+    getMemories(query: string, filters?: MemoryFilters): MemoryEntry[] {
     const semanticResults = this.indexer.search(query, 20);
     const storageResults = this.storage.search(query, filters || {});
 
-    // Merge and deduplicate results
+    
     const merged = new Map<string, MemoryEntry>();
 
     for (const memory of semanticResults) {
@@ -76,10 +66,7 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     return Array.from(merged.values()).slice(0, 15);
   }
 
-  /**
-   * Add a memory entry to storage and index
-   */
-  addMemory(entry: MemoryEntry): void {
+    addMemory(entry: MemoryEntry): void {
     try {
       this.storage.store(entry);
       this.indexer.index(entry);
@@ -89,10 +76,7 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Remove a memory by ID
-   */
-  forget(memoryId: string): boolean {
+    forget(memoryId: string): boolean {
     try {
       const deleted = this.storage.delete(memoryId);
       if (deleted) {
@@ -105,52 +89,31 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Get relevant memories for a given context
-   */
-  getRelevantContext(context: string, limit: number = 10): MemoryEntry[] {
+    getRelevantContext(context: string, limit: number = 10): MemoryEntry[] {
     return this.indexer.searchWithRecency(context, limit);
   }
 
-  /**
-   * Get instance history
-   */
-  getInstanceHistory(instanceId: string): MemoryEntry[] {
+    getInstanceHistory(instanceId: string): MemoryEntry[] {
     return this.storage.getInstanceHistory(instanceId);
   }
 
-  /**
-   * Search memories with filters
-   */
-  searchMemories(query: string, filters: MemoryFilters): MemoryEntry[] {
+    searchMemories(query: string, filters: MemoryFilters): MemoryEntry[] {
     return this.storage.search(query, filters);
   }
 
-  /**
-   * Get memory by ID
-   */
-  getMemoryById(memoryId: string): MemoryEntry | null {
+    getMemoryById(memoryId: string): MemoryEntry | null {
     return this.storage.getById(memoryId);
   }
 
-  /**
-   * Get memory count
-   */
-  getMemoryCount(): number {
+    getMemoryCount(): number {
     return this.storage.getCount();
   }
 
-  /**
-   * Cleanup old memories
-   */
-  cleanup(maxAge: number): void {
+    cleanup(maxAge: number): void {
     this.storage.cleanup(maxAge);
   }
 
-  /**
-   * Create a memory entry from a CastEvent
-   */
-  private eventToMemory(event: CastEvent): MemoryEntry | null {
+    private eventToMemory(event: CastEvent): MemoryEntry | null {
     const { type, payload } = event;
 
     let memoryType: MemoryType | null = null;
@@ -212,10 +175,7 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /**
-   * Handle incoming events from the event bus
-   */
-  private handleEvent(event: CastEvent): void {
+    private handleEvent(event: CastEvent): void {
     if (!this.AUTO_STORE_EVENTS.includes(event.type as AgentEventType)) {
       return;
     }
@@ -230,12 +190,9 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Rebuild the in-memory index from persistent storage
-   */
-  private rebuildIndex(): void {
+    private rebuildIndex(): void {
     try {
-      // Get all memories from storage
+      
       const allMemories = this.storage.search('', {});
 
       // Index each one
@@ -274,10 +231,7 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     this.addMemory(entry);
   }
 
-  /**
-   * Store a conversation memory
-   */
-  storeConversation(
+    storeConversation(
     instanceId: string,
     roomId: string,
     agentId: string,
@@ -299,10 +253,7 @@ export class LTMService implements OnModuleInit, OnModuleDestroy {
     this.addMemory(entry);
   }
 
-  /**
-   * Store a code snippet memory
-   */
-  storeCodeSnippet(
+    storeCodeSnippet(
     instanceId: string,
     roomId: string,
     agentId: string,

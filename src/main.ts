@@ -44,8 +44,11 @@ async function bootstrap() {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  // Handle bridge command separately - it doesn't need the REPL
+  
   if (command === 'bridge') {
+    // Prevent child process from binding ports already owned by the parent
+    process.env.CAST_BRIDGE_MODE = '1';
+
     const app = await NestFactory.createApplicationContext(AppModule, {
       logger: false,
     });
@@ -65,7 +68,7 @@ async function bootstrap() {
     try {
       await bridgeCommands.startBridge(bridgeArgs);
       
-      // Keep process alive while bridge is running
+      
       await new Promise<void>((resolve) => {
         process.on('SIGINT', () => {
           bridgeCommands.stopBridge().then(() => {
@@ -89,7 +92,7 @@ async function bootstrap() {
     return;
   }
 
-  // Handle config/init commands
+  
   if (command === 'config' || command === 'init') {
     const app = await NestFactory.createApplicationContext(AppModule, {
       logger: false,
@@ -108,7 +111,7 @@ async function bootstrap() {
     return;
   }
 
-  // Normal REPL execution
+  
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: false,
   });
@@ -124,6 +127,8 @@ async function bootstrap() {
   }
 
   await configManager.loadConfig();
+
+
 
   const repl = app.get(ReplService);
 

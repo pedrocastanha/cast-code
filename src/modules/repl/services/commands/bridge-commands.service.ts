@@ -1,14 +1,3 @@
-/**
- * Bridge CLI Command Service
- * 
- * Enables external AI agents (Claude Code, Codex, etc.) to register
- * and communicate within the same room as native cast-code agents.
- * 
- * Usage:
- *   cast bridge -- claude
- *   cast bridge --name "Claude" --room bar -- claude
- *   cast bridge --name "Codex" --room office -- codex
- */
 
 import { Injectable, Logger } from '@nestjs/common';
 import { spawn, ChildProcess } from 'child_process';
@@ -48,10 +37,7 @@ export class BridgeCommandsService {
   private inboxEventSource: http.ClientRequest | null = null;
   private isRunning = false;
 
-  /**
-   * Start the bridge process
-   */
-  async startBridge(args: string[]): Promise<void> {
+    async startBridge(args: string[]): Promise<void> {
     if (this.isRunning) {
       console.log('\n⚠️  Bridge is already running\n');
       return;
@@ -67,7 +53,7 @@ export class BridgeCommandsService {
     try {
       console.log(`\n🌉 Starting Room Bridge for ${options.name}...\n`);
 
-      // Step 1: Register with Room Bridge Server
+      
       const registration = await this.registerAgent(options);
 
       if (!registration) {
@@ -83,10 +69,10 @@ export class BridgeCommandsService {
       console.log(`   ${this.formatSuccess('✓')} Room: ${registration.roomId}`);
       console.log(`   ${this.formatSuccess('✓')} Instance ID: ${registration.instanceId}\n`);
 
-      // Step 2: Spawn the external tool
+      
       await this.spawnTool(options, args);
 
-      // Step 3: Subscribe to inbox for receiving messages
+      
       this.subscribeToInbox();
 
       this.isRunning = true;
@@ -99,10 +85,7 @@ export class BridgeCommandsService {
     }
   }
 
-  /**
-   * Stop the bridge process
-   */
-  async stopBridge(): Promise<void> {
+    async stopBridge(): Promise<void> {
     if (!this.isRunning) {
       return;
     }
@@ -115,10 +98,7 @@ export class BridgeCommandsService {
     console.log(`${this.formatSuccess('✓')} Bridge disconnected\n`);
   }
 
-  /**
-   * Parse command line arguments
-   */
-  private parseBridgeArgs(args: string[]): BridgeOptions | null {
+    private parseBridgeArgs(args: string[]): BridgeOptions | null {
     let name = 'External Agent';
     let room = 'bar';
     let color = '#a78bfa';
@@ -134,13 +114,13 @@ export class BridgeCommandsService {
       } else if (arg === '--color' && args[i + 1]) {
         color = args[++i];
       } else if (arg === '--' && args[i + 1]) {
-        // Everything after -- is the tool command
+        
         tool = args[i + 1];
         break;
       }
     }
 
-    // If no explicit tool specified, try to infer from args
+    
     if (!tool) {
       const toolKeywords = ['claude', 'codex', 'qwen', 'gemini', 'ollama'];
       for (const arg of args) {
@@ -158,10 +138,7 @@ export class BridgeCommandsService {
     return { name, room, color, tool };
   }
 
-  /**
-   * Register agent with Room Bridge Server
-   */
-  private async registerAgent(options: BridgeOptions): Promise<BridgeRegistrationResponse | null> {
+    private async registerAgent(options: BridgeOptions): Promise<BridgeRegistrationResponse | null> {
     return new Promise((resolve) => {
       const data = {
         name: options.name,
@@ -171,6 +148,8 @@ export class BridgeCommandsService {
         model: `${options.tool}-latest`,
         provider: this.inferProvider(options.tool),
       };
+
+      console.log(`\n${this.formatInfo('ℹ')} Connecting to Room Bridge Server at localhost:${this.BRIDGE_PORT}...\n`);
 
       const req = http.request(
         {
@@ -188,20 +167,26 @@ export class BridgeCommandsService {
             body += chunk;
           });
           res.on('end', () => {
+            console.log(`\n${this.formatInfo('ℹ')} Registration response status: ${res.statusCode}\n`);
             if (res.statusCode === 200) {
               try {
-                resolve(JSON.parse(body) as BridgeRegistrationResponse);
-              } catch {
+                const parsed = JSON.parse(body) as BridgeRegistrationResponse;
+                resolve(parsed);
+              } catch (err) {
+                console.error(`\n${this.formatError('✗')} Failed to parse registration response: ${(err as Error).message}\n`);
                 resolve(null);
               }
             } else {
+              console.error(`\n${this.formatError('✗')} Registration failed with status ${res.statusCode}: ${body}\n`);
               resolve(null);
             }
           });
         },
       );
 
-      req.on('error', () => {
+      req.on('error', (err) => {
+        console.error(`\n${this.formatError('✗')} Registration request failed: ${err.message}\n`);
+        console.error(`\n${this.formatError('✗')} Is the Room Bridge Server running on port ${this.BRIDGE_PORT}?\n`);
         resolve(null);
       });
 
@@ -210,10 +195,7 @@ export class BridgeCommandsService {
     });
   }
 
-  /**
-   * Unregister agent from Room Bridge Server
-   */
-  private async unregisterAgent(): Promise<void> {
+    private async unregisterAgent(): Promise<void> {
     if (!this.instanceId || !this.token) {
       return;
     }
@@ -246,11 +228,8 @@ export class BridgeCommandsService {
     });
   }
 
-  /**
-   * Spawn the external tool process
-   */
-  private async spawnTool(options: BridgeOptions, args: string[]): Promise<void> {
-    // Find the tool command after --
+    private async spawnTool(options: BridgeOptions, args: string[]): Promise<void> {
+    
     const toolIndex = args.indexOf('--');
     const toolArgs = toolIndex >= 0 ? args.slice(toolIndex + 1) : [options.tool];
 
@@ -268,7 +247,7 @@ export class BridgeCommandsService {
       env: { ...process.env },
     });
 
-    // Handle stdout - parse and forward events to Room Bridge
+    
     if (this.childProcess.stdout) {
       const rl = readline.createInterface({
         input: this.childProcess.stdout,
@@ -276,10 +255,10 @@ export class BridgeCommandsService {
       });
 
       rl.on('line', (line) => {
-        // Pass through to user's terminal
+        
         process.stdout.write(`${line}\n`);
 
-        // Parse and emit events
+        
         const event = this.parseToolOutput(line, options.tool);
         if (event) {
           this.emitEvent(event);
@@ -287,14 +266,14 @@ export class BridgeCommandsService {
       });
     }
 
-    // Handle stderr - pass through directly
+    
     if (this.childProcess.stderr) {
       this.childProcess.stderr.on('data', (data) => {
         process.stderr.write(data);
       });
     }
 
-    // Handle process exit
+    
     this.childProcess.on('exit', (code) => {
       this.logger.log(`Tool exited with code ${code}`);
       this.cleanup();
@@ -306,10 +285,7 @@ export class BridgeCommandsService {
     });
   }
 
-  /**
-   * Subscribe to inbox for receiving messages from other agents
-   */
-  private subscribeToInbox(): void {
+    private subscribeToInbox(): void {
     if (!this.instanceId || !this.token) {
       return;
     }
@@ -327,7 +303,7 @@ export class BridgeCommandsService {
         res.setEncoding('utf8');
 
         res.on('data', (data: string) => {
-          // Parse SSE format: data: {...}\n\n
+          
           const lines = data.split('\n');
           for (const line of lines) {
             if (line.startsWith('data: ')) {
@@ -335,7 +311,7 @@ export class BridgeCommandsService {
                 const event = JSON.parse(line.slice(6));
                 this.handleIncomingMessage(event);
               } catch {
-                // Ignore parse errors
+                
               }
             }
           }
@@ -355,10 +331,7 @@ export class BridgeCommandsService {
     this.inboxEventSource = req;
   }
 
-  /**
-   * Handle incoming message from another agent
-   */
-  private handleIncomingMessage(event: {
+    private handleIncomingMessage(event: {
     type: string;
     data: {
       fromAgentId: string;
@@ -371,19 +344,14 @@ export class BridgeCommandsService {
       const { fromAgentName, content } = event.data;
       console.log(`\n${this.formatInfo('📨')} Message from ${fromAgentName}: ${content}\n`);
 
-      // Optionally inject into tool's stdin
       if (this.childProcess?.stdin && !this.childProcess.stdin.destroyed) {
-        // Some tools may support receiving messages via stdin
-        // This is tool-specific and would require adapter logic
+        this.childProcess.stdin.write(`${content}\n`);
       }
     }
   }
 
-  /**
-   * Parse tool output and extract events
-   */
-  private parseToolOutput(line: string, tool: string): BridgeEvent | null {
-    // Claude Code streaming format
+    private parseToolOutput(line: string, tool: string): BridgeEvent | null {
+    
     if (tool.toLowerCase().includes('claude')) {
       if (line.includes('"type":"content_block_start"')) {
         return { type: 'agent.thinking', payload: {} };
@@ -502,7 +470,7 @@ Examples:
   cast bridge --name "Codex" --room office -- codex
 
 View all agents:
-  Open http://localhost:5173/rooms in your browser
+  Open http:
 
 `);
   }

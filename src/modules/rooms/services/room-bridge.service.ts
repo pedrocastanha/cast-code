@@ -1,13 +1,7 @@
-/**
- * RoomBridgeService - Cross-Terminal Bridge Server
- * 
- * HTTP server on port 3336 that enables external AI agents
- * (Claude Code, Codex, etc.) to register and communicate
- * within the same room as native cast-code agents.
- */
 
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import * as http from 'http';
+import * as crypto from 'crypto';
 import { EventEmitter2 } from 'eventemitter2';
 import {
   BridgeMessage,
@@ -19,6 +13,8 @@ import {
   BridgeEvent,
   BridgeEventType,
 } from '../types/bridge.types';
+import { CastEvent, AgentEventType } from '../types/event.types';
+import { RoomEventBusService } from './room-event-bus.service';
 
 interface BridgeClient {
   agentId: string;
@@ -37,7 +33,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly eventEmitter: EventEmitter2;
   private readonly TOKEN_PREFIX = 'bridge_tok_';
 
-  constructor() {
+  constructor(private readonly eventBus: RoomEventBusService) {
     this.eventEmitter = new EventEmitter2({
       wildcard: true,
       delimiter: '.',
@@ -46,22 +42,29 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+    if (process.env.CAST_BRIDGE_MODE === '1') return;
+
     this.server = http.createServer((req, res) => this.handleRequest(req, res));
     this.server.listen(this.PORT, () => {
       this.logger.log(`Room Bridge Server listening on port ${this.PORT}`);
+    });
+    this.server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ PORTA ${this.PORT} (Room Bridge) JÁ ESTÁ EM USO! Você tem outro terminal rodando o Cast CLI em background?\n`);
+        setTimeout(() => process.exit(1), 100);
+      }
     });
     this.logger.log('RoomBridgeService initialized');
   }
 
   onModuleDestroy() {
-    this.server.close();
+    if (this.server) {
+      this.server.close();
+    }
     this.logger.log('RoomBridgeService destroyed');
   }
 
-  /**
-   * Register an external agent with the bridge
-   */
-  async registerAgent(
+    async registerAgent(
     agentId: string,
     metadata: BridgeRegister,
   ): Promise<BridgeRegisterResponse> {
@@ -84,7 +87,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
 
     this.agents.set(instanceId, agent);
 
-    // Emit bridge.register event
+
     this.emitBridgeEvent({
       id: crypto.randomUUID(),
       type: 'bridge.register',
@@ -98,7 +101,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     });
 
-    // Emit bridge.connected event
+
     this.emitBridgeEvent({
       id: crypto.randomUUID(),
       type: 'bridge.connected',
@@ -114,6 +117,25 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     });
 
+    // Emit instance.created to the SSE event bus so the frontend can track this agent
+    this.eventBus.emit({
+      id: crypto.randomUUID(),
+      type: 'instance.created',
+      agentId,
+      instanceId,
+      roomId: metadata.roomId,
+      source: 'bridge',
+      payload: {
+        instanceName: metadata.name,
+        model: metadata.model,
+        provider: metadata.provider,
+        color: metadata.color,
+        bridgeTool: metadata.tool,
+      },
+      timestamp: Date.now(),
+    });
+
+    console.log(`\n✅ Agent connected: "${metadata.name}" [${metadata.tool}] → room "${metadata.roomId}" (${instanceId})\n`);
     this.logger.log(`Agent registered: ${metadata.name} (${agentId}) in room ${metadata.roomId}`);
 
     return {
@@ -124,10 +146,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /**
-   * Unregister an external agent from the bridge
-   */
-  async unregisterAgent(
+    async unregisterAgent(
     instanceId: string,
     token: string,
   ): Promise<boolean> {
@@ -143,7 +162,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    // Emit bridge.disconnected event
+    
     this.emitBridgeEvent({
       id: crypto.randomUUID(),
       type: 'bridge.disconnected',
@@ -157,7 +176,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     });
 
-    // Emit bridge.unregister event
+    
     this.emitBridgeEvent({
       id: crypto.randomUUID(),
       type: 'bridge.unregister',
@@ -173,7 +192,19 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
 
     this.agents.delete(instanceId);
 
-    // Close any open SSE connections for this agent
+    // Emit instance.destroyed to event bus
+    this.eventBus.emit({
+      id: crypto.randomUUID(),
+      type: 'instance.destroyed',
+      agentId: agent.name,
+      instanceId,
+      roomId: agent.roomId,
+      source: 'bridge',
+      payload: {},
+      timestamp: Date.now(),
+    });
+
+
     for (const [clientId, client] of this.clients.entries()) {
       if (client.instanceId === instanceId) {
         client.res.end();
@@ -181,14 +212,12 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    console.log(`\n👋 Agent disconnected: "${agent.name}" from room "${agent.roomId}"\n`);
     this.logger.log(`Agent unregistered: ${agent.name} (${instanceId})`);
     return true;
   }
 
-  /**
-   * Send a message from one agent to another
-   */
-  async sendMessage(
+    async sendMessage(
     fromAgentId: string,
     toAgentId: string,
     content: string,
@@ -211,7 +240,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     };
 
-    // Emit bridge.message event
+
     this.emitBridgeEvent({
       id: crypto.randomUUID(),
       type: 'bridge.message',
@@ -227,7 +256,19 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     });
 
-    // Notify the recipient via SSE if connected
+    // Forward to SSE event bus for frontend visualization
+    this.eventBus.emit({
+      id: message.id,
+      type: 'agent.message.sent',
+      agentId: fromAgentId,
+      instanceId: fromAgent.instanceId,
+      roomId: fromAgent.roomId,
+      source: 'bridge',
+      payload: { message: content, toAgentId, fromAgentId, traceId },
+      timestamp: message.timestamp,
+    });
+
+
     this.notifyRecipient(message, fromAgent);
 
     this.logger.debug(`Message sent from ${fromAgentId} to ${toAgentId}`);
@@ -235,10 +276,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     return message;
   }
 
-  /**
-   * Broadcast a message to all agents in a room
-   */
-  async broadcastMessage(
+    async broadcastMessage(
     fromAgentId: string,
     content: string,
     type: 'broadcast' | 'task' | 'question' = 'broadcast',
@@ -260,7 +298,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     };
 
-    // Emit bridge.message event with toAgentId='all'
+
     this.emitBridgeEvent({
       id: crypto.randomUUID(),
       type: 'bridge.message',
@@ -276,7 +314,19 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     });
 
-    // Broadcast to all connected clients in the same room
+    // Forward to SSE event bus for frontend visualization
+    this.eventBus.emit({
+      id: message.id,
+      type: 'agent.message.sent',
+      agentId: fromAgentId,
+      instanceId: fromAgent.instanceId,
+      roomId: fromAgent.roomId,
+      source: 'bridge',
+      payload: { message: content, toAgentId: 'all', fromAgentId, traceId },
+      timestamp: message.timestamp,
+    });
+
+
     for (const agent of this.agents.values()) {
       if (agent.roomId === fromAgent.roomId && agent.instanceId !== fromAgent.instanceId) {
         this.notifyClient(message, agent);
@@ -286,24 +336,15 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     this.logger.debug(`Message broadcast from ${fromAgentId} in room ${fromAgent.roomId}`);
   }
 
-  /**
-   * Get all registered agents
-   */
-  getRegisteredAgents(): RegisteredAgent[] {
+    getRegisteredAgents(): RegisteredAgent[] {
     return Array.from(this.agents.values());
   }
 
-  /**
-   * Get agents in a specific room
-   */
-  getAgentsInRoom(roomId: string): RegisteredAgent[] {
+    getAgentsInRoom(roomId: string): RegisteredAgent[] {
     return Array.from(this.agents.values()).filter((agent) => agent.roomId === roomId);
   }
 
-  /**
-   * Find an agent by their display name/agentId
-   */
-  private findAgentById(agentId: string): RegisteredAgent | undefined {
+    private findAgentById(agentId: string): RegisteredAgent | undefined {
     for (const agent of this.agents.values()) {
       if (agent.name.toLowerCase() === agentId.toLowerCase()) {
         return agent;
@@ -312,25 +353,16 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     return undefined;
   }
 
-  /**
-   * Generate a secure random token
-   */
-  private generateToken(): string {
+    private generateToken(): string {
     return `${this.TOKEN_PREFIX}${crypto.randomBytes(32).toString('hex')}`;
   }
 
-  /**
-   * Emit a bridge event to the event emitter
-   */
-  private emitBridgeEvent(event: BridgeEvent): void {
+    private emitBridgeEvent(event: BridgeEvent): void {
     this.eventEmitter.emit(event.type, event);
     this.eventEmitter.emit('*', event);
   }
 
-  /**
-   * Notify a recipient agent of a new message via SSE
-   */
-  private notifyRecipient(message: BridgeMessage, fromAgent: RegisteredAgent): void {
+    private notifyRecipient(message: BridgeMessage, fromAgent: RegisteredAgent): void {
     const toAgent = this.findAgentById(message.toAgentId);
 
     if (!toAgent) {
@@ -341,10 +373,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     this.notifyClient(message, toAgent);
   }
 
-  /**
-   * Send message to a specific agent's SSE connection
-   */
-  private notifyClient(message: BridgeMessage, agent: RegisteredAgent): void {
+    private notifyClient(message: BridgeMessage, agent: RegisteredAgent): void {
     const payload = JSON.stringify({
       type: 'room.message',
       data: {
@@ -368,10 +397,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Handle HTTP requests
-   */
-  private handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+    private handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     const url = new URL(req.url!, `http://localhost:${this.PORT}`);
     const method = req.method;
 
@@ -385,70 +411,80 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Route: POST /register - Register a new agent
+    
     if (method === 'POST' && url.pathname === '/register') {
       this.handleRegister(req, res);
       return;
     }
 
-    // Route: POST /unregister - Unregister an agent
+    
     if (method === 'POST' && url.pathname === '/unregister') {
       this.handleUnregister(req, res);
       return;
     }
 
-    // Route: POST /:instanceId/message - Send a message
+    
     if (method === 'POST' && url.pathname.match(/^\/[^/]+\/message$/)) {
       const instanceId = url.pathname.split('/')[1];
       this.handleSendMessage(req, res, instanceId);
       return;
     }
 
-    // Route: POST /:instanceId/broadcast - Broadcast a message
+    
     if (method === 'POST' && url.pathname.match(/^\/[^/]+\/broadcast$/)) {
       const instanceId = url.pathname.split('/')[1];
       this.handleBroadcast(req, res, instanceId);
       return;
     }
 
-    // Route: GET /:instanceId/inbox - SSE inbox subscription
+
     if (method === 'GET' && url.pathname.match(/^\/[^/]+\/inbox$/)) {
       const instanceId = url.pathname.split('/')[1];
       this.handleInboxSse(req, res, instanceId);
       return;
     }
 
-    // Route: GET /agents - List all registered agents
+    // Event forwarding from CLI bridge agent (tool output, thinking, etc.)
+    if (method === 'POST' && url.pathname.match(/^\/[^/]+\/event$/)) {
+      const instanceId = url.pathname.split('/')[1];
+      this.handleEventForward(req, res, instanceId);
+      return;
+    }
+
+    
     if (method === 'GET' && url.pathname === '/agents') {
       this.handleListAgents(req, res);
       return;
     }
 
-    // Route: GET /agents/:instanceId - Get specific agent
+    
     if (method === 'GET' && url.pathname.match(/^\/agents\/[^/]+$/)) {
       const instanceId = url.pathname.split('/')[2];
       this.handleGetAgent(req, res, instanceId);
       return;
     }
 
-    // Route: GET /health - Health check
+    
     if (method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', port: this.PORT, agents: this.agents.size }));
       return;
     }
 
-    // 404 for unknown routes
+    
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
   }
 
-  /**
-   * Handle POST /register
-   */
-  private async handleRegister(req: http.IncomingMessage, res: http.ServerResponse) {
+    private async handleRegister(req: http.IncomingMessage, res: http.ServerResponse) {
     try {
       const body = await this.readJsonBody<BridgeRegister>(req);
+
+      this.logger.log(`\n📥 Registration request received:\n`);
+      this.logger.log(`   Name: ${body.name}\n`);
+      this.logger.log(`   Tool: ${body.tool}\n`);
+      this.logger.log(`   Room: ${body.roomId}\n`);
+      this.logger.log(`   Color: ${body.color}\n`);
 
       if (!body.name || !body.tool || !body.roomId) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -468,10 +504,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Handle POST /unregister
-   */
-  private async handleUnregister(req: http.IncomingMessage, res: http.ServerResponse) {
+    private async handleUnregister(req: http.IncomingMessage, res: http.ServerResponse) {
     try {
       const body = await this.readJsonBody<BridgeUnregister>(req);
 
@@ -492,10 +525,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Handle POST /:instanceId/message
-   */
-  private async handleSendMessage(
+    private async handleSendMessage(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     instanceId: string,
@@ -549,10 +579,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Handle POST /:instanceId/broadcast
-   */
-  private async handleBroadcast(
+    private async handleBroadcast(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     instanceId: string,
@@ -594,10 +621,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Handle GET /:instanceId/inbox (SSE)
-   */
-  private handleInboxSse(
+    private handleInboxSse(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     instanceId: string,
@@ -642,19 +666,13 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     this.logger.debug(`Inbox SSE client connected: ${instanceId}`);
   }
 
-  /**
-   * Handle GET /agents
-   */
-  private handleListAgents(req: http.IncomingMessage, res: http.ServerResponse) {
+    private handleListAgents(req: http.IncomingMessage, res: http.ServerResponse) {
     const agents = this.getRegisteredAgents().map(({ token, ...agent }) => agent);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(agents));
   }
 
-  /**
-   * Handle GET /agents/:instanceId
-   */
-  private handleGetAgent(
+    private handleGetAgent(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     instanceId: string,
@@ -672,10 +690,51 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     res.end(JSON.stringify(safeAgent));
   }
 
-  /**
-   * Read and parse JSON body from request
-   */
-  private readJsonBody<T>(req: http.IncomingMessage): Promise<T> {
+    private async handleEventForward(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    instanceId: string,
+  ) {
+    try {
+      const authHeader = req.headers.authorization;
+      const token = authHeader?.replace('Bearer ', '');
+      const agent = this.agents.get(instanceId);
+
+      if (!agent || agent.token !== token) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+
+      const body = await this.readJsonBody<{ type: string; payload: Record<string, unknown> }>(req);
+
+      const castEvent: CastEvent = {
+        id: crypto.randomUUID(),
+        type: body.type as AgentEventType,
+        agentId: agent.name,
+        instanceId,
+        roomId: agent.roomId,
+        source: 'bridge',
+        payload: {
+          message: body.payload?.message as string | undefined,
+          toolName: body.payload?.toolName as string | undefined,
+          error: body.payload?.error as string | undefined,
+        },
+        timestamp: Date.now(),
+      };
+
+      this.eventBus.emit(castEvent);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (error) {
+      this.logger.error('Event forward error:', (error as Error).message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
+  }
+
+    private readJsonBody<T>(req: http.IncomingMessage): Promise<T> {
     return new Promise((resolve, reject) => {
       let body = '';
       req.on('data', (chunk) => {

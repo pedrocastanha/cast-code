@@ -38,10 +38,14 @@ const NewMessagesIndicator: React.FC<{ onClick: () => void }> = ({ onClick }) =>
 
 export const ChatPanel: React.FC = () => {
   const messages = useRoomStore((s) => s.messages);
+  const agents = useRoomStore((s) => s.agents);
+  const activeRoomId = useRoomStore((s) => s.activeRoomId);
   const listRef = useRef<HTMLDivElement>(null);
   const [userScrolled, setUserScrolled] = useState(false);
+  const [inputMessage, setInputMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<string>('all');
 
-  // Detecta scroll manual do usuário
   const onScroll = () => {
     const el = listRef.current;
     if (!el) return;
@@ -49,12 +53,55 @@ export const ChatPanel: React.FC = () => {
     setUserScrolled(!atBottom);
   };
 
-  // Auto-scroll quando chegam novas mensagens (só se usuário não scrollou para cima)
   useEffect(() => {
     if (!userScrolled && listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages.length, userScrolled]);
+
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || sending) return;
+
+    setSending(true);
+    try {
+      // Se selecionou um agente específico, envia task para ele
+      if (selectedAgent && selectedAgent !== 'all') {
+        const res = await fetch(`/rooms/task/${selectedAgent}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: inputMessage,
+            type: 'task',
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } else {
+        // Broadcast para todos os agentes da room
+        const res = await fetch(`/rooms/${activeRoomId}/broadcast`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: inputMessage,
+            type: 'broadcast',
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+
+      setInputMessage('');
+    } catch (e) {
+      console.error('[send message]', e);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   return (
     <div className="chat-panel">
@@ -83,19 +130,77 @@ export const ChatPanel: React.FC = () => {
           }}
         />
       )}
+
+      {/* Input para enviar mensagens */}
+      <div className="chat-input-container">
+        <select
+          value={selectedAgent}
+          onChange={(e) => setSelectedAgent(e.target.value)}
+          className="chat-agent-select"
+          style={{
+            padding: '8px',
+            borderRadius: '4px',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-100)',
+            color: 'white',
+            fontSize: '13px',
+          }}
+        >
+          <option value="all">Todos os agentes</option>
+          {agents.map((agent) => (
+            <option key={agent.instanceId} value={agent.id}>
+              {agent.name}
+            </option>
+          ))}
+        </select>
+        <textarea
+          value={inputMessage}
+          onChange={(e) => setInputMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Enviar task para os agentes..."
+          rows={2}
+          className="chat-input"
+          style={{
+            flex: 1,
+            padding: '8px',
+            borderRadius: '4px',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-100)',
+            color: 'white',
+            resize: 'none',
+            fontSize: '13px',
+          }}
+        />
+        <button
+          onClick={handleSendMessage}
+          disabled={sending || !inputMessage.trim()}
+          className="chat-send-btn"
+          style={{
+            padding: '8px 12px',
+            borderRadius: '4px',
+            border: 'none',
+            background: sending || !inputMessage.trim() ? 'var(--bg-300)' : 'var(--purple)',
+            color: 'white',
+            cursor: sending || !inputMessage.trim() ? 'not-allowed' : 'pointer',
+            fontSize: '13px',
+          }}
+        >
+          {sending ? '...' : 'Enviar'}
+        </button>
+      </div>
     </div>
   );
 };
 
-// ============================================
-// KANBAN MINI COMPONENT
-// ============================================
+
+
+
 
 export const KanbanMini: React.FC = () => {
   const events = useRoomStore((s) => s.events);
   const roomConfig = useRoomStore((s) => s.activeRoomConfig);
 
-  // Deriva estado do kanban a partir dos eventos
+  
   const kanbanTasks = useMemo(() => {
     const tasks: Map<string, KanbanTask> = new Map();
 

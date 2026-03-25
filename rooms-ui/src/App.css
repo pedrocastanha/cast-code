@@ -364,6 +364,34 @@
   50% { transform: translateY(4px); }
 }
 
+/* Chat Input */
+.chat-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.chat-agent-select {
+  width: 100%;
+}
+
+.chat-input {
+  width: 100%;
+}
+
+.chat-input:focus,
+.chat-agent-select:focus {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.chat-send-btn {
+  align-self: flex-end;
+}
+
 /* ============================================
    KANBAN MINI
    ============================================ */

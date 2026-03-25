@@ -19,13 +19,79 @@ const InstanceBadge: React.FC<{
   );
 };
 
+const SpawnAgentForm: React.FC = () => {
+  const activeRoomId = useRoomStore((s) => s.activeRoomId);
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [tool, setTool] = React.useState('claude');
+  const [name, setName] = React.useState('Engenheiro');
+  const [spawning, setSpawning] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const handleSpawn = async () => {
+    setSpawning(true);
+    setError(null);
+    try {
+      const res = await fetch(`/rooms/${activeRoomId}/spawn`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool, name, color: '#4ade80' })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setIsOpen(false);
+    } catch (e) {
+      setError((e as Error).message);
+      console.error('[spawn]', e);
+    } finally {
+      setSpawning(false);
+    }
+  };
+
+  if (!isOpen) {
+    return (
+      <button 
+        onClick={() => setIsOpen(true)}
+        style={{ background: 'var(--bg-300)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', marginLeft: '12px' }}
+      >
+        + Add Agent
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '12px' }}>
+      <input 
+        value={name} 
+        onChange={e => setName(e.target.value)} 
+        placeholder="Role/Name" 
+        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-100)', color: 'white' }}
+      />
+      <select 
+        value={tool} 
+        onChange={e => setTool(e.target.value)}
+        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-100)', color: 'white' }}
+      >
+        <option value="claude">Claude</option>
+        <option value="gemini">Gemini</option>
+        <option value="codex">Codex</option>
+        <option value="kimi">Kimi</option>
+        <option value="qwen">Qwen</option>
+      </select>
+      <button onClick={handleSpawn} disabled={spawning} style={{ background: 'var(--emerald)', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: spawning ? 'not-allowed' : 'pointer', opacity: spawning ? 0.6 : 1 }}>
+        {spawning ? 'Spawning...' : 'Spawn'}
+      </button>
+      <button onClick={() => setIsOpen(false)} style={{ background: 'var(--bg-300)', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>X</button>
+      {error && <span style={{ color: 'var(--red, #f87171)', fontSize: '12px' }}>{error}</span>}
+    </div>
+  );
+};
+
 export const App: React.FC = () => {
   const activeRoomConfig = useRoomStore((s) => s.activeRoomConfig);
   const instances = useRoomStore((s) => s.instances);
   const agents = useRoomStore((s) => s.agents);
 
-  // Conecta ao SSE do Room Server
-  // Em produção, o proxy do Vite encaminha para localhost:3335
+  
+  
   useRoomSSE({
     instanceId: 'all',
     enabled: true,
@@ -34,7 +100,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="room-layout">
-      {/* HEADER */}
+      {}
       <header className="room-header">
         <div className="header-left">
           {activeRoomConfig && (
@@ -62,18 +128,19 @@ export const App: React.FC = () => {
         </div>
 
         <div className="header-stats">
-          <span className="stat">{agents.length} agentes</span>
+          <SpawnAgentForm />
+          <span className="stat" style={{ marginLeft: '16px' }}>{agents.length} agentes</span>
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
+      {}
       <div className="room-main">
-        {/* CANVAS AREA */}
+        {}
         <div className="room-canvas-container">
           <RoomCanvas />
         </div>
 
-        {/* SIDEBAR */}
+        {}
         <aside className="room-sidebar">
           <RoomSelector />
           <div className="sidebar-divider" />

@@ -2,9 +2,9 @@ import React, { useEffect, useRef } from 'react';
 import { useRoomStore } from '../../store/roomStore';
 import type { RoomConfig, RoomAgent, ConnectionLine } from '../../types/room.types';
 
-// ============================================
-// CANVAS CONSTANTS
-// ============================================
+
+
+
 
 const TILE_W = 64;
 const TILE_H = 32;
@@ -12,9 +12,9 @@ const GRID_W = 10;
 const GRID_H = 8;
 const ORIGIN_Y = 80;
 
-// ============================================
-// ISOMETRIC COORDINATE CONVERSION
-// ============================================
+
+
+
 
 function isoToScreen(
   gx: number,
@@ -28,9 +28,9 @@ function isoToScreen(
   };
 }
 
-// ============================================
-// UTILITY FUNCTIONS
-// ============================================
+
+
+
 
 function adjustBrightness(hex: string, amount: number): string {
   const num = parseInt(hex.replace('#', ''), 16);
@@ -282,10 +282,41 @@ function drawBaseCharacter(
   ctx.arc(0, -28, 7, 0, Math.PI * 2);
   ctx.fill();
 
-  // Olhos
+  // Olhos e Boca Dinâmicos
   ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(-3, -30, 2, 2);
-  ctx.fillRect(1, -30, 2, 2);
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineWidth = 1;
+  
+  const state = agent.visualState;
+  if (state === 'WORKING' || state === 'TOOL_USE') {
+    // Focado > <
+    ctx.beginPath();
+    ctx.moveTo(-4, -31); ctx.lineTo(-2, -29); ctx.lineTo(-4, -27);
+    ctx.moveTo(4, -31); ctx.lineTo(2, -29); ctx.lineTo(4, -27);
+    ctx.stroke();
+    // Boca
+    ctx.fillRect(-1, -25, 2, 1);
+  } else if (state === 'CELEBRATING') {
+    // Feliz ^ ^
+    ctx.beginPath();
+    ctx.moveTo(-4, -29); ctx.lineTo(-2, -31); ctx.lineTo(0, -29);
+    ctx.moveTo(0, -29); ctx.lineTo(2, -31); ctx.lineTo(4, -29);
+    ctx.stroke();
+    // Boca aberta feliz D
+    ctx.beginPath();
+    ctx.arc(0, -26, 2.5, 0, Math.PI);
+    ctx.fill();
+  } else if (state === 'THINKING') {
+    // Pensativo o_O
+    ctx.fillRect(-3, -30, 2, 2);
+    ctx.beginPath(); ctx.arc(2, -29, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(-1, -25, 2, 1);
+  } else {
+    // IDLE / NORMAL
+    ctx.fillRect(-3, -30, 2, 2);
+    ctx.fillRect(1, -30, 2, 2);
+    ctx.beginPath(); ctx.arc(0, -26, 1.5, 0, Math.PI); ctx.fill(); // sorriso
+  }
 
   // Braços
   ctx.fillStyle = darkerColor;
@@ -340,10 +371,27 @@ function drawCharacter(
       ctx.rotate(0.08);
       drawBaseCharacter(ctx, agent);
       ctx.rotate(-0.08);
+      // VFX Engrenagem
+      const thinkPhase = (tick % 60) / 60;
+      ctx.fillStyle = config.visual.accent;
+      ctx.globalAlpha = 1 - thinkPhase;
+      ctx.font = '10px Arial';
+      ctx.fillText('⚙️', 0, -38 - (thinkPhase * 15));
+      ctx.globalAlpha = 1;
       break;
 
     case 'WORKING':
       drawCharacterWorking(ctx, agent, tick, config);
+      // VFX Fagulhas
+      const sparkPhase = (tick % 15) / 15;
+      ctx.fillStyle = '#ffcc00';
+      for (let i = 0; i < 3; i++) {
+        const angle = (i * Math.PI * 2 / 3) + tick * 0.1;
+        const rad = sparkPhase * 18;
+        ctx.globalAlpha = 1 - sparkPhase;
+        ctx.fillRect(Math.cos(angle) * rad, Math.sin(angle) * rad - 12, 2, 2);
+      }
+      ctx.globalAlpha = 1;
       break;
 
     case 'TOOL_USE':
@@ -459,25 +507,25 @@ function drawCharacterCelebrating(
   ctx: CanvasRenderingContext2D,
   agent: RoomAgent,
   tick: number,
-  config: RoomConfig
+  _config: RoomConfig
 ) {
   drawBaseCharacter(ctx, agent, {
     armLOffset: { x: -12, y: -22 },
     armROffset: { x: 12, y: -22 },
   });
 
-  // Estrelinhas em volta
-  const phase = (tick % 60) / 60;
-  for (let i = 0; i < 5; i++) {
-    const angle = (i / 5) * Math.PI * 2 + phase * Math.PI * 2;
-    const r = phase * 20;
-    ctx.fillStyle = config.visual.accent;
-    ctx.globalAlpha = 1 - phase;
-    ctx.beginPath();
-    ctx.arc(Math.cos(angle) * r, -20 + Math.sin(angle) * r * 0.5, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+  // Gravity Confetti!
+  const phase = (tick % 90) / 90;
+  const colors = ['#ff0055', '#00ffaa', '#ffaa00', '#00aaff', '#aa00ff'];
+  for (let i = 0; i < 12; i++) {
+    const fall = ((phase + (i / 12)) % 1);
+    const cy = -60 + fall * 80;
+    const cx = Math.sin(fall * Math.PI * 4 + i) * 25;
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.globalAlpha = 1 - fall;
+    ctx.fillRect(cx, cy, 3, 3);
   }
+  ctx.globalAlpha = 1;
 }
 
 function drawAgentLabel(
@@ -540,7 +588,7 @@ function drawSpeechBubble(
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Triângulo (cauda) apontando para o personagem
+      
       ctx.beginPath();
       ctx.moveTo(bx - 4, by);
       ctx.lineTo(bx + 4, by);
@@ -556,7 +604,7 @@ function drawSpeechBubble(
       break;
 
     case 'thought':
-      // Oval com bolinhas de subida
+      
       ctx.beginPath();
       ctx.ellipse(finalX + boxW / 2, by - boxH / 2, boxW / 2 + 4, boxH / 2 + 4, 0, 0, Math.PI * 2);
       ctx.fillStyle = config.visual.accent;
@@ -567,7 +615,7 @@ function drawSpeechBubble(
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Bolinhas (3 tamanhos crescentes subindo até o balão)
+      
       const dotPositions = [
         { x: bx, y: by + 6, r: 2 },
         { x: bx + 2, y: by + 2, r: 3 },
@@ -580,7 +628,7 @@ function drawSpeechBubble(
         ctx.fill();
       }
 
-      // Anima os "..." pulsando
+      
       const dots = ['', '.', '..', '...'];
       const dotFrame = Math.floor(Date.now() / 500) % 4;
       ctx.fillStyle = config.visual.accent;
@@ -589,7 +637,7 @@ function drawSpeechBubble(
       return; // retorna aqui — não desenha texto abaixo
 
     case 'tool':
-      // Borda pontilhada
+      
       ctx.setLineDash([3, 3]);
       drawRoundRect(ctx, finalX, by - boxH, boxW + 20, boxH, 6);
       ctx.fillStyle = '#1a1a2e';
@@ -601,14 +649,14 @@ function drawSpeechBubble(
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Ícone de tool (⚙)
+      
       ctx.font = '10px sans-serif';
       ctx.fillStyle = config.visual.accent;
       ctx.fillText('⚙', finalX + 5, by - boxH / 2 + 4);
       break;
   }
 
-  // Texto
+  
   ctx.fillStyle = '#ffffff';
   ctx.globalAlpha = alpha;
   ctx.font = `${bubble.type === 'tool' ? 'bold ' : ''}12px "JetBrains Mono", monospace`;
@@ -621,9 +669,9 @@ function drawSpeechBubble(
   ctx.restore();
 }
 
-// ============================================
-// CONNECTION LINE RENDERING
-// ============================================
+
+
+
 
 function drawConnectionLine(
   ctx: CanvasRenderingContext2D,
@@ -655,8 +703,21 @@ function drawConnectionLine(
   ctx.lineTo(toScreen.x, toScreen.y - 20);
   ctx.stroke();
 
-  // Seta no destino
+  
   drawArrowHead(ctx, fromScreen, toScreen);
+
+  // Bola de luz do pacote de dados (Data Packet Flow)
+  const progress = ((now - line.createdAt) % 800) / 800; // completa a viagem em 0.8s
+  const pktX = fromScreen.x + (toScreen.x - fromScreen.x) * progress;
+  const pktY = (fromScreen.y - 20) + ((toScreen.y - 20) - (fromScreen.y - 20)) * progress;
+  
+  ctx.beginPath();
+  ctx.arc(pktX, pktY, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = '#ffffff';
+  ctx.fill();
+  ctx.shadowBlur = 0; // reset
 
   ctx.restore();
 }
@@ -684,9 +745,9 @@ function drawArrowHead(
   ctx.restore();
 }
 
-// ============================================
-// MAIN CANVAS COMPONENT
-// ============================================
+
+
+
 
 export const RoomCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -704,7 +765,7 @@ export const RoomCanvas: React.FC = () => {
     let animFrameId: number;
     let globalTick = 0;
 
-    // Mantém canvas responsivo
+    
     const resize = () => {
       const parent = canvas.parentElement;
       if (parent) {
@@ -719,22 +780,22 @@ export const RoomCanvas: React.FC = () => {
       globalTick++;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 1. Fundo da sala (gradiente radial suave)
+      
       drawRoomBackground(ctx, canvas, roomConfig);
 
-      // 2. Tiles do piso (painter's algorithm: back-to-front)
+      
       for (let gy = 0; gy < GRID_H; gy++) {
         for (let gx = 0; gx < GRID_W; gx++) {
           drawFloorTile(ctx, gx, gy, roomConfig, canvas);
         }
       }
 
-      // 3. Objetos ambiente (móveis, decoração)
+      
       for (const obj of roomConfig.visual.ambientObjects) {
         drawAmbientObject(ctx, obj, roomConfig, canvas);
       }
 
-      // 4. Personagens (ordenados por posição Y para depth sorting correto)
+      
       const sortedAgents = [...agents].sort(
         (a, b) => (a.isoX + a.isoY) - (b.isoX + b.isoY)
       );
@@ -742,7 +803,7 @@ export const RoomCanvas: React.FC = () => {
         drawCharacter(ctx, agent, globalTick, roomConfig, canvas);
       }
 
-      // 5. Linhas de conexão (sobre personagens, abaixo dos balões)
+      
       const now = Date.now();
       for (const line of connectionLines) {
         if (now - line.createdAt < 2500) {
@@ -750,7 +811,7 @@ export const RoomCanvas: React.FC = () => {
         }
       }
 
-      // 6. Balões de fala (sempre no topo)
+      
       for (const agent of sortedAgents) {
         if (agent.bubble.visible) {
           drawSpeechBubble(ctx, agent, roomConfig, canvas);

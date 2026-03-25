@@ -1,8 +1,3 @@
-/**
- * Long Term Memory (LTM) Types
- * 
- * Types for persistent memory storage and retrieval across agent sessions.
- */
 
 export type MemoryType =
   | 'task_completed'

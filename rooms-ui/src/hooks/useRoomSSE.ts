@@ -9,13 +9,6 @@ export interface UseSSEOptions {
   baseUrl?: string;
 }
 
-/**
- * Hook para conectar ao SSE do Room Server (porta 3335)
- * 
- * - Reconecta automaticamente quando a conexão cai
- * - Filtra eventos por instanceId e roomId
- * - Dispatch automático dos eventos para o Zustand store
- */
 export function useRoomSSE(options: UseSSEOptions = {}) {
   const {
     instanceId = 'all',
@@ -56,7 +49,7 @@ export function useRoomSSE(options: UseSSEOptions = {}) {
       const es = new EventSource(url);
       esRef.current = es;
 
-      // Handler para mensagens genéricas
+      
       es.onmessage = (e) => {
         try {
           const event: CastEvent = JSON.parse(e.data);
@@ -66,13 +59,13 @@ export function useRoomSSE(options: UseSSEOptions = {}) {
         }
       };
 
-      // Handler para erro de conexão
+      
       es.onerror = (err) => {
         console.error('[SSE] Error:', err);
         es.close();
         esRef.current = null;
 
-        // Tenta reconectar após 3 segundos
+        
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
         }
@@ -82,7 +75,7 @@ export function useRoomSSE(options: UseSSEOptions = {}) {
         }, 3000);
       };
 
-      // Evento: instance.created
+      
       es.addEventListener('instance.created', (e) => {
         try {
           const event: CastEvent = JSON.parse((e as MessageEvent).data);
@@ -103,7 +96,7 @@ export function useRoomSSE(options: UseSSEOptions = {}) {
         }
       });
 
-      // Evento: instance.destroyed
+      
       es.addEventListener('instance.destroyed', (e) => {
         try {
           const event: CastEvent = JSON.parse((e as MessageEvent).data);
@@ -113,21 +106,23 @@ export function useRoomSSE(options: UseSSEOptions = {}) {
         }
       });
 
-      // Evento: bridge.connected
+      
       es.addEventListener('bridge.connected', (e) => {
         try {
           const event: CastEvent = JSON.parse((e as MessageEvent).data);
           console.log('[SSE] Bridge connected:', event.instanceId);
+          dispatch(event); // Adiciona o agente no store
         } catch (err) {
           console.error('[SSE] bridge.connected parse error:', err);
         }
       });
 
-      // Evento: bridge.disconnected
+
       es.addEventListener('bridge.disconnected', (e) => {
         try {
           const event: CastEvent = JSON.parse((e as MessageEvent).data);
           console.log('[SSE] Bridge disconnected:', event.instanceId);
+          dispatch(event); // Remove ou marca o agente como offline
         } catch (err) {
           console.error('[SSE] bridge.disconnected parse error:', err);
         }
@@ -138,7 +133,7 @@ export function useRoomSSE(options: UseSSEOptions = {}) {
 
     connect();
 
-    // Cleanup
+    
     return () => {
       if (esRef.current) {
         esRef.current.close();
@@ -150,7 +145,7 @@ export function useRoomSSE(options: UseSSEOptions = {}) {
     };
   }, [instanceId, roomId, enabled, baseUrl, dispatch, addInstance, removeInstance]);
 
-  // Função para disconnectar manualmente
+  
   const disconnect = () => {
     if (esRef.current) {
       esRef.current.close();

@@ -1,6 +1,6 @@
-// ============================================
-// ROOM TYPES
-// ============================================
+
+
+
 
 export type AgentRole = 'orchestrator' | 'researcher' | 'coder' | 'reviewer' | 'specialist';
 
@@ -51,9 +51,9 @@ export interface RoomConfig {
   visual: RoomVisual;
 }
 
-// ============================================
-// EVENT TYPES
-// ============================================
+
+
+
 
 export type AgentEventType =
   | 'agent.task.started'
@@ -98,13 +98,14 @@ export interface CastEvent {
     provider?: string;
     color?: string;
     bridgeTool?: string;
+    name?: string;
   };
   timestamp: number;
 }
 
-// ============================================
-// VISUAL STATE TYPES
-// ============================================
+
+
+
 
 export type AgentVisualState =
   | 'IDLE'

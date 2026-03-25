@@ -90,10 +90,19 @@ export class SmartInput implements ISmartInput {
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
 
-    this.terminalWidth = process.stdout.columns || 80;
+    // Fix for bogus terminal dimensions (e.g., 131072x1)
+    const cols = process.stdout.columns;
+    const rows = process.stdout.rows;
+    this.terminalWidth = (cols && cols > 0 && cols < 10000) ? cols : 80;
+    
+    // Warn if terminal dimensions are invalid
+    if (!rows || rows < 2) {
+      process.stdout.write('\r\n  \x1b[33mWarning: Terminal has insufficient rows (' + (rows || 0) + '). Please resize your terminal.\x1b[0m\r\n\r\n');
+    }
 
     process.stdout.on('resize', () => {
-      this.terminalWidth = process.stdout.columns || 80;
+      const newCols = process.stdout.columns;
+      this.terminalWidth = (newCols && newCols > 0 && newCols < 10000) ? newCols : 80;
     });
 
     this.dataHandler = (data: string) => this.handleData(data);

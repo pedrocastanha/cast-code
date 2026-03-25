@@ -1,4 +1,5 @@
 import { Module, Global } from '@nestjs/common';
+import { CoreModule } from '../core/core.module';
 import { RoomEventBusService } from './services/room-event-bus.service';
 import { RoomSseService } from './services/room-sse.service';
 import { RoomInstanceManagerService } from './services/room-instance-manager.service';
@@ -10,6 +11,7 @@ import { RoomsController } from './rooms.controller';
 
 @Global()
 @Module({
+  imports: [CoreModule],
   providers: [
     RoomEventBusService,
     RoomSseService,

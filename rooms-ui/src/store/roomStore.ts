@@ -14,7 +14,7 @@ import { ROOM_CONFIGS } from '../configs';
 export type { AgentVisualState, AgentBubble };
 
 export interface RoomStore {
-  // Estado
+  
   activeRoomId: string;
   activeRoomConfig: RoomConfig | null;
   instances: Map<string, RoomInstance>;
@@ -23,7 +23,7 @@ export interface RoomStore {
   connectionLines: ConnectionLine[];
   events: CastEvent[];
 
-  // Actions
+  
   dispatch: (event: CastEvent) => void;
   setRoom: (roomId: string) => void;
   addInstance: (instance: RoomInstance) => void;
@@ -32,12 +32,12 @@ export interface RoomStore {
 }
 
 const INSTANCE_COLORS = [
-  '#38bdf8', // azul
-  '#4ade80', // verde
-  '#f472b6', // rosa
-  '#fb923c', // laranja
-  '#a78bfa', // violeta
-  '#facc15', // amarelo
+  '#38bdf8', 
+  '#4ade80', 
+  '#f472b6', 
+  '#fb923c', 
+  '#a78bfa', 
+  '#facc15', 
 ];
 
 function getInstanceColor(index: number): string {
@@ -45,7 +45,7 @@ function getInstanceColor(index: number): string {
 }
 
 function getDefaultAgentPosition(agentIndex: number): { x: number; y: number } {
-  // Posições iniciais dos agentes no grid isométrico
+  
   const positions = [
     { x: 3, y: 3 },
     { x: 5, y: 2 },
@@ -70,21 +70,21 @@ export const useRoomStore = create<RoomStore>((set) => ({
       const newState = { ...state };
       const instance = newState.instances.get(event.instanceId);
 
-      // Cria agente se não existe
+
       let agentIdx = newState.agents.findIndex(
         (a) => a.id === event.agentId && a.instanceId === event.instanceId
       );
 
-      if (agentIdx === -1) {
-        // Novo agente
+      // Cria o agente se não existir (para eventos bridge.connected e bridge.disconnected também)
+      if (agentIdx === -1 && (event.type.startsWith('bridge.') || event.type.startsWith('agent.'))) {
         const agentCount = newState.agents.filter(
           (a) => a.instanceId === event.instanceId
         ).length;
         const pos = getDefaultAgentPosition(agentCount);
         const newAgent: RoomAgent = {
           id: event.agentId,
-          name: event.agentId,
-          role: 'unknown',
+          name: event.payload.instanceName || event.agentId,
+          role: 'bridge',
           instanceId: event.instanceId,
           instanceColor: instance?.color || getInstanceColor(agentCount),
           visualState: 'IDLE',
@@ -102,10 +102,45 @@ export const useRoomStore = create<RoomStore>((set) => ({
         agentIdx = newState.agents.length - 1;
       }
 
+      if (agentIdx === -1) {
+        return newState;
+      }
+
       const agent = { ...newState.agents[agentIdx] };
 
       // Atualiza estado visual do agente baseado no evento
       switch (event.type) {
+        case 'bridge.connected':
+          agent.visualState = 'IDLE';
+          agent.name = event.payload.name as string || agent.name;
+          agent.bubble = {
+            type: 'speech',
+            text: 'Online!',
+            visible: true,
+            createdAt: Date.now(),
+          };
+          setTimeout(() => {
+            set((s) => {
+              const idx = s.agents.findIndex((a) => a.instanceId === event.instanceId);
+              if (idx === -1) return s;
+              const updated = { ...s.agents[idx], bubble: { ...s.agents[idx].bubble, visible: false } };
+              return {
+                agents: [...s.agents.slice(0, idx), updated, ...s.agents.slice(idx + 1)],
+              };
+            });
+          }, 2000);
+          break;
+
+        case 'bridge.disconnected':
+          agent.visualState = 'IDLE';
+          agent.bubble = {
+            type: 'speech',
+            text: 'Offline',
+            visible: true,
+            createdAt: Date.now(),
+          };
+          break;
+
         case 'agent.thinking':
           agent.visualState = 'THINKING';
           agent.bubble = {
@@ -141,7 +176,7 @@ export const useRoomStore = create<RoomStore>((set) => ({
             createdAt: Date.now(),
           };
 
-          // Adiciona linha de conexão se mensagem tem destino
+
           if (event.payload.toAgentId) {
             newState.connectionLines = [
               ...newState.connectionLines,
@@ -153,7 +188,7 @@ export const useRoomStore = create<RoomStore>((set) => ({
             ];
           }
 
-          // Adiciona ao chat
+
           newState.messages = [
             ...newState.messages,
             {
@@ -202,7 +237,7 @@ export const useRoomStore = create<RoomStore>((set) => ({
         ...newState.agents.slice(agentIdx + 1),
       ];
 
-      // Append ao log de eventos (máx 500)
+
       newState.events = [...newState.events.slice(-499), event];
 
       return newState;
@@ -219,7 +254,7 @@ export const useRoomStore = create<RoomStore>((set) => ({
       const next = new Map(state.instances);
       next.set(instance.id, instance);
 
-      // Atualiza nome dos agentes desta instância
+      
       const updatedAgents = state.agents.map((agent) => {
         if (agent.instanceId === instance.id) {
           return {

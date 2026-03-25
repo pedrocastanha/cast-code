@@ -1,9 +1,3 @@
-/**
- * LTM Storage Service
- * 
- * SQLite-based persistent storage for Long Term Memory.
- * Handles database initialization, CRUD operations, and cleanup.
- */
 
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { join } from 'path';
@@ -84,10 +78,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Store a memory entry in the database
-   */
-  store(memory: MemoryEntry): void {
+    store(memory: MemoryEntry): void {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -115,10 +106,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Search memories with filters
-   */
-  search(query: string, filters: MemoryFilters): MemoryEntry[] {
+    search(query: string, filters: MemoryFilters): MemoryEntry[] {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -186,10 +174,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Get most relevant memories based on recency and importance
-   */
-  getRelevant(context: string, limit: number = 10): MemoryEntry[] {
+    getRelevant(context: string, limit: number = 10): MemoryEntry[] {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -209,10 +194,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Get all memories for a specific instance
-   */
-  getInstanceHistory(instanceId: string): MemoryEntry[] {
+    getInstanceHistory(instanceId: string): MemoryEntry[] {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -232,10 +214,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Get a single memory by ID
-   */
-  getById(memoryId: string): MemoryEntry | null {
+    getById(memoryId: string): MemoryEntry | null {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -251,10 +230,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Delete a memory by ID
-   */
-  delete(memoryId: string): boolean {
+    delete(memoryId: string): boolean {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -269,10 +245,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Cleanup old memories based on max age (in milliseconds)
-   */
-  cleanup(maxAge: number): void {
+    cleanup(maxAge: number): void {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -287,10 +260,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Cleanup memories with low importance
-   */
-  cleanupLowImportance(minImportance: number): void {
+    cleanupLowImportance(minImportance: number): void {
     if (!this.db) {
       throw new Error('[LTMStorageService] Database not initialized');
     }
@@ -304,10 +274,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Get memory count
-   */
-  getCount(): number {
+    getCount(): number {
     if (!this.db) {
       return 0;
     }
@@ -322,10 +289,7 @@ export class LTMStorageService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Convert database row to MemoryEntry
-   */
-  private rowToMemory(row: any): MemoryEntry {
+    private rowToMemory(row: any): MemoryEntry {
     return {
       id: row.id,
       instanceId: row.instance_id,

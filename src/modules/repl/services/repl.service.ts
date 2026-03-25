@@ -94,7 +94,7 @@ export class ReplService {
           } else if (chunk instanceof Uint8Array) {
             this.remoteServer.broadcast(Buffer.from(chunk).toString());
           }
-        } catch { /* never let broadcast errors affect the local terminal */ }
+        } catch {  }
       }
       return originalWrite(chunk, encoding as any, cb as any);
     };
@@ -267,6 +267,7 @@ export class ReplService {
       { text: '/vault', display: '/vault', description: 'Manage code snippet vault' },
       { text: '/bridge', display: '/bridge', description: 'Connect external AI agent (Claude, Codex)' },
       { text: '/rooms', display: '/rooms', description: 'Rooms feature and LTM management' },
+      { text: '/room', display: '/room', description: 'Open Room Server UI' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -541,6 +542,18 @@ export class ReplService {
         await this.roomsCommands.cmdRooms(args);
         break;
 
+      case 'room':
+        process.stdout.write(`  ${Colors.green}Opening Room Server UI...${Colors.reset}\r\n`);
+        const { platform } = require('os');
+        const { exec } = require('child_process');
+        const url = 'http://localhost:3335';
+        let openCmd = '';
+        if (platform() === 'win32') openCmd = `start ${url}`;
+        else if (platform() === 'darwin') openCmd = `open ${url}`;
+        else openCmd = `xdg-open ${url}`;
+        exec(openCmd, () => {});
+        break;
+
       default:
         process.stdout.write(`  ${Colors.red}Unknown command:${Colors.reset} ${Colors.dim}/${cmd}${Colors.reset}  ${Colors.dim}Run /help for reference${Colors.reset}\r\n`);
     }
@@ -588,7 +601,7 @@ export class ReplService {
           }
           messageToProcess = plannedMessage;
         } else {
-          // No plan selected: wrap with execution directive so the agent acts immediately
+          
           messageToProcess = `[EXECUTE NOW — no explanation, no questions, use tools immediately]\n\n${message}`;
         }
       }

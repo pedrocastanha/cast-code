@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from 'eventemitter2';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { CastEvent } from '../types/event.types';
+import { RoomEventBusService } from './room-event-bus.service';
 
 export interface RoomInstance {
   instanceId: string;
@@ -28,7 +29,7 @@ export class RoomInstanceManagerService {
   private readonly instances = new Map<string, RoomInstance>();
   private readonly emitter: EventEmitter2;
 
-  constructor() {
+  constructor(private readonly eventBus: RoomEventBusService) {
     this.emitter = new EventEmitter2({
       wildcard: true,
       delimiter: '.',
@@ -36,10 +37,7 @@ export class RoomInstanceManagerService {
     });
   }
 
-  /**
-   * Create a new room instance with its own DeepAgentService
-   */
-  async createInstance(
+    async createInstance(
     instanceId: string,
     options: CreateInstanceOptions = {},
   ): Promise<RoomInstance> {
@@ -48,7 +46,7 @@ export class RoomInstanceManagerService {
 
     this.logger.log(`Creating instance ${instanceId} for room ${roomId}`);
 
-    // Create instance record in initializing state
+    
     const instance: RoomInstance = {
       instanceId,
       roomId,
@@ -61,11 +59,11 @@ export class RoomInstanceManagerService {
     this.instances.set(instanceId, instance);
 
     try {
-      // DeepAgentService will be injected and initialized by the caller
-      // For now, mark as ready - the actual DeepAgentService injection happens externally
+      
+      
       instance.status = 'ready';
 
-      // Emit instance.created event
+      
       this.emitInstanceEvent('instance.created', instanceId, roomId, agentId);
 
       this.logger.log(`Instance ${instanceId} created successfully`);
@@ -77,10 +75,7 @@ export class RoomInstanceManagerService {
     }
   }
 
-  /**
-   * Destroy a room instance and clean up resources
-   */
-  async destroyInstance(instanceId: string): Promise<void> {
+    async destroyInstance(instanceId: string): Promise<void> {
     const instance = this.instances.get(instanceId);
 
     if (!instance) {
@@ -89,22 +84,19 @@ export class RoomInstanceManagerService {
 
     this.logger.log(`Destroying instance ${instanceId}`);
 
-    // Note: DeepAgentService cleanup would happen here if needed
-    // For now, we just remove it from the registry
+    
+    
 
     const { roomId, agentId } = instance;
     this.instances.delete(instanceId);
 
-    // Emit instance.destroyed event
+    
     this.emitInstanceEvent('instance.destroyed', instanceId, roomId, agentId);
 
     this.logger.log(`Instance ${instanceId} destroyed successfully`);
   }
 
-  /**
-   * Get a specific instance by ID
-   */
-  getInstance(instanceId: string): RoomInstance {
+    getInstance(instanceId: string): RoomInstance {
     const instance = this.instances.get(instanceId);
 
     if (!instance) {
@@ -114,10 +106,7 @@ export class RoomInstanceManagerService {
     return instance;
   }
 
-  /**
-   * List all instances, optionally filtered by roomId
-   */
-  listInstances(roomId?: string): RoomInstance[] {
+    listInstances(roomId?: string): RoomInstance[] {
     const allInstances = Array.from(this.instances.values());
 
     if (!roomId) {
@@ -127,24 +116,15 @@ export class RoomInstanceManagerService {
     return allInstances.filter((instance) => instance.roomId === roomId);
   }
 
-  /**
-   * Check if an instance exists
-   */
-  hasInstance(instanceId: string): boolean {
+    hasInstance(instanceId: string): boolean {
     return this.instances.has(instanceId);
   }
 
-  /**
-   * Get instance count
-   */
-  getInstanceCount(): number {
+    getInstanceCount(): number {
     return this.instances.size;
   }
 
-  /**
-   * Register a DeepAgentService with an existing instance
-   */
-  registerDeepAgent(
+    registerDeepAgent(
     instanceId: string,
     deepAgent: DeepAgentService,
   ): void {
@@ -158,10 +138,7 @@ export class RoomInstanceManagerService {
     this.logger.log(`DeepAgent registered with instance ${instanceId}`);
   }
 
-  /**
-   * Get the DeepAgentService for an instance
-   */
-  getDeepAgent(instanceId: string): DeepAgentService {
+    getDeepAgent(instanceId: string): DeepAgentService {
     const instance = this.getInstance(instanceId);
 
     if (!instance.deepAgent) {
@@ -171,24 +148,15 @@ export class RoomInstanceManagerService {
     return instance.deepAgent;
   }
 
-  /**
-   * Subscribe to instance events
-   */
-  onEvent(pattern: string, listener: (event: CastEvent) => void): void {
+    onEvent(pattern: string, listener: (event: CastEvent) => void): void {
     this.emitter.on(pattern, listener);
   }
 
-  /**
-   * Unsubscribe from instance events
-   */
-  offEvent(pattern: string, listener: (event: CastEvent) => void): void {
+    offEvent(pattern: string, listener: (event: CastEvent) => void): void {
     this.emitter.off(pattern, listener);
   }
 
-  /**
-   * Emit an instance lifecycle event
-   */
-  private emitInstanceEvent(
+    private emitInstanceEvent(
     eventType: 'instance.created' | 'instance.destroyed',
     instanceId: string,
     roomId: string,
@@ -201,11 +169,15 @@ export class RoomInstanceManagerService {
       instanceId,
       roomId,
       source: 'native',
-      payload: {},
+      payload: {
+        instanceName: agentId,
+      },
       timestamp: Date.now(),
     };
 
     this.emitter.emit(eventType, event);
     this.emitter.emit('*', event);
+    // Forward to event bus so SSE clients receive it
+    this.eventBus.emit(event);
   }
 }

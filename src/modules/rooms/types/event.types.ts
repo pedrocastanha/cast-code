@@ -36,6 +36,11 @@ export interface CastEvent {
     tokens?: number;
     latencyMs?: number;
     error?: string;
+    instanceName?: string;
+    model?: string;
+    provider?: string;
+    color?: string;
+    bridgeTool?: string;
   };
   timestamp: number;
 }

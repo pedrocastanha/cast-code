@@ -1,22 +1,8 @@
-/**
- * External Agent SDK Example
- * 
- * This example demonstrates how external AI agents (Claude Code, Codex, etc.)
- * can register with the Room Bridge and communicate with other agents.
- * 
- * Usage:
- *   npx ts-node src/modules/rooms/examples/external-agent-example.ts
- * 
- * Or integrate this pattern into your own agent implementation.
- */
 
 import * as http from 'http';
 
 const BRIDGE_PORT = 3336;
 
-/**
- * ExternalAgentClient - SDK for connecting external agents to the Room Bridge
- */
 class ExternalAgentClient {
   private instanceId: string | null = null;
   private token: string | null = null;
@@ -45,10 +31,7 @@ class ExternalAgentClient {
     this.provider = options.provider ?? this.inferProvider(options.tool);
   }
 
-  /**
-   * Register this agent with the Room Bridge Server
-   */
-  async register(): Promise<{ instanceId: string; token: string }> {
+    async register(): Promise<{ instanceId: string; token: string }> {
     const response = await this.httpPost('/register', {
       name: this.name,
       tool: this.tool,
@@ -78,10 +61,7 @@ class ExternalAgentClient {
     return { instanceId: data.instanceId, token: data.token };
   }
 
-  /**
-   * Unregister from the Room Bridge Server
-   */
-  async unregister(): Promise<void> {
+    async unregister(): Promise<void> {
     if (!this.instanceId || !this.token) {
       return;
     }
@@ -98,10 +78,7 @@ class ExternalAgentClient {
     this.token = null;
   }
 
-  /**
-   * Send a message to a specific agent
-   */
-  async sendMessage(toAgentId: string, content: string, type: 'task' | 'result' | 'question' = 'task'): Promise<void> {
+    async sendMessage(toAgentId: string, content: string, type: 'task' | 'result' | 'question' = 'task'): Promise<void> {
     if (!this.instanceId || !this.token) {
       throw new Error('Not registered. Call register() first.');
     }
@@ -121,10 +98,7 @@ class ExternalAgentClient {
     console.log(`→ Sent message to ${toAgentId}: "${content}"`);
   }
 
-  /**
-   * Broadcast a message to all agents in the room
-   */
-  async broadcastMessage(content: string, type: 'broadcast' | 'task' | 'question' = 'broadcast'): Promise<void> {
+    async broadcastMessage(content: string, type: 'broadcast' | 'task' | 'question' = 'broadcast'): Promise<void> {
     if (!this.instanceId || !this.token) {
       throw new Error('Not registered. Call register() first.');
     }
@@ -143,33 +117,24 @@ class ExternalAgentClient {
     console.log(`→ Broadcast to room: "${content}"`);
   }
 
-  /**
-   * Start listening for incoming messages
-   */
-  startListening(onMessage: (message: { from: string; content: string; type: string }) => void): void {
+    startListening(onMessage: (message: { from: string; content: string; type: string }) => void): void {
     if (!this.instanceId || !this.token) {
       throw new Error('Not registered. Call register() first.');
     }
 
     console.log(`✓ Started listening for messages...`);
 
-    // Poll inbox every 2 seconds
+    
     this.inboxPollInterval = setInterval(() => {
       this.pollInbox(onMessage);
     }, 2000);
   }
 
-  /**
-   * Stop listening for messages
-   */
-  stopListening(): void {
+    stopListening(): void {
     this.stopInboxPolling();
   }
 
-  /**
-   * Get list of all registered agents
-   */
-  async getAgents(): Promise<Array<{
+    async getAgents(): Promise<Array<{
     instanceId: string;
     name: string;
     tool: string;
@@ -191,16 +156,13 @@ class ExternalAgentClient {
     }>;
   }
 
-  /**
-   * Private: Poll inbox for new messages
-   */
-  private async pollInbox(onMessage: (message: { from: string; content: string; type: string }) => void): Promise<void> {
+    private async pollInbox(onMessage: (message: { from: string; content: string; type: string }) => void): Promise<void> {
     if (!this.instanceId || !this.token) {
       return;
     }
 
-    // Note: In a real implementation, you would use SSE instead of polling
-    // This is a simplified example
+    
+    
     const url = `http://localhost:${BRIDGE_PORT}/${this.instanceId}/inbox`;
 
     try {
@@ -221,7 +183,7 @@ class ExternalAgentClient {
       });
 
       response.on('end', () => {
-        // Parse SSE format
+        
         const lines = data.split('\n');
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -230,7 +192,7 @@ class ExternalAgentClient {
               if (event.type === 'room.message' && event.data) {
                 const { fromAgentName, content, type } = event.data;
                 
-                // Avoid duplicate messages
+                
                 const messageId = event.data.id;
                 if (messageId === this.lastMessageId) continue;
                 this.lastMessageId = messageId;
@@ -242,30 +204,24 @@ class ExternalAgentClient {
                 });
               }
             } catch {
-              // Ignore parse errors
+              
             }
           }
         }
       });
     } catch (error) {
-      // Polling errors are expected if no messages
+      
     }
   }
 
-  /**
-   * Private: Stop inbox polling
-   */
-  private stopInboxPolling(): void {
+    private stopInboxPolling(): void {
     if (this.inboxPollInterval) {
       clearInterval(this.inboxPollInterval);
       this.inboxPollInterval = null;
     }
   }
 
-  /**
-   * Private: HTTP POST helper
-   */
-  private async httpPost(path: string, body: unknown, token?: string): Promise<{ success: boolean; data?: unknown; error?: string }> {
+    private async httpPost(path: string, body: unknown, token?: string): Promise<{ success: boolean; data?: unknown; error?: string }> {
     return new Promise((resolve) => {
       const req = http.request(
         {
@@ -306,10 +262,7 @@ class ExternalAgentClient {
     });
   }
 
-  /**
-   * Private: HTTP GET helper
-   */
-  private async httpGet(path: string): Promise<{ success: boolean; data?: unknown; error?: string }> {
+    private async httpGet(path: string): Promise<{ success: boolean; data?: unknown; error?: string }> {
     return new Promise((resolve) => {
       http.get(
         {
@@ -343,10 +296,7 @@ class ExternalAgentClient {
     });
   }
 
-  /**
-   * Private: Infer provider from tool name
-   */
-  private inferProvider(tool: string): string {
+    private inferProvider(tool: string): string {
     const toolLower = tool.toLowerCase();
     if (toolLower.includes('claude')) return 'anthropic';
     if (toolLower.includes('codex') || toolLower.includes('gpt') || toolLower.includes('openai')) return 'openai';
@@ -357,15 +307,12 @@ class ExternalAgentClient {
   }
 }
 
-/**
- * Example usage - Claude Code Agent
- */
 async function exampleClaudeAgent() {
   console.log('\n🌉 External Agent Example — Claude Code\n');
   console.log('Make sure the Room Bridge Server is running:');
   console.log('  cast rooms --serve\n');
 
-  // Check if server is running
+  
   try {
     await new Promise<void>((resolve, reject) => {
       http.get(`http://localhost:${BRIDGE_PORT}/health`, (res) => {
@@ -380,7 +327,7 @@ async function exampleClaudeAgent() {
     return;
   }
 
-  // Create Claude agent
+  
   const claudeAgent = new ExternalAgentClient({
     name: 'Claude',
     tool: 'claude',
@@ -391,14 +338,14 @@ async function exampleClaudeAgent() {
   });
 
   try {
-    // Register
+    
     await claudeAgent.register();
 
-    // Start listening for messages
+    
     claudeAgent.startListening((message) => {
       console.log(`\n📨 Received from ${message.from}: "${message.content}"\n`);
       
-      // Auto-respond to questions
+      
       if (message.type === 'question') {
         setTimeout(async () => {
           await claudeAgent.sendMessage(message.from, 'I received your question. Working on it...', 'result');
@@ -406,11 +353,11 @@ async function exampleClaudeAgent() {
       }
     });
 
-    // Wait a bit, then send a broadcast message
+    
     await new Promise((resolve) => setTimeout(resolve, 3000));
     await claudeAgent.broadcastMessage('Hello from Claude! Ready to collaborate.', 'broadcast');
 
-    // Get list of agents
+    
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const agents = await claudeAgent.getAgents();
     console.log('\n📋 Registered agents:');
@@ -418,10 +365,10 @@ async function exampleClaudeAgent() {
       console.log(`   - ${agent.name} (${agent.tool}) in ${agent.roomId}`);
     }
 
-    // Keep running for a bit to receive messages
+    
     console.log('\n✓ Listening for messages... (Ctrl+C to exit)\n');
 
-    // Cleanup on exit
+    
     process.on('SIGINT', async () => {
       console.log('\nDisconnecting...');
       claudeAgent.stopListening();
@@ -434,9 +381,6 @@ async function exampleClaudeAgent() {
   }
 }
 
-/**
- * Example usage - Codex Agent
- */
 async function exampleCodexAgent() {
   console.log('\n🌉 External Agent Example — Codex\n');
 
@@ -473,7 +417,7 @@ async function exampleCodexAgent() {
   }
 }
 
-// Run example based on command line argument
+
 const example = process.argv[2] ?? 'claude';
 
 if (example === 'claude') {

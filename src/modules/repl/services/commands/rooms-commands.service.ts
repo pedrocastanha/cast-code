@@ -1,16 +1,8 @@
-/**
- * Rooms CLI Command Service
- *
- * Provides CLI commands for Rooms feature including Long Term Memory management.
- *
- * Usage:
- *   cast rooms memory search <query>
- *   cast rooms memory list [instanceId]
- *   cast rooms memory forget <id>
- */
 
 import { Injectable } from '@nestjs/common';
+import { exec } from 'child_process';
 import { LTMService } from '../../../rooms/services/ltm.service';
+import { RoomBridgeService } from '../../../rooms/services/room-bridge.service';
 import { MemoryEntry } from '../../../rooms/types/ltm.types';
 import { Colors, colorize, Box, Icons } from '../../utils/theme';
 
@@ -18,17 +10,15 @@ import { Colors, colorize, Box, Icons } from '../../utils/theme';
 export class RoomsCommandsService {
   constructor(
     private readonly ltmService: LTMService,
+    private readonly roomBridge: RoomBridgeService,
   ) {}
 
-  /**
-   * Main entry point for /rooms command
-   */
-  async cmdRooms(args: string[]): Promise<void> {
+    async cmdRooms(args: string[]): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const sub = args[0];
 
-    if (!sub) {
-      this.printRoomsHelp();
+    if (!sub || sub === 'open' || sub === 'serve') {
+      await this.openRoomsUI();
       return;
     }
 
@@ -37,14 +27,43 @@ export class RoomsCommandsService {
       return;
     }
 
+    if (sub === 'task') {
+      await this.cmdTask(args.slice(1));
+      return;
+    }
+
     w(`\r\n  ${colorize(Icons.cross, 'error')} ${colorize(`Unknown subcommand: /rooms ${sub}`, 'error')}\r\n`);
-    w(`  ${colorize('Try ', 'muted')}${colorize('/rooms memory', 'cyan')}\r\n\r\n`);
+    w(`  ${colorize('Try ', 'muted')}${colorize('/rooms', 'cyan')}${colorize(' to open the UI', 'muted')}\r\n\r\n`);
   }
 
-  /**
-   * Memory subcommand handler
-   */
-  async cmdMemory(args: string[]): Promise<void> {
+  private async openRoomsUI(): Promise<void> {
+    const w = (s: string) => process.stdout.write(s);
+    const url = 'http://localhost:3335';
+
+    w('\r\n');
+    w(`  ${colorize('🏠 Cast Rooms', 'bold')}\r\n`);
+    w(`  ${colorize(Box.horizontal.repeat(40), 'subtle')}\r\n`);
+    w('\r\n');
+    w(`  ${colorize('URL:', 'muted')} ${colorize(url, 'cyan')}\r\n`);
+    w(`  ${colorize('Bridge:', 'muted')} ${colorize('http://localhost:3336', 'cyan')}\r\n`);
+    w('\r\n');
+    w(`  ${colorize(Icons.dot, 'success')} ${colorize('Servers running. Opening browser...', 'muted')}\r\n`);
+    w('\r\n');
+
+    // Open browser cross-platform
+    const openCmd =
+      process.platform === 'darwin' ? `open "${url}"` :
+      process.platform === 'win32'  ? `start "" "${url}"` :
+                                       `xdg-open "${url}"`;
+
+    exec(openCmd, (err) => {
+      if (err) {
+        process.stdout.write(`  ${colorize('Could not open browser automatically.', 'muted')}\r\n\r\n`);
+      }
+    });
+  }
+
+    async cmdMemory(args: string[]): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const sub = args[0];
 
@@ -85,9 +104,39 @@ export class RoomsCommandsService {
     }
   }
 
-  /**
-   * Search memories: /rooms memory search <query>
-   */
+    private async cmdTask(args: string[]): Promise<void> {
+    const w = (s: string) => process.stdout.write(s);
+    
+    const target = args[0];
+    if (!target || !target.startsWith('@')) {
+      w(`\r\n  ${colorize(Icons.cross, 'error')} ${colorize('Target must start with @', 'error')}\r\n`);
+      w(`  ${colorize('Usage: ', 'muted')}${colorize('/rooms task @name <message>', 'cyan')}\r\n\r\n`);
+      return;
+    }
+
+    const agentName = target.slice(1);
+    const content = args.slice(1).join(' ').trim();
+
+    if (!content) {
+      w(`\r\n  ${colorize(Icons.cross, 'error')} ${colorize('Message content is required', 'error')}\r\n`);
+      w(`  ${colorize('Usage: ', 'muted')}${colorize(`/rooms task ${target} <message>`, 'cyan')}\r\n\r\n`);
+      return;
+    }
+
+    try {
+      if (agentName.toLowerCase() === 'all') {
+        w(`\r\n  ${colorize(Icons.dot, 'cyan')} ${colorize('Broadcasting task to all agents...', 'cyan')}\r\n`);
+        await this.roomBridge.broadcastMessage('user', content, 'task');
+      } else {
+        w(`\r\n  ${colorize(Icons.dot, 'cyan')} ${colorize(`Sending task to ${agentName}...`, 'cyan')}\r\n`);
+        await this.roomBridge.sendMessage('user', agentName, content, 'task');
+      }
+      w(`  ${colorize(Icons.check, 'success')} ${colorize('Task sent successfully', 'success')}\r\n\r\n`);
+    } catch (error) {
+       w(`\r\n  ${colorize(Icons.cross, 'error')} ${colorize(`Failed to send task: ${(error as Error).message}`, 'error')}\r\n\r\n`);
+    }
+  }
+
   private async memorySearch(args: string[]): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const query = args.join(' ').trim();
@@ -107,7 +156,7 @@ export class RoomsCommandsService {
 
       if (memories.length === 0) {
         w('\r\n');
-        w(`  ${colorize(Icons.info, 'muted')} ${colorize('No memories found.', 'muted')}\r\n`);
+        w(`  ${colorize(Icons.dot, 'muted')} ${colorize('No memories found.', 'muted')}\r\n`);
         w('\r\n');
         return;
       }
@@ -121,8 +170,8 @@ export class RoomsCommandsService {
           ? memory.content.slice(0, 97) + '...'
           : memory.content;
 
-        w(`  ${colorize(Icons.bullet, typeColor)} `);
-        w(`${colorize(`[${memory.type}]`, typeColor)} `);
+        w(`  ${colorize(Icons.bullet, typeColor as any)} `);
+        w(`${colorize(`[${memory.type}]`, typeColor as any)} `);
         w(`${colorize(timeAgo, 'muted')} `);
         w(`${colorize(`@${memory.agentId}`, 'subtle')} `);
         w(`${colorize(`imp:${memory.importance.toFixed(1)}`, 'subtle')}\r\n`);
@@ -138,10 +187,7 @@ export class RoomsCommandsService {
     }
   }
 
-  /**
-   * List memories: /rooms memory list [instanceId]
-   */
-  private async memoryList(args: string[]): Promise<void> {
+    private async memoryList(args: string[]): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const instanceId = args[0];
 
@@ -167,7 +213,7 @@ export class RoomsCommandsService {
 
       if (memories.length === 0) {
         w('\r\n');
-        w(`  ${colorize(Icons.info, 'muted')} ${colorize('No memories found.', 'muted')}\r\n`);
+        w(`  ${colorize(Icons.dot, 'muted')} ${colorize('No memories found.', 'muted')}\r\n`);
         w('\r\n');
         return;
       }
@@ -178,9 +224,9 @@ export class RoomsCommandsService {
         const typeColor = this.getMemoryTypeColor(memory.type);
         const timeAgo = this.formatTimeAgo(memory.timestamp);
 
-        w(`  ${colorize(Icons.bullet, typeColor)} `);
+        w(`  ${colorize(Icons.bullet, typeColor as any)} `);
         w(`${colorize(memory.id, 'cyan')} `);
-        w(`${colorize(`[${memory.type}]`, typeColor)} `);
+        w(`${colorize(`[${memory.type}]`, typeColor as any)} `);
         w(`${colorize(timeAgo, 'muted')}\r\n`);
         w(`    ${colorize(memory.content.slice(0, 80), 'text')}\r\n`);
       }
@@ -193,10 +239,7 @@ export class RoomsCommandsService {
     }
   }
 
-  /**
-   * Forget memory: /rooms memory forget <id>
-   */
-  private async memoryForget(args: string[]): Promise<void> {
+    private async memoryForget(args: string[]): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const memoryId = args[0];
 
@@ -223,10 +266,7 @@ export class RoomsCommandsService {
     }
   }
 
-  /**
-   * Show memory statistics: /rooms memory stats
-   */
-  private async memoryStats(): Promise<void> {
+    private async memoryStats(): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
 
     w('\r\n');
@@ -246,10 +286,7 @@ export class RoomsCommandsService {
     w('\r\n');
   }
 
-  /**
-   * Print rooms help
-   */
-  private printRoomsHelp(): void {
+    private printRoomsHelp(): void {
     const w = (s: string) => process.stdout.write(s);
 
     w('\r\n');
@@ -258,13 +295,11 @@ export class RoomsCommandsService {
     w('\r\n');
     w(`  ${colorize('/rooms memory', 'cyan')}         Long Term Memory management\r\n`);
     w(`  ${colorize('/rooms mem', 'cyan')}            Alias for memory\r\n`);
+    w(`  ${colorize('/rooms task @agent', 'cyan')}   Assign a task to a specific agent (or @all)\r\n`);
     w('\r\n');
   }
 
-  /**
-   * Print memory help
-   */
-  private printMemoryHelp(): void {
+    private printMemoryHelp(): void {
     const w = (s: string) => process.stdout.write(s);
 
     w('\r\n');
@@ -278,10 +313,7 @@ export class RoomsCommandsService {
     w('\r\n');
   }
 
-  /**
-   * Get color for memory type
-   */
-  private getMemoryTypeColor(type: string): string {
+    private getMemoryTypeColor(type: string): string {
     switch (type) {
       case 'task_completed':
         return 'success';
@@ -300,10 +332,7 @@ export class RoomsCommandsService {
     }
   }
 
-  /**
-   * Format timestamp as "time ago"
-   */
-  private formatTimeAgo(timestamp: number): string {
+    private formatTimeAgo(timestamp: number): string {
     const now = Date.now();
     const diff = now - timestamp;
 
@@ -318,17 +347,11 @@ export class RoomsCommandsService {
     return 'just now';
   }
 
-  /**
-   * Format success message
-   */
-  private formatSuccess(text: string): string {
+    private formatSuccess(text: string): string {
     return colorize(text, 'success');
   }
 
-  /**
-   * Format info message
-   */
-  private formatInfo(text: string): string {
+    private formatInfo(text: string): string {
     return colorize(text, 'info');
   }
 }

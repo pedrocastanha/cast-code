@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-// https://vite.dev/config/
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -16,12 +16,12 @@ export default defineConfig({
       '/rooms': {
         target: 'http://localhost:3335',
         changeOrigin: true,
-        ws: false, // SSE não é WebSocket
+        ws: false, 
       },
     },
   },
   build: {
-    outDir: '../src/modules/rooms/static', // NestJS serve em produção
+    outDir: '../src/modules/rooms/static', 
     emptyOutDir: true,
   },
 });

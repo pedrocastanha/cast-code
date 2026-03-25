@@ -10,6 +10,7 @@ coverage/
 
 
 .claude/
+.qwen/
 CLAUDE.md
 claude.md
 .superpowers/
