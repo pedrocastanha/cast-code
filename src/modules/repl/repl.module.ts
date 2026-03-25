@@ -11,6 +11,8 @@ import { SnapshotCommandsService } from './services/commands/snapshot-commands.s
 import { StatsCommandsService } from './services/commands/stats-commands.service';
 import { ReplayCommandsService } from './services/commands/replay-commands.service';
 import { VaultCommandsService } from './services/commands/vault-commands.service';
+import { BridgeCommandsService } from './services/commands/bridge-commands.service';
+import { RoomsCommandsService } from './services/commands/rooms-commands.service';
 import { CoreModule } from '../core/core.module';
 import { ToolsModule } from '../tools/tools.module';
 import { GitModule } from '../git/git.module';
@@ -27,6 +29,7 @@ import { SnapshotModule } from '../snapshots/snapshot.module';
 import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { VaultModule } from '../vault/vault.module';
+import { RoomsModule } from '../rooms/rooms.module';
 
 @Module({
   imports: [
@@ -46,6 +49,7 @@ import { VaultModule } from '../vault/vault.module';
     StatsModule,
     ReplayModule,
     VaultModule,
+    RoomsModule,
   ],
   providers: [
     ReplService,
@@ -60,6 +64,8 @@ import { VaultModule } from '../vault/vault.module';
     StatsCommandsService,
     ReplayCommandsService,
     VaultCommandsService,
+    BridgeCommandsService,
+    RoomsCommandsService,
   ],
   exports: [ReplService],
 })

@@ -15,6 +15,7 @@ import { ReplayModule } from './modules/replay/replay.module';
 import { VaultModule } from './modules/vault/vault.module';
 import { DiffModule } from './modules/diff/diff.module';
 import { WatcherModule } from './modules/watcher/watcher.module';
+import { RoomsModule } from './modules/rooms/rooms.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { WatcherModule } from './modules/watcher/watcher.module';
     VaultModule,
     DiffModule,
     WatcherModule,
+    RoomsModule,
   ],
 })
 export class AppModule {}

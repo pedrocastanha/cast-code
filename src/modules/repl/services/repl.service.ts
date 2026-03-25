@@ -19,6 +19,8 @@ import { SnapshotCommandsService } from './commands/snapshot-commands.service';
 import { StatsCommandsService } from './commands/stats-commands.service';
 import { ReplayCommandsService } from './commands/replay-commands.service';
 import { VaultCommandsService } from './commands/vault-commands.service';
+import { BridgeCommandsService } from './commands/bridge-commands.service';
+import { RoomsCommandsService } from './commands/rooms-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { FilesystemToolsService } from '../../tools/services/filesystem-tools.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
@@ -59,6 +61,8 @@ export class ReplService {
     private readonly statsCommandsService: StatsCommandsService,
     private readonly replayCommandsService: ReplayCommandsService,
     private readonly vaultCommandsService: VaultCommandsService,
+    private readonly bridgeCommands: BridgeCommandsService,
+    private readonly roomsCommands: RoomsCommandsService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly kanbanServer: KanbanServerService,
     private readonly remoteServer: RemoteServerService,
@@ -261,6 +265,8 @@ export class ReplService {
       { text: '/stats', display: '/stats', description: 'Show session usage stats' },
       { text: '/replay', display: '/replay', description: 'Save or view session replays' },
       { text: '/vault', display: '/vault', description: 'Manage code snippet vault' },
+      { text: '/bridge', display: '/bridge', description: 'Connect external AI agent (Claude, Codex)' },
+      { text: '/rooms', display: '/rooms', description: 'Rooms feature and LTM management' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -525,6 +531,14 @@ export class ReplService {
         break;
       case 'vault':
         this.vaultCommandsService.cmdVault(args.join(' '));
+        break;
+
+      case 'bridge':
+        await this.bridgeCommands.startBridge(args);
+        break;
+
+      case 'rooms':
+        await this.roomsCommands.cmdRooms(args);
         break;
 
       default:

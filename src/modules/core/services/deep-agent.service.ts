@@ -23,6 +23,8 @@ import { I18nService } from '../../i18n/services/i18n.service';
 import { FileWatcherService, FILE_CHANGE_EVENT } from '../../watcher/services/file-watcher.service';
 import { PromptLoaderService } from './prompt-loader.service';
 import { PromptClassifierService } from './prompt-classifier.service';
+import { RoomEventBusService } from '../../rooms/services/room-event-bus.service';
+import { LTMService } from '../../rooms/services/ltm.service';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -48,6 +50,9 @@ export class DeepAgentService {
   private pendingContextRefresh = false;
   private projectRoot: string = process.cwd();
   private cachedProjectStructure: string = '';
+  private instanceId: string = 'default';
+  private roomId: string = 'bar';
+  private currentAgentId: string = 'orchestrator';
 
   constructor(
     private readonly multiLlmService: MultiLlmService,
@@ -67,6 +72,8 @@ export class DeepAgentService {
     private readonly fileWatcherService: FileWatcherService,
     private readonly promptLoader: PromptLoaderService,
     private readonly promptClassifier: PromptClassifierService,
+    private readonly eventBus: RoomEventBusService,
+    private readonly ltmService: LTMService,
   ) {
     this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
       this.pendingContextRefresh = true;
@@ -122,7 +129,6 @@ export class DeepAgentService {
 
     const contextPrompt = this.projectContext.getContextPrompt();
     this.cachedProjectStructure = await this.projectContext.getProjectStructureSummary(this.projectRoot);
-    const memoryPrompt = await this.memoryService.getMemoryPrompt();
 
     const subagentContext = `Working directory: ${this.projectRoot}\n\n${contextPrompt}`.trim();
     const subagents = this.agentRegistry.getSubagentDefinitions(subagentContext);
@@ -131,7 +137,6 @@ export class DeepAgentService {
 
     const extraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
     const mcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
-    const mcpServerSummaries = this.mcpRegistry.getServerSummaries();
 
     this.cachedBasePrompt = this.buildBasePrompt(allTools, subagents);
     const systemPrompt = this.cachedBasePrompt;
@@ -954,6 +959,16 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       this.cachedProjectStructure = await this.projectContext.getProjectStructureSummary(this.projectRoot);
     }
 
+    const relevantMemories = this.ltmService.getRelevantContext(message, 5);
+    if (relevantMemories.length > 0) {
+      const memoryContext = relevantMemories
+        .map((m) => `[${m.type}] ${m.content}`)
+        .join('\n');
+      this.ltmService.storeConversation(this.instanceId, this.roomId, this.currentAgentId, message, {
+        relatedMemories: relevantMemories.map((m) => m.id),
+      });
+    }
+
     const hasMentions = message.includes('@');
     const contextualPrompt = this.buildContextualPrompt(message, hasMentions);
     if (contextualPrompt !== this.cachedSystemPrompt) {
@@ -970,6 +985,17 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     this.messages.push(new HumanMessage(message));
     this.replayService.recordEntry({ role: 'user', content: message });
     this.lastToolOutputs = [];
+
+    this.eventBus.emit({
+      id: crypto.randomUUID(),
+      type: 'agent.thinking',
+      agentId: this.currentAgentId,
+      instanceId: this.instanceId,
+      roomId: this.roomId,
+      source: 'native',
+      payload: { message: message.slice(0, 200) },
+      timestamp: Date.now(),
+    });
 
     let stream: any;
     try {
@@ -1034,6 +1060,16 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               pendingToolInputs.splice(idx, 1);
             }
           }
+          this.eventBus.emit({
+            id: crypto.randomUUID(),
+            type: 'agent.tool.called',
+            agentId: this.currentAgentId,
+            instanceId: this.instanceId,
+            roomId: this.roomId,
+            source: 'native',
+            payload: { toolName: event.name, toolArgs: toolInput },
+            timestamp: Date.now(),
+          });
           yield this.formatToolStart(event.name, toolInput);
         }
 
@@ -1051,6 +1087,16 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           }
           if (output) {
             this.lastToolOutputs.push({ tool: lastToolName, output });
+            this.eventBus.emit({
+              id: crypto.randomUUID(),
+              type: 'agent.tool.completed',
+              agentId: this.currentAgentId,
+              instanceId: this.instanceId,
+              roomId: this.roomId,
+              source: 'native',
+              payload: { toolName: lastToolName, toolOutput: output.slice(0, 200) },
+              timestamp: Date.now(),
+            });
             yield this.formatToolEnd(lastToolName, output);
           }
         }
@@ -1155,6 +1201,20 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     task: Task,
   ): Promise<{ success: boolean; error?: string; output?: string }> {
     this.permissionService.setHeadless(true);
+
+    const relevantMemories = this.ltmService.getRelevantContext(task.subject, 5);
+
+    this.eventBus.emit({
+      id: crypto.randomUUID(),
+      type: 'agent.task.started',
+      agentId: this.currentAgentId,
+      instanceId: this.instanceId,
+      roomId: this.roomId,
+      source: 'native',
+      payload: { taskId: task.id.toString(), taskSubject: task.subject },
+      timestamp: Date.now(),
+    });
+
     try {
       const message = [
         'Voce esta executando uma tarefa de um plano ja aprovado.',
@@ -1170,8 +1230,60 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
         process.stdout.write(chunk);
       }
 
+      this.ltmService.addMemory({
+        id: `mem_task_${task.id}_${Date.now()}`,
+        instanceId: this.instanceId,
+        roomId: this.roomId,
+        agentId: this.currentAgentId,
+        type: 'task_completed',
+        content: `Task completed: ${task.subject}. ${fullResponse.slice(0, 1000)}`,
+        metadata: {
+          taskId: task.id.toString(),
+          taskSubject: task.subject,
+          relatedMemories: relevantMemories.map((m) => m.id),
+        },
+        timestamp: Date.now(),
+        importance: 0.7,
+      });
+
+      this.eventBus.emit({
+        id: crypto.randomUUID(),
+        type: 'agent.task.completed',
+        agentId: this.currentAgentId,
+        instanceId: this.instanceId,
+        roomId: this.roomId,
+        source: 'native',
+        payload: { taskId: task.id.toString(), taskSubject: task.subject, tokens: this.tokenCount },
+        timestamp: Date.now(),
+      });
+
       return { success: true, output: fullResponse.trim() };
     } catch (error) {
+      this.ltmService.addMemory({
+        id: `mem_task_fail_${task.id}_${Date.now()}`,
+        instanceId: this.instanceId,
+        roomId: this.roomId,
+        agentId: this.currentAgentId,
+        type: 'error',
+        content: `Task failed: ${task.subject}. Error: ${(error as Error).message}`,
+        metadata: {
+          taskId: task.id.toString(),
+          taskSubject: task.subject,
+        },
+        timestamp: Date.now(),
+        importance: 0.8,
+      });
+
+      this.eventBus.emit({
+        id: crypto.randomUUID(),
+        type: 'agent.task.failed',
+        agentId: this.currentAgentId,
+        instanceId: this.instanceId,
+        roomId: this.roomId,
+        source: 'native',
+        payload: { taskId: task.id.toString(), taskSubject: task.subject, error: (error as Error).message },
+        timestamp: Date.now(),
+      });
       return { success: false, error: (error as Error).message };
     } finally {
       this.permissionService.setHeadless(false);
