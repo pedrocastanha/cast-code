@@ -12,9 +12,16 @@ const GRID_W = 10;
 const GRID_H = 8;
 const ORIGIN_Y = 80;
 
+const AGENT_IMAGES: Record<string, HTMLImageElement> = {};
 
-
-
+function getAgentImage(roomId: string): HTMLImageElement {
+  if (!AGENT_IMAGES[roomId]) {
+    const img = new Image();
+    img.src = `/agent_${roomId}.png`;
+    AGENT_IMAGES[roomId] = img;
+  }
+  return AGENT_IMAGES[roomId];
+}
 
 function isoToScreen(
   gx: number,
@@ -236,100 +243,14 @@ function drawCharacterShadow(
 }
 
 function drawBaseCharacter(
-  ctx: CanvasRenderingContext2D,
-  agent: RoomAgent,
-  options: {
+  _ctx: CanvasRenderingContext2D,
+  _agent: RoomAgent,
+  _options: {
     armLOffset?: { x: number; y: number };
     armROffset?: { x: number; y: number };
   } = {}
 ) {
-  const { instanceColor } = agent;
-  const darkerColor = adjustBrightness(instanceColor, -0.2);
-  const darkestColor = adjustBrightness(instanceColor, -0.4);
-
-  // Pernas
-  ctx.fillStyle = darkestColor;
-  ctx.fillRect(-5, 2, 4, 8); // perna esquerda
-  ctx.fillRect(1, 2, 4, 8);  // perna direita
-
-  // Pés
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(-5, 10, 4, 3);
-  ctx.fillRect(1, 10, 4, 3);
-
-  // Cintura
-  ctx.fillStyle = instanceColor;
-  ctx.fillRect(-6, 0, 5, 2);
-  ctx.fillRect(1, 0, 5, 2);
-
-  // Torso
-  ctx.fillStyle = instanceColor;
-  ctx.globalAlpha = 0.9;
-  ctx.fillRect(-6, -12, 12, 12);
-  ctx.globalAlpha = 1;
-
-  // Ombros
-  ctx.fillStyle = instanceColor;
-  ctx.fillRect(-8, -16, 16, 4);
-
-  // Pescoço
-  ctx.fillStyle = '#e8c5a0';
-  ctx.fillRect(-2, -22, 4, 4);
-
-  // Cabeça
-  ctx.fillStyle = '#e8c5a0';
-  ctx.beginPath();
-  ctx.arc(0, -28, 7, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Olhos e Boca Dinâmicos
-  ctx.fillStyle = '#1a1a1a';
-  ctx.strokeStyle = '#1a1a1a';
-  ctx.lineWidth = 1;
-  
-  const state = agent.visualState;
-  if (state === 'WORKING' || state === 'TOOL_USE') {
-    // Focado > <
-    ctx.beginPath();
-    ctx.moveTo(-4, -31); ctx.lineTo(-2, -29); ctx.lineTo(-4, -27);
-    ctx.moveTo(4, -31); ctx.lineTo(2, -29); ctx.lineTo(4, -27);
-    ctx.stroke();
-    // Boca
-    ctx.fillRect(-1, -25, 2, 1);
-  } else if (state === 'CELEBRATING') {
-    // Feliz ^ ^
-    ctx.beginPath();
-    ctx.moveTo(-4, -29); ctx.lineTo(-2, -31); ctx.lineTo(0, -29);
-    ctx.moveTo(0, -29); ctx.lineTo(2, -31); ctx.lineTo(4, -29);
-    ctx.stroke();
-    // Boca aberta feliz D
-    ctx.beginPath();
-    ctx.arc(0, -26, 2.5, 0, Math.PI);
-    ctx.fill();
-  } else if (state === 'THINKING') {
-    // Pensativo o_O
-    ctx.fillRect(-3, -30, 2, 2);
-    ctx.beginPath(); ctx.arc(2, -29, 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillRect(-1, -25, 2, 1);
-  } else {
-    // IDLE / NORMAL
-    ctx.fillRect(-3, -30, 2, 2);
-    ctx.fillRect(1, -30, 2, 2);
-    ctx.beginPath(); ctx.arc(0, -26, 1.5, 0, Math.PI); ctx.fill(); // sorriso
-  }
-
-  // Braços
-  ctx.fillStyle = darkerColor;
-  const armLX = options.armLOffset?.x ?? -10;
-  const armLY = options.armLOffset?.y ?? -14;
-  const armRX = options.armROffset?.x ?? 7;
-  const armRY = options.armROffset?.y ?? -14;
-  ctx.fillRect(armLX, armLY, 3, 10); // braço esquerdo
-  ctx.fillRect(armRX, armRY, 3, 10); // braço direito
-
-  // Destaque/especular (luz isométrica vem da esquerda-topo)
-  ctx.fillStyle = 'rgba(255,255,255,0.2)';
-  ctx.fillRect(-4, -10, 2, 8);
+  // Replaced by 3D sprite rendering in drawCharacter
 }
 
 function drawCharacter(
@@ -361,16 +282,19 @@ function drawCharacter(
   // Sombra elíptica no chão
   drawCharacterShadow(ctx, yOffset);
 
-  // Corpo do personagem baseado no estado
+  const img = getAgentImage(config.id);
+
+  // Draw the actual character sprite
+  const spriteW = 54;
+  const spriteH = 54;
+  ctx.drawImage(img, -spriteW / 2, -spriteH + 10, spriteW, spriteH);
+
+  // Body of the character visual state specific VFX over the sprite
   switch (agent.visualState) {
     case 'IDLE':
-      drawBaseCharacter(ctx, agent);
       break;
 
     case 'THINKING':
-      ctx.rotate(0.08);
-      drawBaseCharacter(ctx, agent);
-      ctx.rotate(-0.08);
       // VFX Engrenagem
       const thinkPhase = (tick % 60) / 60;
       ctx.fillStyle = config.visual.accent;
@@ -381,7 +305,6 @@ function drawCharacter(
       break;
 
     case 'WORKING':
-      drawCharacterWorking(ctx, agent, tick, config);
       // VFX Fagulhas
       const sparkPhase = (tick % 15) / 15;
       ctx.fillStyle = '#ffcc00';
@@ -417,11 +340,11 @@ function drawCharacter(
   ctx.restore();
 }
 
-function drawCharacterWorking(
-  ctx: CanvasRenderingContext2D,
-  agent: RoomAgent,
-  tick: number,
-  config: RoomConfig
+function _drawCharacterWorking(
+  _ctx: CanvasRenderingContext2D,
+  _agent: RoomAgent,
+  _tick: number,
+  _config: RoomConfig
 ) {
   switch (config.id) {
     case 'bar': {
