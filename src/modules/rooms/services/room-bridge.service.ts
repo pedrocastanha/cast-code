@@ -117,6 +117,22 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
     });
 
+    this.eventBus.emit({
+      id: crypto.randomUUID(),
+      type: 'bridge.connected' as any,
+      agentId,
+      instanceId,
+      roomId: metadata.roomId,
+      source: 'bridge',
+      payload: {
+        instanceName: metadata.name,
+        bridgeTool: metadata.tool,
+        model: metadata.model,
+        provider: metadata.provider,
+      } as any,
+      timestamp: Date.now(),
+    });
+
     // Emit instance.created to the SSE event bus so the frontend can track this agent
     this.eventBus.emit({
       id: crypto.randomUUID(),
@@ -169,6 +185,20 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       agentId: agent.name,
       instanceId,
       roomId: agent.roomId,
+      payload: {
+        name: agent.name,
+        tool: agent.tool,
+      },
+      timestamp: Date.now(),
+    });
+
+    this.eventBus.emit({
+      id: crypto.randomUUID(),
+      type: 'bridge.disconnected' as any,
+      agentId: agent.name,
+      instanceId,
+      roomId: agent.roomId,
+      source: 'bridge',
       payload: {
         name: agent.name,
         tool: agent.tool,
@@ -284,7 +314,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const fromAgent = this.findAgentById(fromAgentId);
 
-    if (!fromAgent) {
+    if (!fromAgent && fromAgentId !== 'user') {
       throw new Error(`Agent not found: ${fromAgentId}`);
     }
 
@@ -303,8 +333,8 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       id: crypto.randomUUID(),
       type: 'bridge.message',
       agentId: fromAgentId,
-      instanceId: fromAgent.instanceId,
-      roomId: fromAgent.roomId,
+      instanceId: fromAgent?.instanceId || 'user',
+      roomId: fromAgent?.roomId || 'bar',
       payload: {
         fromAgentId,
         toAgentId: 'all',
@@ -319,21 +349,23 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
       id: message.id,
       type: 'agent.message.sent',
       agentId: fromAgentId,
-      instanceId: fromAgent.instanceId,
-      roomId: fromAgent.roomId,
+      instanceId: fromAgent?.instanceId || 'user',
+      roomId: fromAgent?.roomId || 'bar',
       source: 'bridge',
       payload: { message: content, toAgentId: 'all', fromAgentId, traceId },
       timestamp: message.timestamp,
     });
 
 
+    const sendingRoomId = fromAgent?.roomId || 'bar';
+
     for (const agent of this.agents.values()) {
-      if (agent.roomId === fromAgent.roomId && agent.instanceId !== fromAgent.instanceId) {
+      if (agent.roomId === sendingRoomId && agent.instanceId !== fromAgent?.instanceId) {
         this.notifyClient(message, agent);
       }
     }
 
-    this.logger.debug(`Message broadcast from ${fromAgentId} in room ${fromAgent.roomId}`);
+    this.logger.debug(`Message broadcast from ${fromAgentId} in room ${sendingRoomId}`);
   }
 
     getRegisteredAgents(): RegisteredAgent[] {
