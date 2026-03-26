@@ -16,12 +16,12 @@ export default defineConfig({
       '/rooms': {
         target: 'http://localhost:3335',
         changeOrigin: true,
-        ws: false, 
+        ws: false,
       },
     },
   },
   build: {
-    outDir: '../src/modules/rooms/static', 
+    outDir: '../src/modules/rooms/static',
     emptyOutDir: true,
   },
 });
