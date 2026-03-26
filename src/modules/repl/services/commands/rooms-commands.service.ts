@@ -38,7 +38,7 @@ export class RoomsCommandsService {
 
   private async openRoomsUI(): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
-    const url = 'http://localhost:3335';
+    const url = 'http://localhost:3333';
 
     w('\r\n');
     w(`  ${colorize('🏠 Cast Rooms', 'bold')}\r\n`);

@@ -11,7 +11,7 @@ export class KanbanServerService {
   private static readonly TASK_TIMEOUT_MS = 10 * 60 * 1000;
   private server: http.Server | null = null;
   private sseClients: http.ServerResponse[] = [];
-  private port = 3333;
+  private port = 3334;
   private deepAgent: any = null;
 
   constructor(

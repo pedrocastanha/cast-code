@@ -2,6 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import * as http from 'http';
 import { RoomEventBusService } from './room-event-bus.service';
 import { CastEvent } from '../types/event.types';
+import { RoomBridgeService } from './room-bridge.service';
+import { forwardRef, Inject } from '@nestjs/common';
 
 interface SseFilter {
   instanceId: string;
@@ -17,9 +19,12 @@ interface SseClient {
 export class RoomSseService implements OnModuleInit {
   private server: http.Server;
   private clients: Map<string, SseClient> = new Map();
-  private readonly PORT = 3335;
+  private readonly PORT = 3333;
 
-  constructor(private readonly eventBus: RoomEventBusService) {}
+  constructor(
+    private readonly eventBus: RoomEventBusService,
+    @Inject(forwardRef(() => RoomBridgeService)) private readonly bridge: RoomBridgeService,
+  ) {}
 
   onModuleInit() {
     if (process.env.CAST_BRIDGE_MODE === '1') return;
@@ -38,6 +43,14 @@ export class RoomSseService implements OnModuleInit {
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     const url = new URL(req.url!, `http://localhost:${this.PORT}`);
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
 
     if (url.pathname === '/rooms/events' && req.method === 'GET') {
       const instanceId = url.searchParams.get('instanceId') ?? 'all';
@@ -125,6 +138,52 @@ export class RoomSseService implements OnModuleInit {
           } catch (err) {
             console.error(`\n❌ Spawn error: ${(err as Error).message}\n`);
             res.writeHead(400); res.end();
+          }
+        });
+        return;
+      }
+
+      const broadcastMatch = url.pathname.match(/^\/rooms\/([^\/]+)\/broadcast$/);
+      if (broadcastMatch) {
+        let bodyStr = '';
+        req.on('data', chunk => bodyStr += chunk);
+        req.on('end', async () => {
+          try {
+            const body = JSON.parse(bodyStr);
+            console.log(`\n💬 API Broadcast in room ${broadcastMatch[1]}: ${body.content}\n`);
+            await this.bridge.broadcastMessage('user', body.content, body.type || 'task');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'sent' }));
+          } catch (err) {
+            console.error(`\n❌ Broadcast error: ${(err as Error).message}\n`);
+            res.writeHead(500); res.end();
+          }
+        });
+        return;
+      }
+
+      const taskMatch = url.pathname.match(/^\/rooms\/([^\/]+)\/task$/);
+      if (taskMatch) {
+        let bodyStr = '';
+        req.on('data', chunk => bodyStr += chunk);
+        req.on('end', async () => {
+          try {
+            const body = JSON.parse(bodyStr);
+            const targetAgent = body.instanceId;
+            console.log(`\n💬 API Task to ${targetAgent} in room ${taskMatch[1]}: ${body.content}\n`);
+            
+            // Check if agent exists
+            if (targetAgent.toLowerCase() === 'all') {
+              await this.bridge.broadcastMessage('user', body.content, body.type || 'task');
+            } else {
+              await this.bridge.sendMessage('user', targetAgent, body.content, body.type || 'task');
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'sent' }));
+          } catch (err) {
+            console.error(`\n❌ Task error: ${(err as Error).message}\n`);
+            res.writeHead(500); res.end();
           }
         });
         return;
