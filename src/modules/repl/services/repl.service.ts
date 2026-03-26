@@ -71,6 +71,12 @@ export class ReplService {
   ) { }
 
   async start(): Promise<void> {
+    if (process.env.CAST_SERVER_MODE === '1') {
+      console.log('Running in headless server mode...');
+      setInterval(() => {}, 100000);
+      return;
+    }
+
     const initResult = await this.deepAgent.initialize();
     const agentCount = this.agentRegistry.resolveAllAgents().length;
 
