@@ -24,6 +24,7 @@ const SpawnAgentForm: React.FC = () => {
   const [isOpen, setIsOpen] = React.useState(false);
   const [tool, setTool] = React.useState('claude');
   const [name, setName] = React.useState('Engenheiro');
+  const [color, setColor] = React.useState('#4ade80');
   const [spawning, setSpawning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -34,7 +35,7 @@ const SpawnAgentForm: React.FC = () => {
       const res = await fetch(`/rooms/${activeRoomId}/spawn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tool, name, color: '#4ade80' })
+        body: JSON.stringify({ tool, name, color })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setIsOpen(false);
@@ -58,29 +59,30 @@ const SpawnAgentForm: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '12px' }}>
+    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '12px', flexWrap: 'wrap', background: 'var(--bg-200)', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)' }}>
       <input 
         value={name} 
         onChange={e => setName(e.target.value)} 
-        placeholder="Role/Name" 
-        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-100)', color: 'white' }}
+        placeholder="Name (e.g. Bartender)" 
+        style={{ width: '120px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-100)', color: 'white' }}
       />
-      <select 
+      <input 
         value={tool} 
-        onChange={e => setTool(e.target.value)}
-        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-100)', color: 'white' }}
-      >
-        <option value="claude">Claude</option>
-        <option value="gemini">Gemini</option>
-        <option value="codex">Codex</option>
-        <option value="kimi">Kimi</option>
-        <option value="qwen">Qwen</option>
-      </select>
-      <button onClick={handleSpawn} disabled={spawning} style={{ background: 'var(--emerald)', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: spawning ? 'not-allowed' : 'pointer', opacity: spawning ? 0.6 : 1 }}>
-        {spawning ? 'Spawning...' : 'Spawn'}
+        onChange={e => setTool(e.target.value)} 
+        placeholder="Command (e.g. node script.js)" 
+        style={{ width: '200px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-100)', color: 'white' }}
+      />
+      <input 
+        type="color"
+        value={color} 
+        onChange={e => setColor(e.target.value)} 
+        style={{ width: '32px', height: '32px', padding: '0', border: 'none', background: 'transparent', cursor: 'pointer' }}
+      />
+      <button onClick={handleSpawn} disabled={spawning} style={{ background: 'var(--emerald)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: spawning ? 'not-allowed' : 'pointer', opacity: spawning ? 0.6 : 1 }}>
+        {spawning ? '...' : 'Spawn'}
       </button>
-      <button onClick={() => setIsOpen(false)} style={{ background: 'var(--bg-300)', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>X</button>
-      {error && <span style={{ color: 'var(--red, #f87171)', fontSize: '12px' }}>{error}</span>}
+      <button onClick={() => setIsOpen(false)} style={{ background: 'var(--bg-300)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>X</button>
+      {error && <span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span>}
     </div>
   );
 };

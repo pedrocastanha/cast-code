@@ -250,8 +250,8 @@
 .chat-panel {
   display: flex;
   flex-direction: column;
-  height: 200px;
-  min-height: 200px;
+  flex: 1;
+  min-height: 250px;
 }
 
 .chat-header {

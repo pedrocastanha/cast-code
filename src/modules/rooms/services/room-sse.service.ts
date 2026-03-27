@@ -101,6 +101,7 @@ export class RoomSseService implements OnModuleInit {
               '--name', name,
               '--room', roomId,
               '--color', color,
+              '--reactive',
               '--',
               tool
             ];
@@ -111,7 +112,12 @@ export class RoomSseService implements OnModuleInit {
             const child = spawn(process.execPath, args, {
               detached: true,
               stdio: ['ignore', 'pipe', 'pipe'],  // pipe both stdout and stderr
-              env: { ...process.env, FORCE_COLOR: '1' },
+              env: { 
+                ...process.env, 
+                FORCE_COLOR: '1',
+                AGENT_NAME: name,
+                AGENT_ROLE: tool.includes('mock') ? 'Mock Assistant' : 'AI Assistant',
+              },
               cwd: process.cwd(),
             });
 
@@ -162,20 +168,21 @@ export class RoomSseService implements OnModuleInit {
         return;
       }
 
-      const taskMatch = url.pathname.match(/^\/rooms\/([^\/]+)\/task$/);
+      const taskMatch = url.pathname.match(/^\/rooms\/task\/([^\/]+)$/);
       if (taskMatch) {
         let bodyStr = '';
         req.on('data', chunk => bodyStr += chunk);
         req.on('end', async () => {
           try {
             const body = JSON.parse(bodyStr);
-            const targetAgent = body.instanceId;
-            console.log(`\n💬 API Task to ${targetAgent} in room ${taskMatch[1]}: ${body.content}\n`);
+            const targetAgent = taskMatch[1];
+            console.log(`\n💬 API Task to ${targetAgent}: ${body.content}\n`);
             
             // Check if agent exists
             if (targetAgent.toLowerCase() === 'all') {
               await this.bridge.broadcastMessage('user', body.content, body.type || 'task');
             } else {
+              // Ensure we use targetAgent as the agent ID
               await this.bridge.sendMessage('user', targetAgent, body.content, body.type || 'task');
             }
             

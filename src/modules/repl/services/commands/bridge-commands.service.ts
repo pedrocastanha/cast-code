@@ -9,6 +9,7 @@ export interface BridgeOptions {
   room: string;
   color: string;
   tool: string;
+  reactive?: boolean;
 }
 
 interface BridgeRegistrationResponse {
@@ -98,11 +99,12 @@ export class BridgeCommandsService {
     console.log(`${this.formatSuccess('✓')} Bridge disconnected\n`);
   }
 
-    private parseBridgeArgs(args: string[]): BridgeOptions | null {
+  private parseBridgeArgs(args: string[]): BridgeOptions | null {
     let name = 'External Agent';
     let room = 'bar';
     let color = '#a78bfa';
     let tool = '';
+    let reactive = false;
 
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
@@ -113,14 +115,16 @@ export class BridgeCommandsService {
         room = args[++i];
       } else if (arg === '--color' && args[i + 1]) {
         color = args[++i];
+      } else if (arg === '--reactive') {
+        reactive = true;
       } else if (arg === '--' && args[i + 1]) {
-        
+        // All args after -- are for the tool
         tool = args[i + 1];
         break;
       }
     }
 
-    
+    // Heuristic for tool if not provided after --
     if (!tool) {
       const toolKeywords = ['claude', 'codex', 'qwen', 'gemini', 'ollama'];
       for (const arg of args) {
@@ -135,7 +139,7 @@ export class BridgeCommandsService {
       return null;
     }
 
-    return { name, room, color, tool };
+    return { name, room, color, tool, reactive };
   }
 
     private async registerAgent(options: BridgeOptions): Promise<BridgeRegistrationResponse | null> {
@@ -309,7 +313,7 @@ export class BridgeCommandsService {
             if (line.startsWith('data: ')) {
               try {
                 const event = JSON.parse(line.slice(6));
-                this.handleIncomingMessage(event);
+                this.handleIncomingMessage(event, this.isRunning === true); // use options.reactive here if preferred
               } catch {
                 
               }
@@ -331,51 +335,86 @@ export class BridgeCommandsService {
     this.inboxEventSource = req;
   }
 
-    private handleIncomingMessage(event: {
-    type: string;
-    data: {
-      fromAgentId: string;
-      fromAgentName: string;
-      content: string;
+  private handleIncomingMessage(
+    event: {
       type: string;
-    };
-  }): void {
+      data: {
+        fromAgentId: string;
+        fromAgentName: string;
+        content: string;
+        type: string;
+      };
+    },
+    reactive: boolean = false
+  ): void {
     if (event.type === 'room.message' && event.data) {
-      const { fromAgentName, content } = event.data;
+      const { fromAgentId, fromAgentName, content } = event.data;
+      
+      // Don't react to self
+      if (fromAgentId.toLowerCase() === this.instanceId?.toLowerCase()) {
+        return;
+      }
+
       console.log(`\n${this.formatInfo('📨')} Message from ${fromAgentName}: ${content}\n`);
 
       if (this.childProcess?.stdin && !this.childProcess.stdin.destroyed) {
-        this.childProcess.stdin.write(`${content}\n`);
+        if (reactive) {
+          // Wrap in a system-like prompt hint
+          const prompt = `[MESSAGE from ${fromAgentName}]: ${content}\n`;
+          this.childProcess.stdin.write(prompt);
+        } else {
+          this.childProcess.stdin.write(`${content}\n`);
+        }
       }
     }
   }
 
-    private parseToolOutput(line: string, tool: string): BridgeEvent | null {
-    
+  private parseToolOutput(line: string, tool: string): BridgeEvent | null {
+    const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '').trim();
+    if (!cleanLine) return null;
+
     if (tool.toLowerCase().includes('claude')) {
-      if (line.includes('"type":"content_block_start"')) {
+      if (cleanLine.includes('"type":"content_block_start"') || cleanLine.includes('thinking...')) {
         return { type: 'agent.thinking', payload: {} };
       }
-      if (line.includes('"type":"tool_use"')) {
-        const match = line.match(/"name":"([^"]+)"/);
+      if (cleanLine.includes('"type":"tool_use"') || cleanLine.includes('calling tool')) {
+        const match = cleanLine.match(/"name":"([^"]+)"/) || cleanLine.match(/calling tool ([^ \.]+)/);
         return { type: 'agent.tool.called', payload: { toolName: match?.[1] ?? 'tool' } };
       }
     }
 
-    // Generic heuristics
-    if (/executing|running|calling/i.test(line)) {
+    // Thinking detection (broadened)
+    if (/\[thinking\]|thinking\.\.\.|analyzing|searching|planning/i.test(cleanLine)) {
       return { type: 'agent.thinking', payload: {} };
     }
-    if (/completed|done|finished/i.test(line)) {
-      return { type: 'agent.task.completed', payload: {} };
-    }
-    if (/error|failed|exception/i.test(line)) {
-      return { type: 'agent.task.failed', payload: { error: line.slice(0, 100) } };
+
+    // Tool use detection (broadened)
+    if (/executing|running|calling|using tool|running tool/i.test(cleanLine)) {
+      const toolMatch = cleanLine.match(/(?:tool|command|running) (?:[:"']*)([^\s"':]+)/i);
+      return { type: 'agent.tool.called', payload: { toolName: toolMatch?.[1] ?? 'tool' } };
     }
 
-    // Long lines are likely reasoning/output
-    if (line.length > 50 && !line.startsWith('[') && !line.startsWith('{')) {
-      return { type: 'agent.message.sent', payload: { message: line.slice(0, 200) } };
+    // Completion detection
+    if (/completed|done|finished|successfully|ready\./i.test(cleanLine)) {
+      return { type: 'agent.task.completed', payload: {} };
+    }
+
+    // Failure detection
+    if (/error|failed|exception|rejected|abort/i.test(cleanLine)) {
+      return { type: 'agent.task.failed', payload: { error: cleanLine.slice(0, 100) } };
+    }
+
+    // Message detection (heuristics)
+    // - Long lines that are not logs
+    // - Lines that look like conversational output
+    if (cleanLine.length > 20 && 
+        !cleanLine.startsWith('[') && 
+        !cleanLine.startsWith('{') && 
+        !cleanLine.startsWith('> ') &&
+        !/^(\d{2}:\d{2}:\d{2}|DEBUG|INFO|WARN|ERROR)/.test(cleanLine)) {
+      
+      // Limit frequency of messages
+      return { type: 'agent.message.sent', payload: { message: cleanLine.slice(0, 500) } };
     }
 
     return null;

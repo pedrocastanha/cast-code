@@ -552,7 +552,7 @@ export class ReplService {
         process.stdout.write(`  ${Colors.green}Opening Room Server UI...${Colors.reset}\r\n`);
         const { platform } = require('os');
         const { exec } = require('child_process');
-        const url = 'http://localhost:3335';
+        const url = 'http://localhost:3333';
         let openCmd = '';
         if (platform() === 'win32') openCmd = `start ${url}`;
         else if (platform() === 'darwin') openCmd = `open ${url}`;

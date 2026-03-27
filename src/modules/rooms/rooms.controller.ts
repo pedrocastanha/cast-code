@@ -92,6 +92,7 @@ export class RoomsController {
       '--name', name,
       '--room', roomId,
       '--color', color,
+      '--reactive',
       '--',
       tool
     ];
@@ -101,7 +102,11 @@ export class RoomsController {
     const child = spawn(process.execPath, args, {
       detached: true,
       stdio: 'ignore',
-      env: process.env,
+      env: {
+        ...process.env,
+        AGENT_NAME: name,
+        AGENT_ROLE: tool.includes('mock') ? 'Mock Assistant' : 'AI Assistant',
+      },
     });
     
     child.unref();

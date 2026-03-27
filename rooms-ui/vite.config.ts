@@ -14,7 +14,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/rooms': {
-        target: 'http://localhost:3335',
+        target: 'http://localhost:3333',
         changeOrigin: true,
         ws: false,
       },
