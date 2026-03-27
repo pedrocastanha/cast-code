@@ -15,6 +15,7 @@ import {
 } from '../types/bridge.types';
 import { CastEvent, AgentEventType } from '../types/event.types';
 import { RoomEventBusService } from './room-event-bus.service';
+import { RoomInboxService } from './room-inbox.service';
 
 interface BridgeClient {
   agentId: string;
@@ -33,7 +34,10 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly eventEmitter: EventEmitter2;
   private readonly TOKEN_PREFIX = 'bridge_tok_';
 
-  constructor(private readonly eventBus: RoomEventBusService) {
+  constructor(
+    private readonly eventBus: RoomEventBusService,
+    private readonly inbox: RoomInboxService,
+  ) {
     this.eventEmitter = new EventEmitter2({
       wildcard: true,
       delimiter: '.',
@@ -50,7 +54,7 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
     });
     this.server.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ PORTA ${this.PORT} (Room Bridge) JÁ ESTÁ EM USO! Você tem outro terminal rodando o Cast CLI em background?\n`);
+        console.error(`\n❌ PORTA ${this.PORT} (Room Bridge) JÁ ESTÁ EM USO!\n`);
         setTimeout(() => process.exit(1), 100);
       }
     });
@@ -427,6 +431,13 @@ export class RoomBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
+
+    this.inbox.deliverMessage(agent.roomId, agent.name, {
+      fromAgentId: message.fromAgentId,
+      fromAgentName: this.findAgentById(message.fromAgentId)?.name ?? message.fromAgentId,
+      content: message.content,
+      type: message.type,
+    }).catch(err => this.logger.error(`Inbox delivery error: ${err.message}`));
   }
 
     private handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {

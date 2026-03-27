@@ -14,7 +14,7 @@ import { ROOM_CONFIGS } from '../configs';
 export type { AgentVisualState, AgentBubble };
 
 export interface RoomStore {
-  
+
   activeRoomId: string;
   activeRoomConfig: RoomConfig | null;
   instances: Map<string, RoomInstance>;
@@ -22,13 +22,16 @@ export interface RoomStore {
   messages: ChatMessage[];
   connectionLines: ConnectionLine[];
   events: CastEvent[];
+  notifications: Array<{ id: string; content: string; timestamp: number; visible: boolean }>;
 
-  
+
   dispatch: (event: CastEvent) => void;
   setRoom: (roomId: string) => void;
   addInstance: (instance: RoomInstance) => void;
   removeInstance: (instanceId: string) => void;
   clearMessages: () => void;
+  addNotification: (content: string) => void;
+  hideNotification: (id: string) => void;
 }
 
 const INSTANCE_COLORS = [
@@ -64,11 +67,36 @@ export const useRoomStore = create<RoomStore>((set) => ({
   messages: [],
   connectionLines: [],
   events: [],
+  notifications: [],
 
   dispatch: (event: CastEvent) =>
     set((state) => {
       const newState = { ...state };
       const instance = newState.instances.get(event.instanceId);
+
+      // Se for mensagem do user, cria notificação em vez de agente
+      if (event.type === 'agent.message.sent' && event.agentId === 'user') {
+        const id = `notif_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const notification = {
+          id,
+          content: event.payload.message || '',
+          timestamp: event.timestamp,
+          visible: true,
+        };
+        
+        setTimeout(() => {
+          set((s) => ({
+            notifications: s.notifications.map((n) =>
+              n.id === id ? { ...n, visible: false } : n
+            ),
+          }));
+        }, 5000);
+        
+        return {
+          ...newState,
+          notifications: [...newState.notifications, notification],
+        };
+      }
 
 
       let agentIdx = newState.agents.findIndex(
@@ -284,4 +312,29 @@ export const useRoomStore = create<RoomStore>((set) => ({
     }),
 
   clearMessages: () => set({ messages: [] }),
+
+  addNotification: (content) =>
+    set((state) => {
+      const id = `notif_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const notification = { id, content, timestamp: Date.now(), visible: true };
+      
+      setTimeout(() => {
+        set((s) => ({
+          notifications: s.notifications.map((n) =>
+            n.id === id ? { ...n, visible: false } : n
+          ),
+        }));
+      }, 5000);
+
+      return {
+        notifications: [...state.notifications, notification],
+      };
+    }),
+
+  hideNotification: (id) =>
+    set((state) => ({
+      notifications: state.notifications.map((n) =>
+        n.id === id ? { ...n, visible: false } : n
+      ),
+    })),
 }));

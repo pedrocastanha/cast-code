@@ -3,6 +3,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { spawn, ChildProcess } from 'child_process';
 import * as readline from 'readline';
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface BridgeOptions {
   name: string;
@@ -36,6 +38,8 @@ export class BridgeCommandsService {
   private instanceId: string | null = null;
   private token: string | null = null;
   private inboxEventSource: http.ClientRequest | null = null;
+  private inboxPollInterval: NodeJS.Timeout | null = null;
+  private lastMessageId: string | null = null;
   private isRunning = false;
 
     async startBridge(args: string[]): Promise<void> {
@@ -70,11 +74,17 @@ export class BridgeCommandsService {
       console.log(`   ${this.formatSuccess('✓')} Room: ${registration.roomId}`);
       console.log(`   ${this.formatSuccess('✓')} Instance ID: ${registration.instanceId}\n`);
 
-      
+      const useQwenWrapper = options.tool.toLowerCase() === 'qwen';
+
       await this.spawnTool(options, args);
 
-      
+
       this.subscribeToInbox();
+
+      // Only start inbox polling if NOT using qwen-wrapper (qwen-wrapper handles its own polling)
+      if (!useQwenWrapper) {
+        this.startInboxPolling(registration.roomId, options.name);
+      }
 
       this.isRunning = true;
 
@@ -244,9 +254,19 @@ export class BridgeCommandsService {
     const command = toolArgs[0];
     const toolArguments = toolArgs.slice(1);
 
-    this.logger.log(`Spawning tool: ${command} ${toolArguments.join(' ')}`);
+    const useQwenWrapper = command.toLowerCase() === 'qwen';
 
-    this.childProcess = spawn(command, toolArguments, {
+    const spawnCommand = useQwenWrapper 
+      ? 'node'
+      : command;
+    
+    const spawnArgs = useQwenWrapper
+      ? [path.join(process.cwd(), 'scripts', 'qwen-wrapper.js'), options.room, options.name, ...toolArguments]
+      : toolArguments;
+
+    this.logger.log(`Spawning tool: ${spawnCommand} ${spawnArgs.join(' ')}${useQwenWrapper ? ' (using qwen-wrapper)' : ''}`);
+
+    this.childProcess = spawn(spawnCommand, spawnArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
     });
@@ -458,6 +478,11 @@ export class BridgeCommandsService {
   private cleanup(): void {
     this.isRunning = false;
 
+    if (this.inboxPollInterval) {
+      clearInterval(this.inboxPollInterval);
+      this.inboxPollInterval = null;
+    }
+
     if (this.childProcess) {
       this.childProcess.kill();
       this.childProcess = null;
@@ -483,6 +508,51 @@ export class BridgeCommandsService {
     if (toolLower.includes('ollama')) return 'ollama';
     if (toolLower.includes('qwen')) return 'dashscope';
     return 'unknown';
+  }
+
+  private startInboxPolling(roomId: string, agentName: string): void {
+    const inboxPath = path.join(process.cwd(), '.cast', 'rooms', roomId.replace(/[^a-zA-Z0-9-_]/g, '_'), `${agentName.replace(/[^a-zA-Z0-9-_]/g, '_')}.json`);
+
+    this.inboxPollInterval = setInterval(() => {
+      if (!this.isRunning || !this.childProcess || this.childProcess.stdin.destroyed) {
+        return;
+      }
+
+      try {
+        if (!fs.existsSync(inboxPath)) {
+          return;
+        }
+
+        const content = fs.readFileSync(inboxPath, 'utf-8');
+        const messages = JSON.parse(content);
+
+        const unread = messages.filter((m: any) => !m.read && m.id !== this.lastMessageId);
+
+        if (unread.length > 0) {
+          const latestMessage = unread[unread.length - 1];
+
+          console.log(`\n${this.formatInfo('📨')} Message from ${latestMessage.fromAgentName}: ${latestMessage.content}\n`);
+
+          const prompt = `[MESSAGE from ${latestMessage.fromAgentName}]: ${latestMessage.content}\n`;
+
+          if (this.childProcess?.stdin && !this.childProcess.stdin.destroyed) {
+            this.childProcess.stdin.write(prompt);
+          }
+
+          this.lastMessageId = latestMessage.id;
+
+          messages.forEach((m: any) => {
+            if (m.id === latestMessage.id) {
+              m.read = true;
+            }
+          });
+
+          fs.writeFileSync(inboxPath, JSON.stringify(messages, null, 2), 'utf-8');
+        }
+      } catch (error) {
+        this.logger.debug(`Inbox polling error: ${(error as Error).message}`);
+      }
+    }, 2000);
   }
 
   /**

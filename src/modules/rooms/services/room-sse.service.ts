@@ -33,7 +33,7 @@ export class RoomSseService implements OnModuleInit {
     this.server.listen(this.PORT);
     this.server.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ PORTA ${this.PORT} (Room SSE) JÁ ESTÁ EM USO! Você tem outro terminal rodando o Cast CLI em background? Feche-o antes de iniciar um novo.\n`);
+        console.error(`\n❌ PORTA ${this.PORT} (Room SSE) JÁ ESTÁ EM USO!\n`);
         setTimeout(() => process.exit(1), 100);
       }
     });

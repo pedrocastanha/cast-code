@@ -2,7 +2,9 @@ import React from 'react';
 import { useRoomStore } from './store/roomStore';
 import { useRoomSSE } from './hooks/useRoomSSE';
 import { RoomCanvas, RoomSelector, ChatPanel, KanbanMini } from './components';
+import { NotificationsOverlay } from './components/NotificationsOverlay';
 import './styles/variables.css';
+import './styles/notifications.css';
 import './App.css';
 
 const InstanceBadge: React.FC<{
@@ -102,6 +104,8 @@ export const App: React.FC = () => {
 
   return (
     <div className="room-layout">
+      <NotificationsOverlay />
+      
       {}
       <header className="room-header">
         <div className="header-left">
