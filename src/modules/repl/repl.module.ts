@@ -13,6 +13,7 @@ import { ReplayCommandsService } from './services/commands/replay-commands.servi
 import { VaultCommandsService } from './services/commands/vault-commands.service';
 import { BridgeCommandsService } from './services/commands/bridge-commands.service';
 import { RoomsCommandsService } from './services/commands/rooms-commands.service';
+import { TracecastCommandsService } from './services/commands/tracecast-commands.service';
 import { CoreModule } from '../core/core.module';
 import { ToolsModule } from '../tools/tools.module';
 import { GitModule } from '../git/git.module';
@@ -66,6 +67,7 @@ import { RoomsModule } from '../rooms/rooms.module';
     VaultCommandsService,
     BridgeCommandsService,
     RoomsCommandsService,
+    TracecastCommandsService,
   ],
   exports: [ReplService],
 })

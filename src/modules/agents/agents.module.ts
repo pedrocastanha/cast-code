@@ -1,12 +1,12 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AgentLoaderService } from './services/agent-loader.service';
 import { AgentRegistryService } from './services/agent-registry.service';
 import { SkillsModule } from '../skills/skills.module';
-import { ToolsModule } from '../tools/tools.module';
+import { CapabilitiesModule } from '../capabilities';
 import { McpModule } from '../mcp/mcp.module';
 
 @Module({
-  imports: [SkillsModule, forwardRef(() => ToolsModule), McpModule],
+  imports: [SkillsModule, CapabilitiesModule, McpModule],
   providers: [AgentLoaderService, AgentRegistryService],
   exports: [AgentLoaderService, AgentRegistryService],
 })

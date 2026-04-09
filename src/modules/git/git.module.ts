@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { CommonModule } from '../../common/common.module';
 import { CoreModule } from '../core/core.module';
 import { CommitGeneratorService } from './services/commit-generator.service';
@@ -9,18 +9,18 @@ import { ReleaseNotesService } from './services/release-notes.service';
 import { UnitTestGeneratorService } from './services/unit-test-generator.service';
 
 @Module({
-  imports: [CommonModule, forwardRef(() => CoreModule)],
+  imports: [CommonModule, CoreModule],
   providers: [
-    CommitGeneratorService, 
-    MonorepoDetectorService, 
+    CommitGeneratorService,
+    MonorepoDetectorService,
     PrGeneratorService,
     CodeReviewService,
     ReleaseNotesService,
     UnitTestGeneratorService,
   ],
   exports: [
-    CommitGeneratorService, 
-    MonorepoDetectorService, 
+    CommitGeneratorService,
+    MonorepoDetectorService,
     PrGeneratorService,
     CodeReviewService,
     ReleaseNotesService,

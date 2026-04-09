@@ -7,10 +7,12 @@ import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MarkdownRendererService } from '../../../common/services/markdown-renderer.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
+import { CapabilityRegistryService } from '../../capabilities';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { ProjectLoaderService } from '../../project/services/project-loader.service';
 import { ProjectContextService } from '../../project/services/project-context.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
+import { SkillActivationService, ActivationContext } from '../../skills/services/skill-activation.service';
 import { MemoryService } from '../../memory/services/memory.service';
 import { ProjectInitResult } from '../../project/types';
 import { Task } from '../../tasks/types/task.types';
@@ -25,6 +27,7 @@ import { PromptLoaderService } from './prompt-loader.service';
 import { PromptClassifierService } from './prompt-classifier.service';
 import { RoomEventBusService } from '../../rooms/services/room-event-bus.service';
 import { LTMService } from '../../rooms/services/ltm.service';
+import { ToolOutputProxyService } from '../../../shared/tool-output-proxy';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -57,7 +60,7 @@ export class DeepAgentService {
   constructor(
     private readonly multiLlmService: MultiLlmService,
     private readonly agentRegistry: AgentRegistryService,
-    private readonly toolsRegistry: ToolsRegistryService,
+    private readonly capabilityRegistry: CapabilityRegistryService,
     private readonly mcpRegistry: McpRegistryService,
     private readonly projectLoader: ProjectLoaderService,
     private readonly projectContext: ProjectContextService,
@@ -74,6 +77,8 @@ export class DeepAgentService {
     private readonly promptClassifier: PromptClassifierService,
     private readonly eventBus: RoomEventBusService,
     private readonly ltmService: LTMService,
+    private readonly toolOutputProxy: ToolOutputProxyService,
+    private readonly skillActivation: SkillActivationService,
   ) {
     this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
       this.pendingContextRefresh = true;
@@ -91,7 +96,7 @@ export class DeepAgentService {
   async initialize(): Promise<ProjectInitResult> {
     const projectPath = await this.projectLoader.detectProject();
     this.projectRoot = projectPath ?? process.cwd();
-    this.toolsRegistry.setRootDir(this.projectRoot);
+    this.capabilityRegistry.setRootDir(this.projectRoot);
 
     if (projectPath) {
       const projectConfig = await this.projectLoader.loadProject(projectPath);
@@ -132,7 +137,7 @@ export class DeepAgentService {
 
     const subagentContext = `Working directory: ${this.projectRoot}\n\n${contextPrompt}`.trim();
     const subagents = this.agentRegistry.getSubagentDefinitions(subagentContext);
-    const allTools = this.toolsRegistry.getAllTools();
+    const allTools = this.capabilityRegistry.getAllTools();
     const mcpTools = this.mcpRegistry.getAllMcpTools();
 
     const extraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
@@ -971,12 +976,30 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
     const hasMentions = message.includes('@');
     const contextualPrompt = this.buildContextualPrompt(message, hasMentions);
-    if (contextualPrompt !== this.cachedSystemPrompt) {
+
+    const activationContext: ActivationContext = {
+      message,
+      recentFiles: this.getRecentFilesFromMessages(),
+      projectRoot: this.projectRoot,
+    };
+    const activeSkills = this.skillActivation.activateSkills(activationContext);
+    const activeSkillTools = activeSkills.length > 0
+      ? this.skillRegistry.getToolsForSkills(activeSkills.map((s) => s.skill.name))
+      : [];
+
+    const allTools = [
+      ...this.cachedExtraTools,
+      ...this.cachedMcpTools,
+      ...this.cachedMcpDiscoveryTools,
+      ...activeSkillTools,
+    ];
+
+    if (contextualPrompt !== this.cachedSystemPrompt || activeSkillTools.length > 0) {
       this.cachedSystemPrompt = contextualPrompt;
       this.agent = createDeepAgent({
         model: this.model,
         systemPrompt: contextualPrompt,
-        tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
+        tools: allTools,
         subagents: this.cachedSubagents,
         backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
       });
@@ -1086,7 +1109,8 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             output = typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
           }
           if (output) {
-            this.lastToolOutputs.push({ tool: lastToolName, output });
+            const proxyOutput = this.toolOutputProxy.process(lastToolName, output, event.data?.input);
+            this.lastToolOutputs.push({ tool: lastToolName, output: proxyOutput });
             this.eventBus.emit({
               id: crypto.randomUUID(),
               type: 'agent.tool.completed',
@@ -1094,10 +1118,10 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               instanceId: this.instanceId,
               roomId: this.roomId,
               source: 'native',
-              payload: { toolName: lastToolName, toolOutput: output.slice(0, 200) },
+              payload: { toolName: lastToolName, toolOutput: proxyOutput.slice(0, 200) },
               timestamp: Date.now(),
             });
-            yield this.formatToolEnd(lastToolName, output);
+            yield this.formatToolEnd(lastToolName, proxyOutput);
           }
         }
 
@@ -1132,6 +1156,25 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
   clearHistory() {
     this.messages = [];
     this.tokenCount = 0;
+  }
+
+  private getRecentFilesFromMessages(): string[] {
+    const files = new Set<string>();
+    const recentMessages = this.messages.slice(-20);
+
+    for (const msg of recentMessages) {
+      const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      const readMatch = content.match(/read_file.*?(?:file_path|path)["\s:]+["']?([^"'\s,}]+)/i);
+      if (readMatch) files.add(readMatch[1]);
+
+      const editMatch = content.match(/edit_file.*?(?:file_path|path)["\s:]+["']?([^"'\s,}]+)/i);
+      if (editMatch) files.add(editMatch[1]);
+
+      const write_match = content.match(/write_file.*?(?:file_path|path)["\s:]+["']?([^"'\s,}]+)/i);
+      if (write_match) files.add(write_match[1]);
+    }
+
+    return Array.from(files);
   }
 
   private extractTextFromModelContent(content: unknown): string {

@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { CommonModule } from '../../common/common.module';
 import { DeepAgentService } from './services/deep-agent.service';
 import { PlanModeService } from './services/plan-mode.service';
@@ -16,24 +16,73 @@ import { SnapshotModule } from '../snapshots/snapshot.module';
 import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { WatcherModule } from '../watcher/watcher.module';
+import { ToolOutputProxyModule } from '../../shared/tool-output-proxy';
+import { PromptBuilderService, CriticalRulesSection, ToolsSection, AgentIdentitySection, TaskKanbanSection, PlanningSection, McpProtocolSection, SubAgentsSection, ExecutionProtocolSection, DecisionMakingSection, GitSafetySection, EnvironmentSection } from './services/prompt-builders';
 
 @Module({
   imports: [
     CommonModule,
     AgentsModule,
     SkillsModule,
-    forwardRef(() => ToolsModule),
+    ToolsModule,
     McpModule,
     ProjectModule,
-    forwardRef(() => MemoryModule),
+    MemoryModule,
     MentionsModule,
     PermissionsModule,
     SnapshotModule,
     StatsModule,
     ReplayModule,
     WatcherModule,
+    ToolOutputProxyModule,
   ],
-  providers: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService],
-  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule],
+  providers: [
+    DeepAgentService,
+    PlanModeService,
+    PromptLoaderService,
+    PromptClassifierService,
+    PromptBuilderService,
+    AgentIdentitySection,
+    CriticalRulesSection,
+    ToolsSection,
+    TaskKanbanSection,
+    McpProtocolSection,
+    PlanningSection,
+    SubAgentsSection,
+    ExecutionProtocolSection,
+    DecisionMakingSection,
+    GitSafetySection,
+    EnvironmentSection,
+  ],
+  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule, PromptBuilderService],
 })
-export class CoreModule {}
+export class CoreModule implements OnModuleInit {
+  constructor(
+    private readonly promptBuilder: PromptBuilderService,
+    private readonly agentIdentity: AgentIdentitySection,
+    private readonly criticalRules: CriticalRulesSection,
+    private readonly toolsSection: ToolsSection,
+    private readonly taskKanban: TaskKanbanSection,
+    private readonly mcpProtocol: McpProtocolSection,
+    private readonly planning: PlanningSection,
+    private readonly subAgents: SubAgentsSection,
+    private readonly executionProtocol: ExecutionProtocolSection,
+    private readonly decisionMaking: DecisionMakingSection,
+    private readonly gitSafety: GitSafetySection,
+    private readonly environment: EnvironmentSection,
+  ) {}
+
+  onModuleInit() {
+    this.promptBuilder.register(this.agentIdentity);
+    this.promptBuilder.register(this.criticalRules);
+    this.promptBuilder.register(this.toolsSection);
+    this.promptBuilder.register(this.taskKanban);
+    this.promptBuilder.register(this.mcpProtocol);
+    this.promptBuilder.register(this.planning);
+    this.promptBuilder.register(this.subAgents);
+    this.promptBuilder.register(this.executionProtocol);
+    this.promptBuilder.register(this.decisionMaking);
+    this.promptBuilder.register(this.gitSafety);
+    this.promptBuilder.register(this.environment);
+  }
+}

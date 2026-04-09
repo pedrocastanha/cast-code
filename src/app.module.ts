@@ -16,12 +16,18 @@ import { VaultModule } from './modules/vault/vault.module';
 import { DiffModule } from './modules/diff/diff.module';
 import { WatcherModule } from './modules/watcher/watcher.module';
 import { RoomsModule } from './modules/rooms/rooms.module';
+import { ToolOutputProxyModule } from './shared/tool-output-proxy';
+import { CapabilitiesModule } from './modules/capabilities';
+import { CommandRegistryModule } from './shared/command-registry';
 
 @Module({
   imports: [
     I18nModule,
     ConfigModule,
     CommonModule,
+    ToolOutputProxyModule,
+    CommandRegistryModule,
+    CapabilitiesModule,
     CoreModule,
     ReplModule,
     PermissionsModule,

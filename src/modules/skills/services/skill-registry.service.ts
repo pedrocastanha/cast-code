@@ -1,28 +1,34 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { StructuredTool } from '@langchain/core/tools';
 import { SkillLoaderService } from './skill-loader.service';
-import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
+import { CapabilityRegistryService } from '../../capabilities';
 import { ResolvedSkill, SkillDefinition } from '../types';
 
 @Injectable()
 export class SkillRegistryService {
   constructor(
     private readonly skillLoader: SkillLoaderService,
-    @Inject(forwardRef(() => ToolsRegistryService))
-    private readonly toolsRegistry: ToolsRegistryService,
+    private readonly capabilityRegistry: CapabilityRegistryService,
   ) {}
+
+  onModuleInit() {
+    const skills = this.skillLoader.getAllSkills().map(s => ({
+      name: s.name,
+      description: s.description,
+      tools: s.tools,
+      guidelines: s.guidelines,
+    }));
+    this.capabilityRegistry.registerSkills(skills);
+  }
 
   resolveSkill(name: string): ResolvedSkill | undefined {
     const skill = this.skillLoader.getSkill(name);
-
-    if (!skill) {
-      return undefined;
-    }
+    if (!skill) return undefined;
 
     return {
       name: skill.name,
       description: skill.description,
-      tools: this.toolsRegistry.getTools(skill.tools),
+      tools: this.capabilityRegistry.getToolsByNames(skill.tools),
       guidelines: skill.guidelines,
     };
   }
@@ -34,38 +40,21 @@ export class SkillRegistryService {
   }
 
   getToolsForSkills(skillNames: string[]): StructuredTool[] {
-    const skills = this.resolveSkills(skillNames);
-    const toolsMap = new Map<string, StructuredTool>();
-
-    for (const skill of skills) {
-      for (const t of skill.tools as StructuredTool[]) {
-        toolsMap.set(t.name, t);
-      }
-    }
-
-    return Array.from(toolsMap.values());
+    return this.capabilityRegistry.getSkillsForTools(skillNames);
   }
 
   getIsolatedToolsForSkills(skillNames: string[]): StructuredTool[] {
-    const toolsMap = new Map<string, StructuredTool>();
+    const skills = skillNames
+      .map((name) => this.skillLoader.getSkill(name))
+      .filter((s): s is SkillDefinition => s !== undefined);
 
-    for (const skillName of skillNames) {
-      const skill = this.skillLoader.getSkill(skillName);
-      if (!skill) continue;
-      for (const t of this.toolsRegistry.getIsolatedTools(skill.tools)) {
-        toolsMap.set(t.name, t);
-      }
-    }
-
-    return Array.from(toolsMap.values());
+    const toolNames = skills.flatMap(s => s.tools);
+    return this.capabilityRegistry.getToolsByNames(toolNames);
   }
 
   getGuidelinesForSkills(skillNames: string[]): string {
-    const skills = this.resolveSkills(skillNames);
-
-    return skills.map((s) => `## ${s.name}\n${s.guidelines}`).join('\n\n');
+    return this.capabilityRegistry.getSkillGuidelines(skillNames);
   }
-
 
   getAllSkills(): SkillDefinition[] {
     return this.skillLoader.getAllSkills();
@@ -77,6 +66,13 @@ export class SkillRegistryService {
 
   async loadProjectSkills(projectPath: string) {
     await this.skillLoader.loadFromPath(projectPath);
+    const skills = this.skillLoader.getAllSkills().map(s => ({
+      name: s.name,
+      description: s.description,
+      tools: s.tools,
+      guidelines: s.guidelines,
+    }));
+    this.capabilityRegistry.registerSkills(skills);
   }
 
   getSkillSummaries(): { name: string; description: string }[] {

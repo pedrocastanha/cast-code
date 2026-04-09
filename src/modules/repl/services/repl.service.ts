@@ -21,11 +21,13 @@ import { ReplayCommandsService } from './commands/replay-commands.service';
 import { VaultCommandsService } from './commands/vault-commands.service';
 import { BridgeCommandsService } from './commands/bridge-commands.service';
 import { RoomsCommandsService } from './commands/rooms-commands.service';
+import { TracecastCommandsService } from './commands/tracecast-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { FilesystemToolsService } from '../../tools/services/filesystem-tools.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
 import { RemoteServerService } from '../../remote/services/remote-server.service';
 import { PermissionService } from '../../permissions/services/permission.service';
+import { CommandRegistryService } from '../../../shared/command-registry';
 import {
   DangerLevel,
   PermissionResponse,
@@ -63,11 +65,13 @@ export class ReplService {
     private readonly vaultCommandsService: VaultCommandsService,
     private readonly bridgeCommands: BridgeCommandsService,
     private readonly roomsCommands: RoomsCommandsService,
+    private readonly tracecastCommands: TracecastCommandsService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly kanbanServer: KanbanServerService,
     private readonly remoteServer: RemoteServerService,
     private readonly permissionService: PermissionService,
     private readonly filesystemTools: FilesystemToolsService,
+    private readonly commandRegistry: CommandRegistryService,
   ) { }
 
   async start(): Promise<void> {
@@ -274,6 +278,7 @@ export class ReplService {
       { text: '/bridge', display: '/bridge', description: 'Connect external AI agent (Claude, Codex)' },
       { text: '/rooms', display: '/rooms', description: 'Rooms feature and LTM management' },
       { text: '/room', display: '/room', description: 'Open Room Server UI' },
+      { text: '/tracecast', display: '/tracecast', description: 'Setup token tracing with TraceCast' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -546,6 +551,10 @@ export class ReplService {
 
       case 'rooms':
         await this.roomsCommands.cmdRooms(args);
+        break;
+
+      case 'tracecast':
+        await this.tracecastCommands.cmdTracecast(args);
         break;
 
       case 'room':
