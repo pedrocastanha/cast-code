@@ -129,7 +129,6 @@ async function bootstrap() {
   await configManager.loadConfig();
 
 
-
   const repl = app.get(ReplService);
 
   process.on('SIGINT', () => {
