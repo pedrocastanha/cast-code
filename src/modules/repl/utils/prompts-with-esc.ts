@@ -117,6 +117,9 @@ export async function numberWithEsc(config: Parameters<typeof number>[0]): Promi
 
   try {
     const result = await number(config, { signal: abortController.signal });
+    if (result === undefined) {
+      throw new CancelledPromptError();
+    }
     return result;
   } catch (error: any) {
     if (error.name === 'AbortPromptError' || abortController.signal.aborted) {

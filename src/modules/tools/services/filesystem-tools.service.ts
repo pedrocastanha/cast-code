@@ -29,7 +29,7 @@ const MAX_READ_FILES = 200;
 export class FilesystemToolsService {
   private readFiles: Set<string> = new Set();
   private fileWriteHandler: FileWriteHandler | null = null;
-  private rootDir: string = this.rootDir;
+  private rootDir = process.cwd();
 
   setFileWriteHandler(handler: FileWriteHandler): void {
     this.fileWriteHandler = handler;

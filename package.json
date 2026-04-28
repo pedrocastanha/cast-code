@@ -11,10 +11,10 @@
     "templates"
   ],
   "scripts": {
-    "build": "nest build && chmod +x dist/main.js",
-    "typecheck": "node --max-old-space-size=4096 node_modules/typescript/bin/tsc --noEmit",
+    "build": "node --max-old-space-size=6144 node_modules/@nestjs/cli/bin/nest.js build && chmod +x dist/main.js",
+    "typecheck": "node --max-old-space-size=6144 node_modules/typescript/bin/tsc -p tsconfig.build.json --noEmit",
     "start": "node dist/main.js",
-    "start:dev": "nest start --watch",
+    "start:dev": "node --watch -r ts-node/register/transpile-only src/main.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "format": "prettier --write .",

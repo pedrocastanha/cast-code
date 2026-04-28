@@ -8,6 +8,8 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deepAgent: {
       initialize: async () => ({ toolCount: 0, projectPath: '' }),
       reinitializeModel: async () => {},
+      getTokenCount: () => 0,
+      getMessageCount: () => 0,
     },
     configService: {},
     configManager: { loadConfig: async () => {} },
@@ -36,7 +38,15 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     mcpCommands: {},
     configCommands: { handleConfigCommand: async () => {} },
     projectCommands: { cmdProject: async () => {} },
+    snapshotCommandsService: {},
+    statsCommandsService: { setDefaultModel: () => {}, cmdStats: () => {} },
+    replayCommandsService: { cmdReplay: () => {} },
+    vaultCommandsService: { cmdVault: () => {} },
     toolsRegistry: {},
+    kanbanServer: {},
+    remoteServer: { onMessage: () => {} },
+    permissionService: { setPermissionHandler: () => {} },
+    filesystemTools: { setFileWriteHandler: () => {} },
   };
 
   const deps = { ...defaults, ...overrides };
@@ -57,7 +67,15 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deps.mcpCommands,
     deps.configCommands,
     deps.projectCommands,
+    deps.snapshotCommandsService,
+    deps.statsCommandsService,
+    deps.replayCommandsService,
+    deps.vaultCommandsService,
     deps.toolsRegistry,
+    deps.kanbanServer,
+    deps.remoteServer,
+    deps.permissionService,
+    deps.filesystemTools,
   );
 };
 
@@ -133,5 +151,29 @@ describe('ReplService', () => {
       (global as any).setInterval = originalSetInterval;
       (global as any).clearInterval = originalClearInterval;
     }
+  });
+
+  test('input footer exposes tokens, context, model, and agent readiness', () => {
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 3200,
+        getMessageCount: () => 12,
+      },
+      configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
+      configManager: { getModelConfig: () => undefined },
+      agentRegistry: { resolveAllAgents: () => [{}, {}, {}] },
+    });
+
+    const lines = (service as any).getInputFooterLines();
+    const combined = lines.join(' ');
+
+    assert.equal(lines.length, 2, 'footer should render a divider and one telemetry line');
+    assert.match(combined, /tokens/i);
+    assert.match(combined, /ctx/i);
+    assert.match(combined, /model/i);
+    assert.match(combined, /agents/i);
+    assert.match(combined, /3/);
   });
 });

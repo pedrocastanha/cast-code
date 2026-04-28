@@ -959,7 +959,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     if (contextualPrompt !== this.cachedSystemPrompt) {
       this.cachedSystemPrompt = contextualPrompt;
       this.agent = createDeepAgent({
-        model: this.model,
+        model: this.model ?? undefined,
         systemPrompt: contextualPrompt,
         tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
         subagents: this.cachedSubagents,

@@ -93,7 +93,7 @@ export class MultiLlmService {
 
       case 'gemini':
         return new ChatGoogleGenerativeAI({
-          modelName: model,
+          model,
           ...(temperature !== undefined ? { temperature } : {}),
           apiKey: config.apiKey,
           streaming,

@@ -35,9 +35,12 @@ import { Colors, Icons } from '../utils/theme';
 export class ReplService {
   private smartInput: SmartInput | null = null;
   private abortController: AbortController | null = null;
+  private pendingLines: string[] = [];
   private isProcessing = false;
   private isBroadcasting = false;
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
+  private spinnerFrameIndex = 0;
+  private spinnerLabel = '';
 
   constructor(
     private readonly deepAgent: DeepAgentService,
@@ -96,15 +99,16 @@ export class ReplService {
     };
 
     this.remoteServer.onMessage(async (msg) => {
-      process.stdout.write(`\r\x1b[K${Colors.cyan}${Colors.bold}>${Colors.reset} ${msg}\r\n`);
+      this.writeInline(`${Colors.cyan}›${Colors.reset} ${msg}\r\n`);
       await this.handleLine(msg);
     });
 
     this.smartInput = new SmartInput({
-      prompt: `${Colors.cyan}${Colors.bold}>${Colors.reset} `,
+      prompt: `${Colors.cyan}›${Colors.reset} `,
       promptVisibleLen: 2,
       getCommandSuggestions: (input) => this.getCommandSuggestions(input),
       getMentionSuggestions: (partial) => this.getMentionSuggestions(partial),
+      getFooterLines: () => this.getInputFooterLines(),
       onSubmit: (line) => this.handleLine(line),
       onCancel: () => this.handleCancel(),
       onExit: () => this.handleExit(),
@@ -410,22 +414,61 @@ export class ReplService {
     const trimmed = input.trim();
 
     if (!trimmed) {
-      this.smartInput?.showPrompt();
+      this.smartInput?.refresh();
       return;
     }
 
+    if (this.isProcessing) {
+      this.pendingLines.push(trimmed);
+      this.writeInline(
+        `  ${Colors.magenta}↳${Colors.reset} ${Colors.dim}Queued${Colors.reset} ${Colors.subtle}(${this.pendingLines.length})${Colors.reset}\r\n`,
+      );
+      this.smartInput?.refresh();
+      return;
+    }
+
+    this.runLine(trimmed);
+    this.smartInput?.refresh();
+  }
+
+  private runLine(line: string): void {
+    void this.processLine(line);
+  }
+
+  private async processLine(line: string): Promise<void> {
     this.isBroadcasting = true;
     try {
-      if (trimmed.startsWith('/')) {
-        await this.handleCommand(trimmed);
+      if (line.startsWith('/')) {
+        await this.handleCommand(line);
       } else {
-        await this.handleMessage(trimmed);
+        await this.handleMessage(line);
       }
     } finally {
       this.isBroadcasting = false;
+      if (!this.isProcessing) {
+        this.startNextQueuedLine();
+      }
+      this.smartInput?.refresh();
+    }
+  }
+
+  private startNextQueuedLine(): void {
+    if (this.isProcessing) {
+      return;
     }
 
-    this.smartInput?.showPrompt();
+    const next = this.pendingLines.shift();
+    if (next) {
+      this.runLine(next);
+    }
+  }
+
+  private writeInline(text: string): void {
+    if (this.smartInput) {
+      this.smartInput.printExternal(text);
+      return;
+    }
+    process.stdout.write(text);
   }
 
   private async handleCommand(command: string): Promise<void> {
@@ -550,7 +593,7 @@ export class ReplService {
   private async handleMessage(message: string): Promise<void> {
     this.isProcessing = true;
     this.abortController = new AbortController();
-    this.smartInput?.enterPassiveMode();
+    this.smartInput?.refresh();
 
     try {
       let messageToProcess = message;
@@ -569,7 +612,7 @@ export class ReplService {
           const plannedMessage = await this.runInteractivePlanMode(message);
           if (!plannedMessage) {
             this.isProcessing = false;
-            this.smartInput?.exitPassiveMode();
+            this.smartInput?.refresh();
             return;
           }
           messageToProcess = plannedMessage;
@@ -583,9 +626,9 @@ export class ReplService {
       if (mentionResult.mentions.length > 0) {
         const summary = this.mentionsService.getMentionsSummary(mentionResult.mentions);
         for (const line of summary) {
-          process.stdout.write(`${Colors.dim}${line}${Colors.reset}\r\n`);
+          this.writeInline(`${Colors.dim}${line}${Colors.reset}\r\n`);
         }
-        process.stdout.write('\r\n');
+        this.writeInline('\r\n');
       }
 
       this.startSpinner('Thinking');
@@ -625,26 +668,25 @@ export class ReplService {
         const isToolChunk = newLabel !== null;
 
         if (isToolChunk) {
-          this.stopSpinner();
-          process.stdout.write(chunk);
+          this.writeInline(chunk);
           if (firstChunk) {
             this.startSpinner('Working');
           }
         } else if (isMeta || isToolResultChunk(chunk)) {
-          process.stdout.write(chunk);
+          this.writeInline(chunk);
         } else {
           if (firstChunk) {
             this.stopSpinner();
-            process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
+            this.writeInline(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
             firstChunk = false;
           }
           fullResponse += chunk;
-          process.stdout.write(chunk);
+          this.writeInline(chunk);
         }
       }
 
       if (!firstChunk) {
-        process.stdout.write('\r\n');
+        this.writeInline('\r\n');
       } else {
         this.stopSpinner();
       }
@@ -652,12 +694,13 @@ export class ReplService {
       this.stopSpinner();
       const msg = (error as Error).message;
       if (!msg.includes('abort')) {
-        process.stdout.write(`\r\n  ${Colors.red}Error${Colors.reset}  ${Colors.dim}${msg}${Colors.reset}\r\n\r\n`);
+        this.writeInline(`\r\n  ${Colors.red}Error${Colors.reset}  ${Colors.dim}${msg}${Colors.reset}\r\n\r\n`);
       }
     } finally {
       this.isProcessing = false;
       this.abortController = null;
-      this.smartInput?.exitPassiveMode();
+      this.startNextQueuedLine();
+      this.smartInput?.refresh();
     }
   }
 
@@ -738,30 +781,32 @@ export class ReplService {
     return lines.join('\n');
   }
 
-  private spinnerLabel = 'Thinking';
-
   private startSpinner(label: string): void {
     this.spinnerLabel = label;
-    let i = 0;
+    this.spinnerFrameIndex = 0;
+    if (this.spinnerTimer) {
+      clearInterval(this.spinnerTimer);
+    }
     this.spinnerTimer = setInterval(() => {
-      const spinner = Icons.spinner[i % Icons.spinner.length];
-      i++;
-      process.stdout.write(
-        `\r${Colors.dim}${spinner}${Colors.reset} ${Colors.dim}${this.spinnerLabel}...${Colors.reset}`
-      );
+      this.spinnerFrameIndex = (this.spinnerFrameIndex + 1) % Icons.spinner.length;
+      this.smartInput?.refresh();
     }, 80);
+    this.smartInput?.refresh();
   }
 
   private updateSpinner(label: string): void {
     this.spinnerLabel = label;
+    this.smartInput?.refresh();
   }
 
   private stopSpinner(): void {
     if (this.spinnerTimer) {
       clearInterval(this.spinnerTimer);
       this.spinnerTimer = null;
-      process.stdout.write('\r\x1b[K');
     }
+    this.spinnerLabel = '';
+    this.spinnerFrameIndex = 0;
+    this.smartInput?.refresh();
   }
 
   private cmdTools(): void {
@@ -812,6 +857,47 @@ export class ReplService {
     } catch {
     }
     return `${this.configService.getProvider()}/${this.configService.getModel()}`;
+  }
+
+  private getInputFooterLines(): string[] {
+    const tokens = this.deepAgent.getTokenCount();
+    const messages = this.deepAgent.getMessageCount();
+    const agents = this.agentRegistry.resolveAllAgents().length;
+    const statusParts: string[] = [];
+
+    if (this.isProcessing && this.spinnerLabel) {
+      const spinner = Icons.spinner[this.spinnerFrameIndex % Icons.spinner.length];
+      statusParts.push(
+        `${Colors.subtle}state${Colors.reset} ${Colors.cyan}${spinner}${Colors.reset} ${Colors.muted}${this.spinnerLabel.toLowerCase()}${Colors.reset}`,
+      );
+    }
+
+    if (this.pendingLines.length > 0) {
+      statusParts.push(
+        `${Colors.subtle}queue${Colors.reset} ${Colors.yellow}${this.pendingLines.length}${Colors.reset}`,
+      );
+    }
+
+    const left = [
+      ...statusParts,
+      `${Colors.subtle}tokens${Colors.reset} ${Colors.cyan}${this.formatCompactNumber(tokens)}${Colors.reset}`,
+      `${Colors.subtle}ctx${Colors.reset} ${Colors.cyan}${messages} msgs${Colors.reset}`,
+      `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getModelDisplayName()}${Colors.reset}`,
+      `${Colors.subtle}agents${Colors.reset} ${Colors.yellow}${agents}${Colors.reset} ${Colors.muted}${this.isProcessing ? 'running' : 'ready'}${Colors.reset}`,
+    ];
+
+    return [
+      `${Colors.subtle}${'─'.repeat(Math.max(24, Math.min((process.stdout.columns || 80) - 4, 96)))}${Colors.reset}`,
+      `  ${left.join(`  ${Colors.subtle}·${Colors.reset}  `)}`,
+    ];
+  }
+
+  private formatCompactNumber(value: number): string {
+    if (value >= 1000) {
+      const compact = value >= 10000 ? Math.round(value / 1000) : Math.round((value / 1000) * 10) / 10;
+      return `${compact}k`;
+    }
+    return value.toString();
   }
 
   stop(): void {

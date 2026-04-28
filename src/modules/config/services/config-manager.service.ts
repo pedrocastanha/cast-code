@@ -9,6 +9,8 @@ import {
   ModelPurpose,
   ProviderType,
   ProvidersConfig,
+  BaseProviderConfig,
+  OllamaConfig,
 } from '../types/config.types';
 import { I18nService } from '../../i18n/services/i18n.service';
 
@@ -117,7 +119,14 @@ export class ConfigManagerService {
     if (!this.config.providers) {
       this.config.providers = {};
     }
-    this.config.providers[provider] = config;
+    if (provider === 'ollama') {
+      if (!config.baseUrl) {
+        throw new Error('Ollama provider requires a baseUrl');
+      }
+      this.config.providers[provider] = { baseUrl: config.baseUrl } as OllamaConfig;
+    } else {
+      this.config.providers[provider] = config as BaseProviderConfig;
+    }
     await this.saveConfig();
   }
 

@@ -11,6 +11,7 @@ import {
   MODEL_PURPOSES,
   ModelConfig,
   CastConfig,
+  ProvidersConfig,
 } from '../types/config.types';
 import {
   selectWithEsc,
@@ -107,7 +108,7 @@ export class InitConfigService {
     ];
 
     try {
-      const selected = await checkbox<ProviderType>({
+      const selected = await checkbox<ProviderType | 'none'>({
         message: 'Selecione os provedores de IA que deseja configurar:',
         choices,
         pageSize: 12,
@@ -125,7 +126,7 @@ export class InitConfigService {
 
   private async configureProvider(
     provider: ProviderType
-  ): Promise<{ apiKey?: string; baseUrl?: string } | null> {
+  ): Promise<ProvidersConfig[ProviderType] | null> {
     const meta = PROVIDER_METADATA[provider];
 
     if (provider === 'ollama') {
@@ -200,7 +201,12 @@ export class InitConfigService {
     if (!configureOthers) {
       MODEL_PURPOSES.forEach((purpose) => {
         if (purpose.value !== 'default') {
-          config.models[purpose.value] = { ...config.models.default };
+          config.models[purpose.value] = {
+            provider: config.models.default.provider,
+            model: config.models.default.model,
+            ...(config.models.default.temperature !== undefined ? { temperature: config.models.default.temperature } : {}),
+            ...(config.models.default.maxTokens !== undefined ? { maxTokens: config.models.default.maxTokens } : {}),
+          };
         }
       });
       return true;

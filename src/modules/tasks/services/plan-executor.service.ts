@@ -58,7 +58,7 @@ export class PlanExecutorService {
     try {
       for (let i = 0; i < plan.tasks.length; i++) {
         if (this.aborted) {
-          this.promptService.warning('Execução cancelada pelo usuário');
+          this.promptService.warn('Execução cancelada pelo usuário');
           break;
         }
 

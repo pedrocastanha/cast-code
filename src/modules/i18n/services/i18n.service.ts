@@ -4,7 +4,7 @@ import { pt } from '../locales/pt';
 
 @Injectable()
 export class I18nService {
-  private locale: typeof en = en;
+  private locale: Record<LocaleKeys, string> = en as Record<LocaleKeys, string>;
   private language: 'en' | 'pt' = 'en';
   private changeCallbacks: (() => void)[] = [];
 
@@ -15,7 +15,7 @@ export class I18nService {
   /** Called by ConfigManagerService or config command after language is set */
   setLanguage(lang: 'en' | 'pt'): void {
     this.language = lang;
-    this.locale = lang === 'pt' ? pt : en;
+    this.locale = (lang === 'pt' ? pt : en) as Record<LocaleKeys, string>;
     this.changeCallbacks.forEach(cb => cb());
   }
 

@@ -5,10 +5,12 @@ import { homedir } from 'os';
 import { spawn } from 'child_process';
 import type {
   OAuthClientProvider,
+} from '@modelcontextprotocol/sdk/client/auth.js';
+import type {
   OAuthClientMetadata,
   OAuthClientInformationMixed,
   OAuthTokens,
-} from '@modelcontextprotocol/sdk/client/auth.js';
+} from '@modelcontextprotocol/sdk/shared/auth.js';
 
 const CAST_AUTH_DIR = path.join(homedir(), '.cast', 'mcp-auth');
 

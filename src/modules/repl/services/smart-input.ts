@@ -35,6 +35,8 @@ export interface ISmartInput {
   askChoice(message: string, choices: { key: string; label: string; description?: string }[]): Promise<string>;
   start(): void;
   destroy(): void;
+  refresh(): void;
+  printExternal(text: string): void;
   showPrompt(): void;
   enterPassiveMode(): void;
   exitPassiveMode(): void;
@@ -45,6 +47,7 @@ export interface SmartInputOptions {
   promptVisibleLen: number;
   getCommandSuggestions: (input: string) => Suggestion[];
   getMentionSuggestions: (partial: string) => Suggestion[];
+  getFooterLines?: () => string[];
   onSubmit: (line: string) => void;
   onCancel: () => void;
   onExit: () => void;
@@ -191,6 +194,24 @@ export class SmartInput implements ISmartInput {
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
     }
+  }
+
+  refresh() {
+    if (this.isPaused || this.mode === 'question') {
+      return;
+    }
+    this.render();
+  }
+
+  printExternal(text: string) {
+    if (this.isPaused || this.mode === 'question') {
+      process.stdout.write(text);
+      return;
+    }
+
+    this.clearRenderedBlock();
+    process.stdout.write(text);
+    this.render();
   }
 
   private handleData(data: string) {
@@ -564,19 +585,25 @@ export class SmartInput implements ISmartInput {
     return { row, col };
   }
 
-  private render() {
+  private getFooterLines(): string[] {
+    return this.opts.getFooterLines ? this.opts.getFooterLines() : [];
+  }
+
+  private clearRenderedBlock() {
     const write = (s: string) => process.stdout.write(s);
 
     const totalLength = this.promptLen + this.buffer.length;
     const linesUsed = Math.max(1, Math.ceil(totalLength / this.terminalWidth));
     const exactWrap = totalLength > 0 && totalLength % this.terminalWidth === 0;
+    const footerLines = this.getFooterLines();
+    const staticExtraLines = footerLines.length;
 
     if (this.cursorRow > 0) {
       write(`\x1b[${this.cursorRow}A`);
     }
     write('\r');
 
-    const linesToClear = linesUsed + (exactWrap ? 1 : 0);
+    const linesToClear = linesUsed + (exactWrap ? 1 : 0) + staticExtraLines + this.renderedLines;
     for (let i = 0; i < linesToClear; i++) {
       write('\x1b[K');
       if (i < linesToClear - 1) write('\n');
@@ -586,12 +613,27 @@ export class SmartInput implements ISmartInput {
       write(`\x1b[${linesToClear - 1}A`);
     }
     write('\r');
+    this.cursorRow = 0;
+  }
+
+  private render() {
+    const write = (s: string) => process.stdout.write(s);
+    const totalLength = this.promptLen + this.buffer.length;
+    const linesUsed = Math.max(1, Math.ceil(totalLength / this.terminalWidth));
+    const exactWrap = totalLength > 0 && totalLength % this.terminalWidth === 0;
+    const footerLines = this.getFooterLines();
+    this.clearRenderedBlock();
 
     write(this.prompt + this.buffer);
 
     write('\x1b[J');
 
-    this.renderedLines = 0;
+    let extraLines = 0;
+
+    for (const line of footerLines) {
+      write(`\r\n${line}`);
+      extraLines++;
+    }
 
     if (this.suggestions.length > 0) {
       const maxVisible = 10;
@@ -608,7 +650,7 @@ export class SmartInput implements ISmartInput {
 
       if (scrollStart > 0) {
         write(`\r\n    ${Colors.dim}\u2191 ${scrollStart} above${Colors.reset}`);
-        this.renderedLines++;
+        extraLines++;
       }
 
       for (let i = scrollStart; i < scrollEnd; i++) {
@@ -625,15 +667,17 @@ export class SmartInput implements ISmartInput {
           write(`  ${Colors.muted}${s.description}${Colors.reset}`);
         }
 
-        this.renderedLines++;
+        extraLines++;
       }
 
       const remaining = total - scrollEnd;
       if (remaining > 0) {
         write(`\r\n    ${Colors.dim}\u2193 ${remaining} below${Colors.reset}`);
-        this.renderedLines++;
+        extraLines++;
       }
     }
+
+    this.renderedLines = extraLines;
 
     if (this.renderedLines > 0) {
       write(`\x1b[${this.renderedLines}A`);

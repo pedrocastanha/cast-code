@@ -1,3 +1,5 @@
+import { getCastBaseCss } from '../../../ui/cast-design/web-theme';
+
 export function getKanbanHtml(): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -5,503 +7,249 @@ export function getKanbanHtml(): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cast Code</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌰</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    /* Premium Dark Mode Colors */
-    --bg: #09090b;
-    --surface: rgba(24, 24, 27, 0.6);
-    --surface-solid: #18181b;
-    --card: rgba(39, 39, 42, 0.5);
-    --border: rgba(255, 255, 255, 0.1);
-    --border-hover: rgba(255, 255, 255, 0.2);
-    --text: #fafafa;
-    --muted: #a1a1aa;
-    
-    /* Status Colors */
-    --cyan: #38bdf8;
-    --green: #4ade80;
-    --yellow: #facc15;
-    --red: #f87171;
-    --orange: #fb923c;
-    --purple: #c084fc;
-    --teal: #2dd4bf; /* For TEST status */
-    
-    /* Effects */
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    --glow: 0 0 20px -5px;
-  }
+  ${getCastBaseCss()}
 
   body {
-    background: var(--bg);
-    background-image: radial-gradient(circle at top right, rgba(56, 189, 248, 0.05), transparent 40%),
-                      radial-gradient(circle at bottom left, rgba(192, 132, 252, 0.05), transparent 40%);
-    color: var(--text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 14px;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
   }
 
-  header {
+  .kanban-shell {
+    min-height: 100dvh;
+    padding: 20px;
+  }
+
+  .kanban-terminal {
+    width: min(1440px, 100%);
+    min-height: calc(100dvh - 40px);
+  }
+
+  .kanban-header {
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 16px 24px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-mid);
+    background: rgba(8, 20, 39, 0.72);
     flex-shrink: 0;
-    z-index: 10;
   }
 
-  .logo {
-    font-weight: 700;
-    font-size: 14px;
-    color: var(--cyan);
-    letter-spacing: 0.05em;
-  }
-
-  .logo span {
-    color: var(--muted);
-    font-weight: 400;
-  }
-
-  .live-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 6px var(--green);
-    animation: pulse 2s infinite;
-  }
-
-  .live-dot.disconnected {
-    background: var(--red);
-    box-shadow: 0 0 6px var(--red);
-    animation: none;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-
-  .header-right {
+  .kanban-header-right {
     margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+  }
+
+  .kanban-count,
+  .thinking-indicator {
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+  }
+
+  .thinking-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .plan-badge {
+    display: none;
+  }
+
+  .btn-primary,
+  .btn-ghost,
+  .btn-mini {
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: var(--font-mono);
   }
 
   .btn-primary {
-    background: var(--cyan);
-    color: #000;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
-  }
-
-  .btn-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
-    background: #7dd3fc;
-  }
-
-  .btn-primary:active {
-    transform: translateY(1px);
+    border: 1px solid var(--accent-mid);
+    background: var(--accent-mid);
+    color: var(--bg-dark);
+    padding: 8px 14px;
   }
 
   .btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-  }
-
-  .task-count {
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .plan-badge {
-    background: rgba(88, 166, 255, 0.1);
-    border: 1px solid rgba(88, 166, 255, 0.3);
-    color: var(--cyan);
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-  }
-
-  /* Modal */
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    backdrop-filter: blur(2px);
-  }
-
-  .modal {
-    background: var(--surface-solid);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    width: 100%;
-    max-width: 450px;
-    padding: 24px;
-    box-shadow: var(--shadow-lg), 0 0 40px rgba(0,0,0,0.5);
-    transform: translateY(20px);
-    animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-
-  @keyframes modalIn {
-    to { transform: translateY(0); }
-  }
-
-  .modal-title {
-    font-size: 16px;
-    font-weight: 700;
-    margin-bottom: 20px;
-    color: var(--cyan);
-  }
-
-  .form-group {
-    margin-bottom: 16px;
-  }
-
-  .form-group label {
-    display: block;
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 6px;
-    font-weight: 600;
-  }
-
-  .form-group input, .form-group textarea {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text);
-    padding: 8px 12px;
-    font-family: inherit;
-    font-size: 13px;
-    outline: none;
-  }
-
-  .form-group input:focus, .form-group textarea:focus {
-    border-color: var(--cyan);
-  }
-
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    margin-top: 24px;
   }
 
   .btn-ghost {
     background: transparent;
-    color: var(--muted);
-    border: 1px solid var(--border);
-    padding: 6px 12px;
-    border-radius: 4px;
-    font-size: 12px;
-    cursor: pointer;
+    color: var(--text-muted);
+    border: 1px solid var(--border-strong);
+    padding: 7px 12px;
   }
 
-  .btn-ghost:hover {
-    border-color: var(--border-hover);
-    color: var(--text);
+  .btn-mini {
+    background: var(--bg-deep);
+    color: var(--accent-mid);
+    border: 1px solid var(--border-strong);
+    padding: 4px 8px;
+    font-size: var(--font-xs);
+  }
+
+  .board-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    background: var(--bg-base);
   }
 
   .board {
+    min-width: 1200px;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(5, minmax(220px, 1fr));
     gap: 16px;
-    padding: 24px;
-    flex: 1;
-    overflow: hidden;
-    min-height: 0;
+    padding: 18px;
+    height: 100%;
   }
 
   .column {
-    background: var(--surface);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid var(--border);
-    border-radius: 12px;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    background: rgba(4, 11, 22, 0.86);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--terminal-radius);
     overflow: hidden;
-    transition: all 0.3s ease;
-    box-shadow: var(--shadow-md);
   }
 
   .column.drag-over {
-    background: rgba(56, 189, 248, 0.08);
-    border-color: var(--cyan);
-    transform: scale(1.01);
+    border-color: var(--accent-mid);
+    background: rgba(14, 165, 233, 0.06);
   }
 
   .column-header {
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-shrink: 0;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-mid);
+    background: var(--bg-dark);
   }
 
   .column-label {
-    font-size: 12px;
-    font-weight: 600;
+    color: var(--accent-mid);
+    font-size: var(--font-sm);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
-
-  .col-pending .column-label { color: var(--muted); }
-  .col-inprogress .column-label { color: var(--orange); }
-  .col-test .column-label { color: var(--teal); }
-  .col-done .column-label { color: var(--green); }
-  .col-failed .column-label { color: var(--red); }
-
-  .col-inprogress { border-top: 3px solid var(--orange); }
-  .col-test { border-top: 3px solid var(--teal); }
-  .col-done { border-top: 3px solid var(--green); }
-  .col-failed { border-top: 3px solid var(--red); }
-  .col-pending { border-top: 3px solid var(--border); }
 
   .column-count {
     margin-left: auto;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1px 7px;
-    font-size: 11px;
-    color: var(--muted);
-    min-width: 22px;
-    text-align: center;
+    color: var(--amber);
+    font-size: var(--font-sm);
   }
 
   .cards {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-height: 50px;
+    display: grid;
+    gap: 10px;
   }
-
-  .cards::-webkit-scrollbar { width: 6px; }
-  .cards::-webkit-scrollbar-track { background: transparent; }
-  .cards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-  .cards::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
   .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px;
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-mid);
+    border-radius: var(--panel-radius);
     cursor: grab;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    animation: cardIn 0.3s ease-out;
-    position: relative;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-  }
-
-  .card:active {
-    cursor: grabbing;
-  }
-
-  .card.dragging {
-    opacity: 0.6;
-    transform: scale(0.98) rotate(1deg);
-    box-shadow: var(--shadow-lg);
-  }
-
-  @keyframes cardIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
+    transition: border-color 0.15s ease, transform 0.15s ease;
   }
 
   .card:hover {
-    border-color: var(--border-hover);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
   }
 
-  .card:hover .card-actions {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  .card-actions {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    opacity: 0;
-    transform: translateY(-4px);
-    transition: all 0.2s ease;
-  }
-
-  .btn-mini {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--cyan);
-    border-radius: 3px;
-    padding: 2px 6px;
-    font-size: 9px;
-    font-weight: 700;
-    cursor: pointer;
-    text-transform: uppercase;
-  }
-
-  .btn-mini:hover {
-    border-color: var(--cyan);
-  }
-
-  .btn-mini:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .card.dragging {
+    opacity: 0.65;
+    cursor: grabbing;
   }
 
   .card.highlight {
-    animation: highlight 0.6s ease-out;
+    border-color: var(--accent-mid);
   }
 
-  @keyframes highlight {
-    0% { border-color: var(--cyan); box-shadow: 0 0 8px rgba(88, 166, 255, 0.3); }
-    100% { border-color: var(--border); box-shadow: none; }
+  .card-actions {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .card-top {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 8px;
-    margin-bottom: 6px;
-    padding-right: 40px;
+    min-width: 0;
   }
 
   .card-id {
-    color: var(--muted);
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 11px;
+    color: var(--text-faint);
+    font-size: var(--font-xs);
     flex-shrink: 0;
-    margin-top: 1px;
   }
 
   .card-subject {
-    font-weight: 500;
-    font-size: 13px;
-    line-height: 1.4;
-    flex: 1;
-    word-break: break-word;
+    color: var(--accent-bright);
+    font-size: var(--font-sm);
   }
 
-  .card-description {
-    color: var(--muted);
-    font-size: 11px;
-    line-height: 1.5;
-    margin-bottom: 8px;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
+  .card-description,
   .card-note {
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--text);
-    margin-bottom: 10px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    border: 1px solid rgba(56, 189, 248, 0.15);
-    background: rgba(56, 189, 248, 0.06);
-    white-space: pre-wrap;
-    word-break: break-word;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    line-height: 1.6;
   }
 
   .card-note.error {
-    color: #fecaca;
-    border-color: rgba(248, 113, 113, 0.2);
-    background: rgba(248, 113, 113, 0.08);
+    color: var(--error);
   }
 
   .card-footer {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 5px;
+    gap: 6px;
   }
 
   .badge {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: var(--pill-radius);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-dark);
+    color: var(--text-muted);
+    font-size: var(--font-xs);
   }
 
-  .badge-pending { background: rgba(161, 161, 170, 0.1); color: var(--muted); border: 1px solid rgba(161, 161, 170, 0.2); }
-  .badge-in_progress { background: rgba(251, 146, 60, 0.1); color: var(--orange); border: 1px solid rgba(251, 146, 60, 0.2); }
-  .badge-test { background: rgba(45, 212, 191, 0.1); color: var(--teal); border: 1px solid rgba(45, 212, 191, 0.2); }
-  .badge-completed { background: rgba(74, 222, 128, 0.1); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.2); }
-  .badge-failed { background: rgba(248, 113, 113, 0.1); color: var(--red); border: 1px solid rgba(248, 113, 113, 0.2); }
-  .badge-blocked { background: rgba(250, 204, 21, 0.1); color: var(--yellow); border: 1px solid rgba(250, 204, 21, 0.2); }
-  .badge-cancelled { background: rgba(161, 161, 170, 0.1); color: var(--muted); border: 1px solid rgba(161, 161, 170, 0.2); }
-
-  .badge-agent {
-    background: rgba(188, 140, 255, 0.12);
-    color: var(--purple);
-    border: 1px solid rgba(188, 140, 255, 0.2);
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-  }
-
-  .badge-dep {
-    background: rgba(88, 166, 255, 0.08);
-    color: rgba(88, 166, 255, 0.6);
-    border: 1px solid rgba(88, 166, 255, 0.15);
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-  }
+  .badge-pending { color: var(--text-muted); }
+  .badge-in_progress { color: var(--accent-mid); }
+  .badge-test { color: var(--purple); }
+  .badge-completed { color: var(--green); }
+  .badge-failed,
+  .badge-blocked,
+  .badge-cancelled { color: var(--error); }
+  .badge-agent { color: var(--amber); }
+  .badge-dep { color: var(--purple); }
 
   .spinner {
-    display: inline-block;
     width: 10px;
     height: 10px;
-    border: 1.5px solid rgba(227, 179, 65, 0.2);
-    border-top-color: var(--orange);
+    border: 2px solid rgba(56, 189, 248, 0.18);
+    border-top-color: var(--accent-mid);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
     flex-shrink: 0;
@@ -512,90 +260,184 @@ export function getKanbanHtml(): string {
   }
 
   .empty-state {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--border);
-    font-size: 11px;
-    padding: 20px;
+    color: var(--text-faint);
+    font-size: var(--font-sm);
     text-align: center;
+    padding: 20px 0;
   }
 
-  .thinking-indicator {
-    color: var(--purple);
-    font-size: 11px;
-    display: flex;
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
     align-items: center;
+    justify-content: center;
+    background: rgba(4, 11, 22, 0.7);
+    padding: 20px;
+  }
+
+  .modal {
+    width: min(480px, 100%);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--terminal-radius);
+    background: var(--bg-base);
+    overflow: hidden;
+  }
+
+  .modal-body {
+    padding: 18px;
+  }
+
+  .modal-title {
+    color: var(--accent-mid);
+    font-size: var(--font-md);
+    margin-bottom: 18px;
+  }
+
+  .form-group {
+    display: grid;
     gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  .form-group label {
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .form-group input,
+  .form-group textarea {
+    width: 100%;
+    background: var(--bg-deep);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--accent-bright);
+    padding: 10px 12px;
+    outline: none;
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus {
+    border-color: var(--accent-mid);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  @media (max-width: 900px) {
+    .kanban-shell {
+      padding: 12px;
+    }
+
+    .kanban-header {
+      flex-wrap: wrap;
+    }
+
+    .kanban-header-right {
+      margin-left: 0;
+      width: 100%;
+      justify-content: flex-start;
+      flex-wrap: wrap;
+    }
   }
 </style>
 </head>
 <body>
+<div class="kanban-shell">
+  <div class="cast-terminal kanban-terminal">
+    <div class="cast-titlebar">
+      <span class="cast-traffic" style="background: var(--traffic-red)"></span>
+      <span class="cast-traffic" style="background: var(--traffic-amber)"></span>
+      <span class="cast-traffic" style="background: var(--traffic-green)"></span>
+      <div class="cast-tab">kanban</div>
+      <div class="cast-titlebar-note">task execution board</div>
+    </div>
 
-<header>
-  <div class="logo">cast <span>·</span> kanban</div>
-  <div class="live-dot" id="liveDot"></div>
-  <div id="header-right-container" class="header-right">
-    <button class="btn-primary" onclick="showModal()">+ New Task</button>
-    <span class="task-count" id="taskCount">0 tasks</span>
-    <span class="plan-badge" id="planBadge" style="display:none"></span>
-  </div>
-</header>
+    <header class="kanban-header">
+      <div class="cast-icon">✦</div>
+      <div>
+        <div class="cast-brand-title" style="font-size: var(--font-md);">CAST CODE</div>
+        <div class="cast-brand-subtitle">Kanban execution surface</div>
+      </div>
+      <span class="cast-pill"><span class="cast-status-dot online" id="liveDot"></span> live board</span>
+      <div id="header-right-container" class="kanban-header-right">
+        <button class="btn-primary" onclick="showModal()">+ New Task</button>
+        <span class="kanban-count" id="taskCount">0 tasks</span>
+        <span class="cast-pill plan-badge" id="planBadge"></span>
+      </div>
+    </header>
 
-<div class="board">
-  <div class="column col-pending" id="col-pending" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'pending')">
-    <div class="column-header">
-      <span class="column-label">To-Do</span>
-      <button id="btn-auto-planner" class="btn-mini" style="margin-left: 10px; border-color: var(--purple); color: var(--purple);" onclick="runAutoPlanner()">⚡ Run</button>
-      <span class="column-count" id="count-pending">0</span>
+    <div class="board-wrap">
+      <div class="board">
+        <div class="column col-pending" id="col-pending" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'pending')">
+          <div class="column-header">
+            <span class="column-label">To-Do</span>
+            <button id="btn-auto-planner" class="btn-mini" onclick="runAutoPlanner()">⚡ Run</button>
+            <span class="column-count" id="count-pending">0</span>
+          </div>
+          <div class="cards" id="cards-pending"></div>
+        </div>
+        <div class="column col-inprogress" id="col-inprogress" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'in_progress')">
+          <div class="column-header">
+            <span class="column-label">In Progress</span>
+            <span class="column-count" id="count-inprogress">0</span>
+          </div>
+          <div class="cards" id="cards-inprogress"></div>
+        </div>
+        <div class="column col-test" id="col-test" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'test')">
+          <div class="column-header">
+            <span class="column-label">Test</span>
+            <span class="column-count" id="count-test">0</span>
+          </div>
+          <div class="cards" id="cards-test"></div>
+        </div>
+        <div class="column col-done" id="col-done" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'completed')">
+          <div class="column-header">
+            <span class="column-label">Done</span>
+            <span class="column-count" id="count-done">0</span>
+          </div>
+          <div class="cards" id="cards-done"></div>
+        </div>
+        <div class="column col-failed" id="col-failed" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'failed')">
+          <div class="column-header">
+            <span class="column-label">Failed / Blocked</span>
+            <span class="column-count" id="count-failed">0</span>
+          </div>
+          <div class="cards" id="cards-failed"></div>
+        </div>
+      </div>
     </div>
-    <div class="cards" id="cards-pending"></div>
-  </div>
-  <div class="column col-inprogress" id="col-inprogress" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'in_progress')">
-    <div class="column-header">
-      <span class="column-label">In Progress</span>
-      <span class="column-count" id="count-inprogress">0</span>
-    </div>
-    <div class="cards" id="cards-inprogress"></div>
-  </div>
-  <div class="column col-test" id="col-test" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'test')">
-    <div class="column-header">
-      <span class="column-label">Test</span>
-      <span class="column-count" id="count-test">0</span>
-    </div>
-    <div class="cards" id="cards-test"></div>
-  </div>
-  <div class="column col-done" id="col-done" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'completed')">
-    <div class="column-header">
-      <span class="column-label">Done</span>
-      <span class="column-count" id="count-done">0</span>
-    </div>
-    <div class="cards" id="cards-done"></div>
-  </div>
-  <div class="column col-failed" id="col-failed" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'failed')">
-    <div class="column-header">
-      <span class="column-label">Failed / Blocked</span>
-      <span class="column-count" id="count-failed">0</span>
-    </div>
-    <div class="cards" id="cards-failed"></div>
   </div>
 </div>
 
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
-    <div class="modal-title">Create New Task</div>
-    <div class="form-group">
-      <label>Subject</label>
-      <input type="text" id="taskSubject" placeholder="What needs to be done?">
+    <div class="cast-titlebar">
+      <span class="cast-traffic" style="background: var(--traffic-red)"></span>
+      <span class="cast-traffic" style="background: var(--traffic-amber)"></span>
+      <span class="cast-traffic" style="background: var(--traffic-green)"></span>
+      <div class="cast-tab">new-task</div>
     </div>
-    <div class="form-group">
-      <label>Description (Optional)</label>
-      <textarea id="taskDescription" rows="3" placeholder="Add more details..."></textarea>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" onclick="hideModal()">Cancel</button>
-      <button class="btn-primary" onclick="createTask()">Create Task</button>
+    <div class="modal-body">
+      <div class="modal-title">Create New Task</div>
+      <div class="form-group">
+        <label>Subject</label>
+        <input type="text" id="taskSubject" placeholder="What needs to be done?">
+      </div>
+      <div class="form-group">
+        <label>Description (Optional)</label>
+        <textarea id="taskDescription" rows="3" placeholder="Add more details..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" onclick="hideModal()">Cancel</button>
+        <button class="btn-primary" onclick="createTask()">Create Task</button>
+      </div>
     </div>
   </div>
 </div>
@@ -614,6 +456,7 @@ export function getKanbanHtml(): string {
   let tasks = {};
   let sseRetryTimer = null;
   let isAutoPlanning = false;
+  let draggedTaskId = null;
 
   function debounce(fn, delay) {
     let timer = null;
@@ -623,9 +466,6 @@ export function getKanbanHtml(): string {
     };
   }
   const debouncedRenderAll = debounce(renderAll, 50);
-
-  // Drag and Drop State
-  let draggedTaskId = null;
 
   function handleDragStart(e, taskId) {
     draggedTaskId = taskId;
@@ -652,18 +492,15 @@ export function getKanbanHtml(): string {
   async function handleDrop(e, targetStatus) {
     e.preventDefault();
     e.currentTarget.classList.remove('drag-over');
-    
+
     const taskId = e.dataTransfer.getData('text/plain');
     const task = tasks[taskId];
-    
     if (!task || task.status === targetStatus) return;
 
-    // Rules
     if (task.status === 'completed' && targetStatus === 'in_progress') {
-      const reason = prompt(\`Why are you redoing task "\${task.subject}"?\`);
+      const reason = prompt('Why are you redoing task "' + task.subject + '"?');
       if (!reason) return;
-      
-      await updateTask(taskId, { 
+      await updateTask(taskId, {
         status: targetStatus,
         metadata: { ...task.metadata, redoReason: reason, redoneAt: Date.now() }
       });
@@ -691,13 +528,10 @@ export function getKanbanHtml(): string {
   function renderHeaderRight() {
     const container = document.getElementById('header-right-container');
     const thinking = isAutoPlanning ? '<span class="thinking-indicator"><div class="spinner" style="border-top-color:var(--purple)"></div> Auto-Planner thinking...</span>' : '';
-    
-    container.innerHTML = \`
-      \${thinking}
-      <button class="btn-primary" onclick="showModal()">+ New Task</button>
-      <span class="task-count" id="taskCount">\${Object.keys(tasks).length} tasks</span>
-      <span class="plan-badge" id="planBadge" style="display:none"></span>
-    \`;
+    container.innerHTML = thinking +
+      '<button class="btn-primary" onclick="showModal()">+ New Task</button>' +
+      '<span class="kanban-count" id="taskCount">' + Object.keys(tasks).length + ' tasks</span>' +
+      '<span class="cast-pill plan-badge" id="planBadge" style="display:none"></span>';
   }
 
   function showModal() {
@@ -714,19 +548,14 @@ export function getKanbanHtml(): string {
   async function createTask() {
     const subject = document.getElementById('taskSubject').value.trim();
     const description = document.getElementById('taskDescription').value.trim();
-
     if (!subject) return;
-
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subject, description })
       });
-      
-      if (res.ok) {
-        hideModal();
-      }
+      if (res.ok) hideModal();
     } catch (err) {
       console.error('Failed to create task:', err);
     }
@@ -734,7 +563,7 @@ export function getKanbanHtml(): string {
 
   async function updateTask(taskId, updates) {
     try {
-      await fetch(\`/api/tasks/\${taskId}\`, {
+      await fetch('/api/tasks/' + taskId, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
@@ -746,7 +575,7 @@ export function getKanbanHtml(): string {
 
   async function executeTask(taskId) {
     try {
-      await fetch(\`/api/tasks/\${taskId}/execute\`, { method: 'POST' });
+      await fetch('/api/tasks/' + taskId + '/execute', { method: 'POST' });
     } catch (err) {
       console.error('Failed to execute task:', err);
     }
@@ -756,8 +585,15 @@ export function getKanbanHtml(): string {
     return COL_MAP[status] || 'pending';
   }
 
+  function escHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
   function makeCard(task) {
-    const colKey = col(task.status);
     const isInProgress = task.status === 'in_progress';
     const isPending = task.status === 'pending';
     const metadata = task.metadata || {};
@@ -776,58 +612,29 @@ export function getKanbanHtml(): string {
       : metadata.lastRunSummary
         ? '<div class="card-note">' + escHtml(metadata.lastRunSummary) + '</div>'
         : '';
-    
-    const actionBtn = isPending 
-      ? \`<div class="card-actions"><button class="btn-mini" onclick="executeTask('\${task.id}')">Run</button></div>\` 
+
+    const actionBtn = isPending
+      ? '<div class="card-actions"><button class="btn-mini" onclick="executeTask(\\'' + task.id + '\\')">Run</button></div>'
       : '';
 
-    return \`
-      <div class="card" 
-           id="card-\${task.id}" 
-           data-status="\${task.status}" 
-           draggable="true" 
-           onsubmit="return false;"
-           ondragstart="handleDragStart(event, '\${task.id}')"
-           ondragend="handleDragEnd(event)">
-        \${actionBtn}
-        <div class="card-top">
-          \${spinner}
-          <span class="card-id">\${task.id}</span>
-          <span class="card-subject">\${escHtml(task.subject)}</span>
-        </div>
-        \${task.description ? '<div class="card-description">' + escHtml(task.description) + '</div>' : ''}
-        \${note}
-        <div class="card-footer">
-          <span class="badge badge-\${task.status}">\${task.status.replace('_', ' ')}</span>
-          \${agentBadge}
-          \${depBadges}
-        </div>
-      </div>
-    \`;
-  }
-
-  function escHtml(str) {
-    return String(str ?? '')
-      .replace(/&/g,'&amp;')
-      .replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;');
+    return '<div class="card" id="card-' + task.id + '" data-status="' + task.status + '" draggable="true" onsubmit="return false;" ondragstart="handleDragStart(event, \\'' + task.id + '\\')" ondragend="handleDragEnd(event)">' +
+      actionBtn +
+      '<div class="card-top">' + spinner + '<span class="card-id">' + task.id + '</span><span class="card-subject">' + escHtml(task.subject) + '</span></div>' +
+      (task.description ? '<div class="card-description">' + escHtml(task.description) + '</div>' : '') +
+      note +
+      '<div class="card-footer"><span class="badge badge-' + task.status + '">' + task.status.replace('_', ' ') + '</span>' + agentBadge + depBadges + '</div>' +
+      '</div>';
   }
 
   function renderAll() {
     requestAnimationFrame(function() {
       const cols = { pending: [], inprogress: [], test: [], done: [], failed: [] };
-      for (const task of Object.values(tasks)) {
-        cols[col(task.status)].push(task);
-      }
+      for (const task of Object.values(tasks)) cols[col(task.status)].push(task);
       for (const [key, list] of Object.entries(cols)) {
         const container = document.getElementById('cards-' + key);
         const count = document.getElementById('count-' + key);
-        if (list.length === 0) {
-          container.innerHTML = '<div class="empty-state">—</div>';
-        } else {
-          container.innerHTML = list.map(makeCard).join('');
-        }
+        if (list.length === 0) container.innerHTML = '<div class="empty-state">—</div>';
+        else container.innerHTML = list.map(makeCard).join('');
         count.textContent = list.length;
       }
       renderHeaderRight();
@@ -839,22 +646,19 @@ export function getKanbanHtml(): string {
     tasks[task.id] = task;
 
     if (task.status === 'in_progress' || task.status === 'completed' || task.status === 'test') {
-        // If we get an update that is progress, stop showing auto-planner thinking
-        if (isAutoPlanning) {
-            isAutoPlanning = false;
-            renderHeaderRight();
-            document.getElementById('btn-auto-planner').disabled = false;
-        }
+      if (isAutoPlanning) {
+        isAutoPlanning = false;
+        renderHeaderRight();
+        document.getElementById('btn-auto-planner').disabled = false;
+      }
     }
 
     if (existed) {
       const card = document.getElementById('card-' + task.id);
       const newColKey = col(task.status);
-
       if (card) {
         const currentContainer = card.parentElement;
         const targetContainer = document.getElementById('cards-' + newColKey);
-
         if (currentContainer !== targetContainer) {
           debouncedRenderAll();
         } else {
@@ -876,9 +680,7 @@ export function getKanbanHtml(): string {
 
   function updateCounts() {
     const cols = { pending: 0, inprogress: 0, test: 0, done: 0, failed: 0 };
-    for (const task of Object.values(tasks)) {
-      cols[col(task.status)]++;
-    }
+    for (const task of Object.values(tasks)) cols[col(task.status)]++;
     for (const [key, count] of Object.entries(cols)) {
       document.getElementById('count-' + key).textContent = count;
     }
@@ -896,7 +698,7 @@ export function getKanbanHtml(): string {
         const plan = data.plans[data.plans.length - 1];
         const badge = document.getElementById('planBadge');
         badge.textContent = plan.title;
-        badge.style.display = 'inline';
+        badge.style.display = 'inline-flex';
       }
 
       renderAll();
@@ -908,7 +710,8 @@ export function getKanbanHtml(): string {
     const es = new EventSource('/api/events');
 
     es.onopen = () => {
-      dot.classList.remove('disconnected');
+      dot.classList.remove('offline');
+      dot.classList.add('online');
       if (sseRetryTimer) { clearTimeout(sseRetryTimer); sseRetryTimer = null; }
     };
 
@@ -926,11 +729,12 @@ export function getKanbanHtml(): string {
       const plan = JSON.parse(e.data);
       const badge = document.getElementById('planBadge');
       badge.textContent = plan.title;
-      badge.style.display = 'inline';
+      badge.style.display = 'inline-flex';
     });
 
     es.onerror = () => {
-      dot.classList.add('disconnected');
+      dot.classList.remove('online');
+      dot.classList.add('offline');
       es.close();
       sseRetryTimer = setTimeout(connectSSE, 3000);
     };

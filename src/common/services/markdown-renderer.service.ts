@@ -75,7 +75,7 @@ export class MarkdownRendererService {
   private renderCodeBlocks(text: string): string {
     return text.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
       const lines = code.trim().split('\n');
-      const maxLineLength = Math.max(...lines.map(l => l.length), 20);
+      const maxLineLength = Math.max(...lines.map((l: string) => l.length), 20);
       const width = Math.min(maxLineLength + 2, this.maxWidth - 4);
       
       let result = `\n${Colors.gray}${'┌' + '─'.repeat(width) + (lang ? ` ${lang} ` : '') + '─'.repeat(Math.max(0, width - (lang?.length || 0) - 2))}${Colors.reset}\n`;
