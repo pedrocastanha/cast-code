@@ -1,18 +1,33 @@
 import { Injectable } from '@nestjs/common';
 import { Colors, colorize, Box, Icons } from '../../utils/theme';
 import { ConfigService } from '../../../../common/services/config.service';
+import { ConfigManagerService } from '../../../config/services/config-manager.service';
 import { DeepAgentService } from '../../../core/services/deep-agent.service';
 import { McpRegistryService } from '../../../mcp/services/mcp-registry.service';
 import { AgentLoaderService } from '../../../agents/services/agent-loader.service';
 import { SkillRegistryService } from '../../../skills/services/skill-registry.service';
 import { ProjectContextService } from '../../../project/services/project-context.service';
 import { MemoryService } from '../../../memory/services/memory.service';
+import {
+  getModelChoicesForPurpose,
+  getProviderEndpointLabel,
+  getRecommendedModel,
+  isRecommendedModelForPurpose,
+  MODEL_PURPOSES,
+  ModelPurpose,
+  ProviderType,
+  PROVIDER_METADATA,
+  providerAllowsOptionalApiKey,
+  providerRequiresBaseUrl,
+} from '../../../config/types/config.types';
+import { ISmartInput } from '../smart-input';
 
 @Injectable()
 export class ReplCommandsService {
   constructor(
     private readonly deepAgent: DeepAgentService,
     private readonly configService: ConfigService,
+    private readonly configManager: ConfigManagerService,
     private readonly mcpRegistry: McpRegistryService,
     private readonly agentLoader: AgentLoaderService,
     private readonly skillRegistry: SkillRegistryService,
@@ -71,7 +86,7 @@ export class ReplCommandsService {
     cmd('/project show', 'display current project context');
     cmd('/project edit', 'open project context in editor');
     cmd('/project-deep', 'deep analysis + agent brief');
-    cmd('/model', 'show current model');
+    cmd('/model', 'show or change models');
     cmd('/config', 'show/edit configuration');
 
     section('Tools & MCP');
@@ -174,17 +189,269 @@ export class ReplCommandsService {
     w('\r\n');
   }
 
-  cmdModel(args: string[]): void {
-    if (args.length === 0) {
-      process.stdout.write('\r\n');
-      process.stdout.write(`  ${colorize('Model', 'bold')}\r\n`);
-      process.stdout.write(`  ${colorize(Box.horizontal.repeat(24), 'subtle')}\r\n\r\n`);
-      process.stdout.write(`  ${colorize('Provider', 'muted')}  ${colorize(this.configService.getProvider(), 'cyan')}\r\n`);
-      process.stdout.write(`  ${colorize('Model', 'muted')}     ${colorize(this.configService.getModel(), 'cyan')}\r\n\r\n`);
-      process.stdout.write(`  ${colorize('Tip:', 'muted')} configure via ${colorize('~/.cast/config.yaml', 'cyan')} or env vars\r\n\r\n`);
-      return;
+  async cmdModel(args: string[], smartInput?: ISmartInput): Promise<boolean> {
+    await this.configManager.loadConfig();
+
+    const subcommand = args[0]?.toLowerCase();
+
+    if (!smartInput || subcommand === 'show' || subcommand === 'list') {
+      this.printModelSummary();
+      return false;
     }
-    process.stdout.write(`  ${colorize('To change model, run', 'muted')} ${colorize('/config set-model', 'cyan')}\r\n`);
+
+    if (subcommand && MODEL_PURPOSES.some((purpose) => purpose.value === subcommand)) {
+      return this.changeModelForPurpose(subcommand as ModelPurpose, smartInput);
+    }
+
+    this.printModelSummary();
+
+    const action = await smartInput.askChoice('Model actions', [
+      { key: 'default', label: 'Change default model', description: 'Primary conversation model' },
+      { key: 'purpose', label: 'Change purpose-specific model', description: 'Coder, reviewer, planner, etc.' },
+      { key: 'show', label: 'Keep current setup', description: 'Exit without changes' },
+    ]);
+
+    if (action === 'default') {
+      return this.changeModelForPurpose('default', smartInput);
+    }
+
+    if (action === 'purpose') {
+      const purpose = await smartInput.askChoice(
+        'Which purpose do you want to change?',
+        MODEL_PURPOSES.map((entry) => ({
+          key: entry.value,
+          label: entry.label,
+          description: entry.description,
+        })),
+      );
+
+      return this.changeModelForPurpose(purpose as ModelPurpose, smartInput);
+    }
+
+    return false;
+  }
+
+  private printModelSummary(): void {
+    const config = this.configManager.getConfig();
+    process.stdout.write('\r\n');
+    process.stdout.write(`  ${colorize('Models', 'bold')}\r\n`);
+    process.stdout.write(`  ${colorize(Box.horizontal.repeat(28), 'subtle')}\r\n\r\n`);
+
+    for (const purpose of MODEL_PURPOSES) {
+      const modelConfig = config.models[purpose.value];
+      if (!modelConfig) {
+        continue;
+      }
+
+      const endpointLabel = getProviderEndpointLabel(modelConfig.provider);
+      const recommended = isRecommendedModelForPurpose(
+        modelConfig.provider,
+        purpose.value,
+        modelConfig.model,
+      )
+        ? colorize('recommended', 'success')
+        : colorize('custom', 'warning');
+
+      process.stdout.write(
+        `  ${colorize(purpose.label.padEnd(12), 'muted')} ${colorize(`${modelConfig.provider}/${modelConfig.model}`, 'cyan')}\r\n`,
+      );
+      process.stdout.write(
+        `  ${colorize(' '.repeat(12), 'muted')} ${colorize(`${endpointLabel} · ${recommended}`, 'subtle')}\r\n`,
+      );
+    }
+
+    process.stdout.write('\r\n');
+    process.stdout.write(
+      `  ${colorize('Tip:', 'muted')} run ${colorize('/model', 'cyan')} to change quickly or ${colorize('/model reviewer', 'cyan')} for a specific purpose. Any configured provider can be used for any purpose.\r\n\r\n`,
+    );
+  }
+
+  private async changeModelForPurpose(
+    purpose: ModelPurpose,
+    smartInput: ISmartInput,
+  ): Promise<boolean> {
+    const providerCatalog = Object.keys(PROVIDER_METADATA) as ProviderType[];
+
+    const currentConfig = this.configManager.getModelConfig(purpose);
+    const currentProvider = currentConfig?.provider ?? this.configService.getProvider();
+    const currentModel = currentConfig?.model ?? this.configService.getModel();
+
+    const provider = await smartInput.askChoice(
+      `Provider for ${purpose}:`,
+      providerCatalog.map((providerKey) => ({
+        key: providerKey,
+        label: PROVIDER_METADATA[providerKey].name,
+        description: [
+          getProviderEndpointLabel(providerKey),
+          getRecommendedModel(providerKey, purpose)
+            ? `rec ${getRecommendedModel(providerKey, purpose)}`
+            : '',
+          this.configManager.isProviderConfigured(providerKey) ? 'configured' : 'needs setup',
+          providerKey === currentProvider ? 'current provider' : '',
+        ].filter(Boolean).join(' · '),
+      })),
+    ) as ProviderType;
+
+    const providerReady = await this.ensureProviderConfigured(provider, smartInput);
+    if (!providerReady) {
+      process.stdout.write(
+        `\r\n  ${colorize('Provider setup cancelled. Model unchanged.', 'warning')}\r\n\r\n`,
+      );
+      return false;
+    }
+
+    const recommendedModel = getRecommendedModel(provider, purpose);
+    const modelChoices = getModelChoicesForPurpose(provider, purpose);
+
+    const selectedModel = await smartInput.askChoice(
+      `Model for ${purpose}:`,
+      [
+        ...modelChoices.map((choice) => ({
+          key: choice.value,
+          label: choice.label,
+          description: [
+            choice.value === currentModel && provider === currentProvider ? 'current' : '',
+            recommendedModel === choice.value ? 'best fit for this provider' : '',
+          ].filter(Boolean).join(' · '),
+        })),
+        { key: '__custom__', label: 'Custom model', description: 'Type any model id manually' },
+      ],
+    );
+
+    let model = selectedModel;
+    if (selectedModel === '__custom__') {
+      const typed = await smartInput.question(
+        `${Colors.yellow}Model name${recommendedModel ? ` (empty = ${recommendedModel})` : ''}:${Colors.reset}`,
+      );
+      model = typed.trim() || recommendedModel || currentModel;
+    }
+
+    await this.configManager.setModel(purpose, {
+      provider,
+      model,
+    });
+
+    process.stdout.write('\r\n');
+    process.stdout.write(
+      `  ${colorize(Icons.check, 'success')} ${colorize(
+        `${purpose} -> ${provider}/${model}`,
+        'muted',
+      )}\r\n`,
+    );
+    process.stdout.write('\r\n');
+    return true;
+  }
+
+  private async ensureProviderConfigured(
+    provider: ProviderType,
+    smartInput: ISmartInput,
+  ): Promise<boolean> {
+    if (this.configManager.isProviderConfigured(provider)) {
+      return true;
+    }
+
+    const meta = PROVIDER_METADATA[provider];
+    process.stdout.write('\r\n');
+    process.stdout.write(
+      `  ${colorize(`Configuring ${meta.name} inline`, 'warning')}\r\n`,
+    );
+
+    if (meta.setupHints?.length) {
+      for (const hint of meta.setupHints) {
+        process.stdout.write(`  ${colorize(`→ ${hint}`, 'muted')}\r\n`);
+      }
+    }
+
+    if (meta.exampleBaseUrls?.length) {
+      process.stdout.write(
+        `  ${colorize(`→ Examples: ${meta.exampleBaseUrls.join('  |  ')}`, 'muted')}\r\n`,
+      );
+    }
+
+    if (providerRequiresBaseUrl(provider)) {
+      const defaultBaseUrl = meta.defaultBaseUrl || '';
+      const baseUrl = await this.askRequiredValue(
+        smartInput,
+        `Base URL${defaultBaseUrl ? ` (empty = ${defaultBaseUrl})` : ''}:`,
+        defaultBaseUrl,
+      );
+      if (baseUrl === null) {
+        return false;
+      }
+
+      let apiKey: string | undefined;
+      if (providerAllowsOptionalApiKey(provider)) {
+        const maybeApiKey = await smartInput.question(
+          `${Colors.yellow}API key (optional):${Colors.reset} `,
+        );
+        apiKey = maybeApiKey.trim() || undefined;
+      }
+
+      await this.configManager.addProvider(provider, { baseUrl, apiKey });
+      process.stdout.write(
+        `  ${colorize(Icons.check, 'success')} ${colorize(`${meta.name} configured`, 'muted')}\r\n\r\n`,
+      );
+      return true;
+    }
+
+    process.stdout.write(
+      `  ${colorize(`→ Get your API key at ${meta.websiteUrl}`, 'muted')}\r\n`,
+    );
+    const apiKey = await this.askRequiredValue(
+      smartInput,
+      'API key:',
+    );
+    if (apiKey === null) {
+      return false;
+    }
+
+    const wantsCustomUrl = await smartInput.askChoice('Custom API URL?', [
+      { key: 'default', label: 'Use default URL', description: meta.defaultBaseUrl || 'provider default' },
+      { key: 'custom', label: 'Set custom URL', description: 'Proxy, gateway, alternate endpoint' },
+    ]);
+
+    let baseUrl: string | undefined;
+    if (wantsCustomUrl === 'custom') {
+      const customBaseUrl = await this.askRequiredValue(
+        smartInput,
+        `API URL${meta.defaultBaseUrl ? ` (empty = ${meta.defaultBaseUrl})` : ''}:`,
+        meta.defaultBaseUrl,
+      );
+      if (customBaseUrl === null) {
+        return false;
+      }
+      baseUrl = customBaseUrl;
+    }
+
+    await this.configManager.addProvider(provider, { apiKey, baseUrl });
+    process.stdout.write(
+      `  ${colorize(Icons.check, 'success')} ${colorize(`${meta.name} configured`, 'muted')}\r\n\r\n`,
+    );
+    return true;
+  }
+
+  private async askRequiredValue(
+    smartInput: ISmartInput,
+    label: string,
+    fallback?: string,
+  ): Promise<string | null> {
+    while (true) {
+      const raw = await smartInput.question(`${Colors.yellow}${label}${Colors.reset} `);
+      const value = raw.trim() || fallback || '';
+
+      if (value) {
+        return value;
+      }
+
+      const action = await smartInput.askChoice('Value required', [
+        { key: 'retry', label: 'Try again', description: 'Enter a value' },
+        { key: 'cancel', label: 'Cancel', description: 'Abort provider setup' },
+      ]);
+
+      if (action === 'cancel') {
+        return null;
+      }
+    }
   }
 
   cmdMentionsHelp(): void {

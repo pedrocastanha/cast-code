@@ -3,10 +3,17 @@ import chalk from 'chalk';
 import { ConfigManagerService } from './config-manager.service';
 import { InitConfigService } from './init-config.service';
 import {
+  getProviderEndpointLabel,
   ProviderType,
   PROVIDER_METADATA,
   MODEL_PURPOSES,
   ModelPurpose,
+  getModelChoicesForPurpose,
+  getRecommendedModel,
+  isRecommendedModelForPurpose,
+  providerAllowsOptionalApiKey,
+  providerRequiresBaseUrl,
+  providerSupportsApiKey,
 } from '../types/config.types';
 import {
   selectWithEsc,
@@ -202,7 +209,11 @@ export class ConfigCommandsService {
         const status = isConfigured
           ? `${Colors.green}✓`
           : `${Colors.red}✗`;
-        w(`   ${status} ${meta.name} ${Colors.gray}(${provider})${Colors.reset}\n`);
+        const providerConfig = this.configManager.getProviderConfig(provider) as { baseUrl?: string } | undefined;
+        w(`   ${status} ${meta.name} ${Colors.gray}(${provider})${Colors.reset}  ${Colors.cyan}${getProviderEndpointLabel(provider)}${Colors.reset}\n`);
+        if (providerConfig?.baseUrl) {
+          w(`   ${Colors.gray}     url: ${providerConfig.baseUrl}${Colors.reset}\n`);
+        }
       }
     }
 
@@ -211,8 +222,19 @@ export class ConfigCommandsService {
       const modelConfig = config.models[purpose.value];
       if (modelConfig) {
         const providerName = PROVIDER_METADATA[modelConfig.provider].name;
+        const endpointLabel = getProviderEndpointLabel(modelConfig.provider);
+        const isRecommended = isRecommendedModelForPurpose(
+          modelConfig.provider,
+          purpose.value,
+          modelConfig.model,
+        );
         w(`   ${Colors.cyan}${purpose.label.padEnd(12)}${Colors.reset} → ${modelConfig.model}\n`);
-        w(`   ${Colors.gray}${' '.repeat(12)}   ${providerName}${Colors.reset}\n`);
+        w(`   ${Colors.gray}${' '.repeat(12)}   ${providerName} · ${endpointLabel}${Colors.reset}\n`);
+        w(
+          `   ${Colors.gray}${' '.repeat(12)}   profile: ${
+            isRecommended ? Colors.green + 'recommended' : Colors.yellow + 'custom'
+          }${Colors.reset}\n`,
+        );
       }
     }
 
@@ -256,19 +278,43 @@ export class ConfigCommandsService {
     }
 
     const meta = PROVIDER_METADATA[provider];
+    if (meta.setupHints?.length) {
+      for (const hint of meta.setupHints) {
+        console.log(chalk.gray(`→ ${hint}`));
+      }
+    }
+    if (meta.exampleBaseUrls?.length) {
+      console.log(chalk.gray(`→ Example URLs: ${meta.exampleBaseUrls.join('  |  ')}`));
+    }
 
     let config: { apiKey?: string; baseUrl?: string } = {};
 
-    if (provider === 'ollama') {
+    if (providerRequiresBaseUrl(provider)) {
       const baseUrl = await inputWithEsc({
-        message: 'Ollama server URL:',
+        message: provider === 'ollama' ? 'Ollama server URL:' : 'OpenAI-compatible base URL:',
         default: meta.defaultBaseUrl,
       });
       if (baseUrl === null) {
         console.log(chalk.yellow('\n❌ Cancelled.\n'));
         return;
       }
-      config = { baseUrl };
+
+      if (providerAllowsOptionalApiKey(provider)) {
+        const apiKeyRaw = await inputWithEsc({
+          message: `API Key for ${meta.name} (optional):`,
+        });
+        if (apiKeyRaw === null) {
+          console.log(chalk.yellow('\n❌ Cancelled.\n'));
+          return;
+        }
+        const apiKey = apiKeyRaw.trim();
+        config = {
+          baseUrl: baseUrl.trim(),
+          ...(apiKey ? { apiKey } : {}),
+        };
+      } else {
+        config = { baseUrl: baseUrl.trim() };
+      }
     } else {
       console.log(chalk.gray(`→ Get your API key at: ${meta.websiteUrl}`));
 
@@ -310,7 +356,7 @@ export class ConfigCommandsService {
         }
       }
 
-      config = { apiKey, baseUrl };
+      config = { apiKey, ...(baseUrl ? { baseUrl: baseUrl.trim() } : {}) };
     }
 
     await this.configManager.addProvider(provider, config);
@@ -387,7 +433,11 @@ export class ConfigCommandsService {
     const provider = await selectWithEsc<ProviderType>({
       message: 'Which provider?',
       choices: availableProviders.map((p) => ({
-        name: PROVIDER_METADATA[p].name,
+        name: `${PROVIDER_METADATA[p].name}${
+          getRecommendedModel(p, purpose)
+            ? ` - rec ${getRecommendedModel(p, purpose)}`
+            : ''
+        }`,
         value: p,
       })),
     });
@@ -398,6 +448,7 @@ export class ConfigCommandsService {
     }
 
     const meta = PROVIDER_METADATA[provider];
+    const recommendedModel = getRecommendedModel(provider, purpose);
 
     const usePopular = await confirmWithEsc({
       message: `Use one of ${meta.name}'s popular models?`,
@@ -412,12 +463,20 @@ export class ConfigCommandsService {
     let model: string | null;
 
     if (usePopular) {
+      if (recommendedModel) {
+        console.log(chalk.gray(`→ Recommended for ${purpose}: ${recommendedModel}`));
+      }
+
       model = await selectWithEsc<string>({
         message: 'Choose the model:',
         choices: [
-          ...meta.popularModels.map((m) => ({ name: m, value: m })),
+          ...getModelChoicesForPurpose(provider, purpose).map((choice) => ({
+            name: choice.label,
+            value: choice.value,
+          })),
           { name: '➕ Outro modelo...', value: '__custom__' },
         ],
+        default: recommendedModel,
       });
 
       if (model === null) {
@@ -428,7 +487,7 @@ export class ConfigCommandsService {
       if (model === '__custom__') {
         model = await inputWithEsc({
           message: 'Model name:',
-          default: meta.popularModels[0],
+          default: recommendedModel || meta.popularModels[0],
         });
         if (model === null) {
           console.log(chalk.yellow('\n❌ Cancelled.\n'));
@@ -438,7 +497,7 @@ export class ConfigCommandsService {
     } else {
       model = await inputWithEsc({
         message: 'Model name:',
-        default: meta.popularModels[0],
+        default: recommendedModel || meta.popularModels[0],
       });
       if (model === null) {
         console.log(chalk.yellow('\n❌ Cancelled.\n'));
@@ -462,7 +521,7 @@ export class ConfigCommandsService {
 
     const configuredProviders = this.configManager
       .getConfiguredProviders()
-      .filter((p) => p !== 'ollama');
+      .filter((p) => providerSupportsApiKey(p));
 
     if (configuredProviders.length === 0) {
       console.log(chalk.yellow('\n⚠️  No providers with configurable API keys found.\n'));
@@ -486,10 +545,12 @@ export class ConfigCommandsService {
     }
 
     const currentConfig = this.configManager.getProviderConfig(provider) as { baseUrl?: string } | undefined;
+    const isOptionalApiKeyProvider = providerAllowsOptionalApiKey(provider);
     const apiKeyRaw = await inputWithEsc({
-      message: `New API key for ${PROVIDER_METADATA[provider].name}:`,
+      message: `New API key for ${PROVIDER_METADATA[provider].name}${isOptionalApiKeyProvider ? ' (leave blank to remove)' : ''}:`,
       validate: (v) => {
         const clean = v.trim();
+        if (isOptionalApiKeyProvider && clean.length === 0) return true;
         if (clean.length <= 5) return 'API key is too short';
         if (/[\s%]/.test(clean)) return 'API key contains invalid characters (spaces or %)';
         return true;
@@ -525,7 +586,7 @@ export class ConfigCommandsService {
     }
 
     await this.configManager.addProvider(provider, {
-      apiKey: apiKeyRaw.trim(),
+      apiKey: apiKeyRaw.trim() || undefined,
       baseUrl,
     });
 

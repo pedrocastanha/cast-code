@@ -11,6 +11,7 @@ import {
   ProvidersConfig,
   BaseProviderConfig,
   OllamaConfig,
+  providerRequiresBaseUrl,
 } from '../types/config.types';
 import { I18nService } from '../../i18n/services/i18n.service';
 
@@ -24,7 +25,7 @@ const DEFAULT_CONFIG: CastConfig = {
   models: {
     default: {
       provider: 'openai',
-      model: 'gpt-4.1-nano',
+      model: 'gpt-5.4-mini',
     },
   },
 };
@@ -105,7 +106,7 @@ export class ConfigManagerService {
     const config = this.config.providers[provider];
     if (!config) return false;
 
-    if (provider === 'ollama') {
+    if (providerRequiresBaseUrl(provider)) {
       return !!(config as { baseUrl?: string }).baseUrl;
     }
 
@@ -119,11 +120,18 @@ export class ConfigManagerService {
     if (!this.config.providers) {
       this.config.providers = {};
     }
-    if (provider === 'ollama') {
+    if (providerRequiresBaseUrl(provider)) {
       if (!config.baseUrl) {
-        throw new Error('Ollama provider requires a baseUrl');
+        throw new Error(`Provider "${provider}" requires a baseUrl`);
       }
-      this.config.providers[provider] = { baseUrl: config.baseUrl } as OllamaConfig;
+      if (provider === 'ollama') {
+        this.config.providers[provider] = { baseUrl: config.baseUrl } as OllamaConfig;
+      } else {
+        this.config.providers[provider] = {
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+        } as BaseProviderConfig;
+      }
     } else {
       this.config.providers[provider] = config as BaseProviderConfig;
     }

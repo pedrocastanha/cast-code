@@ -6,6 +6,8 @@ import { horizontalRule, padVisible, stripAnsi, wrapRow } from '../../../ui/cast
 export interface WelcomeScreenContext {
   projectPath?: string;
   model: string;
+  endpointLabel: string;
+  modelProfile: string;
   toolCount: number;
   agentCount: number;
 }
@@ -35,6 +37,8 @@ export class WelcomeScreenService {
       ),
       middle,
       wrapRow(`${this.label('model')} ${colorize(context.model, 'secondary')}`, innerWidth, borderColor),
+      wrapRow(`${this.label('endpoint')} ${colorize(context.endpointLabel, 'cyan')}`, innerWidth, borderColor),
+      wrapRow(`${this.label('profile')} ${colorize(context.modelProfile, 'green')}`, innerWidth, borderColor),
       wrapRow(`${this.label('project')} ${colorize(projectValue, 'green')}`, innerWidth, borderColor),
       wrapRow(`${this.label('tools')} ${colorize(context.toolCount.toString(), 'warning')} ${colorize('available', 'muted')}`, innerWidth, borderColor),
       wrapRow(`${this.label('agents')} ${colorize(context.agentCount.toString(), 'warning')} ${colorize('ready', 'muted')}`, innerWidth, borderColor),

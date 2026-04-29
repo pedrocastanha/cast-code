@@ -8,6 +8,7 @@ import { ConfigManagerService } from '../../modules/config/services/config-manag
 import {
   ModelPurpose,
   ProviderType,
+  providerUsesOpenAICompatibleApi,
 } from '../../modules/config/types/config.types';
 
 @Injectable()
@@ -54,34 +55,17 @@ export class MultiLlmService {
     temperature: number | undefined,
     streaming: boolean
   ): BaseChatModel {
+    if (providerUsesOpenAICompatibleApi(provider)) {
+      return this.createOpenAiCompatibleModel(
+        provider,
+        config,
+        model,
+        temperature,
+        streaming
+      );
+    }
+
     switch (provider) {
-      case 'openai':
-        return new ChatOpenAI({
-          modelName: model,
-          ...(temperature !== undefined ? { temperature } : {}),
-          apiKey: config.apiKey,
-          configuration: {
-            baseURL: config.baseUrl,
-          },
-          ...(this.requiresResponsesApi(model) ? { useResponsesApi: true } : {}),
-          streaming,
-          streamUsage: streaming,
-          ...(streaming ? { parallelToolCalls: true } : {}),
-        });
-
-      case 'deepseek':
-      case 'openrouter':
-        return new ChatOpenAI({
-          modelName: model,
-          ...(temperature !== undefined ? { temperature } : {}),
-          apiKey: config.apiKey,
-          configuration: {
-            baseURL: config.baseUrl,
-          },
-          streaming,
-          streamUsage: streaming,
-        });
-
       case 'anthropic':
         return new ChatAnthropic({
           modelName: model,
@@ -99,18 +83,6 @@ export class MultiLlmService {
           streaming,
         });
 
-      case 'kimi':
-        return new ChatOpenAI({
-          modelName: model,
-          ...(temperature !== undefined ? { temperature } : {}),
-          apiKey: config.apiKey,
-          configuration: {
-            baseURL: config.baseUrl || 'https://api.moonshot.cn/v1',
-          },
-          streaming,
-          streamUsage: streaming,
-        });
-
       case 'ollama':
         return new ChatOllama({
           model,
@@ -126,5 +98,52 @@ export class MultiLlmService {
   private requiresResponsesApi(model: string): boolean {
     const normalized = (model || '').toLowerCase();
     return normalized.startsWith('gpt-5') || normalized.includes('codex');
+  }
+
+  private createOpenAiCompatibleModel(
+    provider: ProviderType,
+    config: { apiKey?: string; baseUrl?: string },
+    model: string,
+    temperature: number | undefined,
+    streaming: boolean
+  ): BaseChatModel {
+    const baseURL = config.baseUrl || this.getDefaultBaseUrl(provider);
+    const apiKey = config.apiKey || 'not-required';
+
+    return new ChatOpenAI({
+      modelName: model,
+      ...(temperature !== undefined ? { temperature } : {}),
+      apiKey,
+      configuration: {
+        ...(baseURL ? { baseURL } : {}),
+      },
+      ...(provider === 'openai' && this.requiresResponsesApi(model)
+        ? { useResponsesApi: true }
+        : {}),
+      streaming,
+      streamUsage: streaming,
+      ...(provider === 'openai' && streaming ? { parallelToolCalls: true } : {}),
+    });
+  }
+
+  private getDefaultBaseUrl(provider: ProviderType): string | undefined {
+    switch (provider) {
+      case 'openai':
+        return 'https://api.openai.com/v1';
+      case 'kimi':
+        return 'https://api.moonshot.ai/v1';
+      case 'qwen':
+        return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      case 'glm':
+        return 'https://open.bigmodel.cn/api/paas/v4';
+      case 'deepseek':
+        return 'https://api.deepseek.com';
+      case 'openrouter':
+        return 'https://openrouter.ai/api/v1';
+      case 'selfhosted':
+        return 'http://localhost:1234/v1';
+      default:
+        return undefined;
+    }
   }
 }

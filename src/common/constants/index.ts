@@ -4,7 +4,7 @@ import * as os from 'os';
 export const CAST_DIR = '.cast';
 export const GLOBAL_CONFIG_DIR = path.join(os.homedir(), '.cast');
 
-export const DEFAULT_MODEL = 'gpt-4.1-nano';
+export const DEFAULT_MODEL = 'gpt-5.4-mini';
 export const DEFAULT_TEMPERATURE = 0.1;
 
 export const DEFINITIONS_DIR = {

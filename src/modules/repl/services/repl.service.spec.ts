@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { ReplService } from './repl.service';
-import { Colors } from '../utils/theme';
 
 const buildReplService = (overrides: Record<string, any> = {}) => {
   const defaults = {
@@ -12,7 +11,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       getMessageCount: () => 0,
     },
     configService: {},
-    configManager: { loadConfig: async () => {} },
+    configManager: { loadConfig: async () => {}, getModelConfig: () => undefined },
     mentionsService: {},
     mcpRegistry: {},
     agentRegistry: { resolveAllAgents: () => [] },
@@ -23,7 +22,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       printHelp: () => {},
       cmdClear: () => {},
       cmdContext: () => {},
-      cmdModel: () => {},
+      cmdModel: async () => false,
       cmdMentionsHelp: () => {},
     },
     gitCommands: {
@@ -112,42 +111,71 @@ describe('ReplService', () => {
     assert.strictEqual(recorded[0], smartInputStub, 'cmdUnitTest receives the current smart input instance');
   });
 
+  test('reinitializes the active model after /model changes configuration', async () => {
+    let reinitializeCalls = 0;
+    let statsModel: string | null = null;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => { reinitializeCalls += 1; },
+        getTokenCount: () => 0,
+        getMessageCount: () => 0,
+      },
+      configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
+      configManager: {
+        loadConfig: async () => {},
+        getModelConfig: () => ({ provider: 'openai', model: 'gpt-5.4-mini' }),
+      },
+      replCommands: {
+        printHelp: () => {},
+        cmdClear: () => {},
+        cmdContext: () => {},
+        cmdModel: async () => true,
+        cmdMentionsHelp: () => {},
+      },
+      statsCommandsService: {
+        setDefaultModel: (value: string) => { statsModel = value; },
+        cmdStats: () => {},
+      },
+    });
+
+    (service as any).smartInput = { showPrompt: () => {} };
+
+    await (service as any).handleCommand('/model');
+
+    assert.strictEqual(reinitializeCalls, 1, 'model changes should reinitialize the active model once');
+    assert.strictEqual(statsModel, 'openai/gpt-5.4-mini', 'stats should refresh to the new model display name');
+  });
+
   // Confirms spinner output rotates icons and extends dot sequences on each interval tick.
-  test('startSpinner writes updated label and dot count on each tick', () => {
+  test('startSpinner updates spinner state and refreshes the input on each tick', () => {
     const service = buildReplService();
-    const writes: string[] = [];
-    const originalStdout = process.stdout.write;
     const originalSetInterval = global.setInterval;
     const originalClearInterval = global.clearInterval;
     const fakeTimer = Symbol('spinner-timer');
     let capturedCallback: (() => void) | null = null;
+    let refreshCalls = 0;
 
     try {
-      (process.stdout as any).write = (chunk: string) => {
-        writes.push(String(chunk));
-        return true;
-      };
-
       (global as any).setInterval = (callback: () => void) => {
         capturedCallback = callback;
         return fakeTimer as unknown as NodeJS.Timer;
       };
 
       (global as any).clearInterval = () => {};
+      (service as any).smartInput = { refresh: () => { refreshCalls += 1; } };
 
       (service as any).startSpinner('testing');
       assert(capturedCallback, 'spinner setInterval callback should be captured');
+      assert.strictEqual((service as any).spinnerLabel, 'testing');
+      assert.strictEqual((service as any).spinnerFrameIndex, 0);
 
       capturedCallback!();
       capturedCallback!();
 
-      assert.strictEqual(writes.length, 2, 'spinner should have written twice after two ticks');
-      assert(writes[0].startsWith('\r' + Colors.cyan), 'spinner output should start with the cyan color code');
-      assert(writes[0].includes(`${Colors.dim}testing.${Colors.reset}`), 'first tick should append a single dot');
-      assert(writes[1].includes(`${Colors.dim}testing..${Colors.reset}`), 'second tick should append two dots');
-      assert.notStrictEqual(writes[0], writes[1], 'consecutive spinner ticks should produce different output');
+      assert.strictEqual(refreshCalls, 3, 'spinner should refresh once on start and once per tick');
+      assert.strictEqual((service as any).spinnerFrameIndex, 2, 'spinner frame should advance on each tick');
     } finally {
-      (process.stdout as any).write = originalStdout;
       (global as any).setInterval = originalSetInterval;
       (global as any).clearInterval = originalClearInterval;
     }

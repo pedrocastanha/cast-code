@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
+import {
+  getProviderEndpointLabel,
+  getRecommendedModel,
+  isRecommendedModelForPurpose,
+} from '../../config/types/config.types';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -78,6 +83,8 @@ export class ReplService {
     this.welcomeScreen.printWelcomeScreen({
       projectPath: initResult.projectPath || undefined,
       model: this.getModelDisplayName(),
+      endpointLabel: this.getDefaultEndpointLabel(),
+      modelProfile: this.getDefaultModelProfileLabel(),
       toolCount: initResult.toolCount,
       agentCount,
     });
@@ -488,7 +495,15 @@ export class ReplService {
         await this.configManager.loadConfig();
         await this.deepAgent.reinitializeModel();
         break;
-      case 'model': this.replCommands.cmdModel(args); break;
+      case 'model': {
+        const changed = await this.replCommands.cmdModel(args, this.smartInput!);
+        if (changed) {
+          await this.configManager.loadConfig();
+          await this.deepAgent.reinitializeModel();
+          this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
+        }
+        break;
+      }
       case 'init':
         await this.projectCommands.cmdProject(['analyze'], this.smartInput!);
         break;
@@ -859,6 +874,32 @@ export class ReplService {
     return `${this.configService.getProvider()}/${this.configService.getModel()}`;
   }
 
+  private getDefaultEndpointLabel(): string {
+    try {
+      const modelConfig = this.configManager.getModelConfig('default');
+      if (modelConfig) {
+        return getProviderEndpointLabel(modelConfig.provider);
+      }
+    } catch {
+    }
+    return this.configService.getProvider() === 'ollama' ? 'local runtime' : 'official api';
+  }
+
+  private getDefaultModelProfileLabel(): string {
+    try {
+      const modelConfig = this.configManager.getModelConfig('default');
+      if (modelConfig) {
+        if (isRecommendedModelForPurpose(modelConfig.provider, 'default', modelConfig.model)) {
+          return 'recommended';
+        }
+        const recommended = getRecommendedModel(modelConfig.provider, 'default');
+        return recommended ? `custom · rec ${recommended}` : 'custom';
+      }
+    } catch {
+    }
+    return 'custom';
+  }
+
   private getInputFooterLines(): string[] {
     const tokens = this.deepAgent.getTokenCount();
     const messages = this.deepAgent.getMessageCount();
@@ -883,6 +924,7 @@ export class ReplService {
       `${Colors.subtle}tokens${Colors.reset} ${Colors.cyan}${this.formatCompactNumber(tokens)}${Colors.reset}`,
       `${Colors.subtle}ctx${Colors.reset} ${Colors.cyan}${messages} msgs${Colors.reset}`,
       `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getModelDisplayName()}${Colors.reset}`,
+      `${Colors.subtle}endpoint${Colors.reset} ${Colors.cyan}${this.getDefaultEndpointLabel()}${Colors.reset}`,
       `${Colors.subtle}agents${Colors.reset} ${Colors.yellow}${agents}${Colors.reset} ${Colors.muted}${this.isProcessing ? 'running' : 'ready'}${Colors.reset}`,
     ];
 

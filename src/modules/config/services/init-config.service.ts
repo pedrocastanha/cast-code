@@ -12,6 +12,11 @@ import {
   ModelConfig,
   CastConfig,
   ProvidersConfig,
+  ModelPurpose,
+  getModelChoicesForPurpose,
+  getRecommendedModel,
+  providerAllowsOptionalApiKey,
+  providerRequiresBaseUrl,
 } from '../types/config.types';
 import {
   selectWithEsc,
@@ -129,13 +134,36 @@ export class InitConfigService {
   ): Promise<ProvidersConfig[ProviderType] | null> {
     const meta = PROVIDER_METADATA[provider];
 
-    if (provider === 'ollama') {
+    if (meta.setupHints?.length) {
+      for (const hint of meta.setupHints) {
+        console.log(chalk.gray(`  → ${hint}`));
+      }
+    }
+
+    if (meta.exampleBaseUrls?.length) {
+      console.log(chalk.gray(`  → Exemplos: ${meta.exampleBaseUrls.join('  |  ')}`));
+    }
+
+    if (providerRequiresBaseUrl(provider)) {
       const baseUrl = await inputWithEsc({
-        message: 'URL do servidor Ollama:',
+        message: provider === 'ollama' ? 'URL do servidor Ollama:' : 'Base URL do endpoint OpenAI-compatible:',
         default: meta.defaultBaseUrl,
       });
       if (baseUrl === null) return null;
-      return { baseUrl };
+
+      if (providerAllowsOptionalApiKey(provider)) {
+        const apiKeyRaw = await inputWithEsc({
+          message: `API Key para ${meta.name} (opcional):`,
+        });
+        if (apiKeyRaw === null) return null;
+        const apiKey = apiKeyRaw.trim();
+        return {
+          baseUrl: baseUrl.trim(),
+          ...(apiKey ? { apiKey } : {}),
+        };
+      }
+
+      return { baseUrl: baseUrl.trim() };
     }
 
     console.log(chalk.gray(`  → Obtenha sua API key em: ${meta.websiteUrl}`));
@@ -175,7 +203,7 @@ export class InitConfigService {
 
     console.log(chalk.gray(`  → Modelos populares: ${meta.popularModels.join(', ')}`));
 
-    return { apiKey, baseUrl };
+    return { apiKey, ...(baseUrl ? { baseUrl: baseUrl.trim() } : {}) };
   }
 
   private async configureModels(
@@ -240,13 +268,17 @@ export class InitConfigService {
   }
 
   private async selectModelConfig(
-    purpose: string,
+    purpose: ModelPurpose,
     availableProviders: ProviderType[],
-    providersConfig: CastConfig['providers'],
+    _providersConfig: CastConfig['providers'],
     defaultModel?: ModelConfig
   ): Promise<ModelConfig | null> {
     const providerChoices = availableProviders.map((p) => ({
-      name: PROVIDER_METADATA[p].name,
+      name: `${PROVIDER_METADATA[p].name}${
+        getRecommendedModel(p, purpose)
+          ? ` - rec ${getRecommendedModel(p, purpose)}`
+          : ''
+      }`,
       value: p,
     }));
 
@@ -259,17 +291,23 @@ export class InitConfigService {
     if (provider === null) return null;
 
     const meta = PROVIDER_METADATA[provider];
+    const recommendedModel = getRecommendedModel(provider, purpose);
+    const modelChoices = getModelChoicesForPurpose(provider, purpose);
 
-    const modelChoices = [
-      ...meta.popularModels.map((m) => ({ name: m, value: m })),
+    if (recommendedModel) {
+      console.log(chalk.gray(`  → Recomendado para ${purpose}: ${recommendedModel}`));
+    }
+
+    const selectChoices = [
+      ...modelChoices.map((choice) => ({ name: choice.label, value: choice.value })),
       { name: 'Outro (customizado)', value: '__custom__' },
     ];
 
     let model: string;
     const selectedModel = await selectWithEsc<string>({
       message: `Modelo para ${purpose}:`,
-      choices: modelChoices,
-      default: defaultModel?.model,
+      choices: selectChoices,
+      default: defaultModel?.model || recommendedModel,
     });
 
     if (selectedModel === null) return null;
@@ -277,7 +315,7 @@ export class InitConfigService {
     if (selectedModel === '__custom__') {
       const customModel = await inputWithEsc({
         message: 'Nome do modelo:',
-        default: defaultModel?.model || meta.popularModels[0],
+        default: defaultModel?.model || recommendedModel || meta.popularModels[0],
       });
       if (customModel === null) return null;
       model = customModel;
