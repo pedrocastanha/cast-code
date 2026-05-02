@@ -57,7 +57,7 @@ export class ShellToolsService {
 
   private createShellTool() {
     return tool(
-      async ({ command, cwd, timeout, description }) => {
+      async ({ command, cwd, timeout }) => {
         const allowed = await this.permissionService.checkPermission(command);
 
         if (!allowed) {

@@ -27,6 +27,7 @@ import { SnapshotModule } from '../snapshots/snapshot.module';
 import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { VaultModule } from '../vault/vault.module';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { VaultModule } from '../vault/vault.module';
     StatsModule,
     ReplayModule,
     VaultModule,
+    PlatformModule,
   ],
   providers: [
     ReplService,

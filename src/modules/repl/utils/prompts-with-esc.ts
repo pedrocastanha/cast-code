@@ -1,4 +1,4 @@
-import { select, input, confirm, checkbox, number } from '@inquirer/prompts';
+import { select, input, confirm, number } from '@inquirer/prompts';
 import chalk from 'chalk';
 
 export class CancelledPromptError extends Error {

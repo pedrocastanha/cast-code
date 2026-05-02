@@ -4,9 +4,10 @@ import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
 import {
   getProviderEndpointLabel,
-  getRecommendedModel,
   isRecommendedModelForPurpose,
+  ProviderType,
 } from '../../config/types/config.types';
+import { getModelContextUsage } from '../../config/utils/model-context';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -35,9 +36,13 @@ import {
   PermissionScope,
 } from '../../permissions/types/permission.types';
 import { Colors, Icons } from '../utils/theme';
+import { PlatformService } from '../../platform/services/platform.service';
+import { CommandUiService } from './command-ui.service';
+import { visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
 @Injectable()
 export class ReplService {
+  private readonly ui = new CommandUiService();
   private smartInput: SmartInput | null = null;
   private abortController: AbortController | null = null;
   private pendingLines: string[] = [];
@@ -72,6 +77,7 @@ export class ReplService {
     private readonly remoteServer: RemoteServerService,
     private readonly permissionService: PermissionService,
     private readonly filesystemTools: FilesystemToolsService,
+    private readonly platformService: PlatformService,
   ) { }
 
   async start(): Promise<void> {
@@ -161,12 +167,12 @@ export class ReplService {
         },
         ...(dangerLevel !== DangerLevel.DANGEROUS
           ? [
-              {
-                key: 'allow-always',
-                label: 'Always allow',
-                description: 'Never ask again for this command',
-              },
-            ]
+            {
+              key: 'allow-always',
+              label: 'Always allow',
+              description: 'Never ask again for this command',
+            },
+          ]
           : []),
         { key: 'deny', label: 'Deny', description: 'Do not execute' },
       ] as const;
@@ -174,15 +180,15 @@ export class ReplService {
       const choice = await this.smartInput!.askChoice('What do you want to do?', [...choices]);
 
       switch (choice) {
-        case 'allow-once':
-          return { allowed: true, scope: PermissionScope.ONCE };
-        case 'allow-session':
-          return { allowed: true, scope: PermissionScope.SESSION };
-        case 'allow-always':
-          return { allowed: true, scope: PermissionScope.ALWAYS };
-        case 'deny':
-        default:
-          return { allowed: false, scope: PermissionScope.ONCE };
+      case 'allow-once':
+        return { allowed: true, scope: PermissionScope.ONCE };
+      case 'allow-session':
+        return { allowed: true, scope: PermissionScope.SESSION };
+      case 'allow-always':
+        return { allowed: true, scope: PermissionScope.ALWAYS };
+      case 'deny':
+      default:
+        return { allowed: false, scope: PermissionScope.ONCE };
       }
     } finally {
       this.smartInput?.resume();
@@ -260,6 +266,7 @@ export class ReplService {
       { text: '/skills', display: '/skills', description: 'List skills' },
       { text: '/context', display: '/context', description: 'Session info' },
       { text: '/mentions', display: '/mentions', description: 'Mentions help' },
+      { text: '/effort', display: '/effort', description: 'Set runtime budget' },
       { text: '/model', display: '/model', description: 'Show model' },
       { text: '/config', display: '/config', description: 'Configuration' },
       { text: '/project', display: '/project', description: 'Project context' },
@@ -278,9 +285,6 @@ export class ReplService {
   }
 
   private getMentionSuggestions(partial: string): Array<{ text: string; display: string; description: string }> {
-    const fs = require('fs');
-    const path = require('path');
-
     const gitOpts = [
       { text: '@git:status', display: '@git:status', description: 'Git status' },
       { text: '@git:diff', display: '@git:diff', description: 'Git diff' },
@@ -359,10 +363,10 @@ export class ReplService {
         const ignore = ['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__'];
 
         return entries
-          .filter(e => !ignore.includes(e.name))
-          .filter(e => !e.name.startsWith('.') || prefix.startsWith('.') || e.name === '.cast' || e.name === '.claude')
-          .filter(e => prefix === '' || e.name.toLowerCase().startsWith(prefix.toLowerCase()))
-          .map(e => {
+          .filter((e: any) => !ignore.includes(e.name))
+          .filter((e: any) => !e.name.startsWith('.') || prefix.startsWith('.') || e.name === '.cast' || e.name === '.claude')
+          .filter((e: any) => prefix === '' || e.name.toLowerCase().startsWith(prefix.toLowerCase()))
+          .map((e: any) => {
             const relDir = dir === '.' ? '' : dir + '/';
             const isDir = e.isDirectory();
             return {
@@ -413,8 +417,7 @@ export class ReplService {
 
   private handleExit(): void {
     process.stdout.write(`\r\n  ${Colors.dim}Goodbye${Colors.reset}\r\n\r\n`);
-    this.stop();
-    process.exit(0);
+    void this.shutdown().then(() => process.exit(0));
   }
 
   private async handleLine(input: string): Promise<void> {
@@ -482,126 +485,140 @@ export class ReplService {
     const parts = command.slice(1).split(/\s+/);
     const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
+    this.platformService.track('command.run', { command: `/${cmd}` });
 
     switch (cmd) {
-      case 'help': this.replCommands.printHelp(); break;
-      case 'clear': this.replCommands.cmdClear(this.welcomeScreen); break;
-      case 'exit':
-      case 'quit': this.handleExit(); return;
-      case 'compact': await this.handleCompact(); break;
-      case 'context': this.replCommands.cmdContext(); break;
-      case 'config':
-        await this.configCommands.handleConfigCommand(args, this.smartInput!);
+    case 'help': this.replCommands.printHelp(); break;
+    case 'clear': this.replCommands.cmdClear(this.welcomeScreen); break;
+    case 'exit':
+    case 'quit': this.handleExit(); return;
+    case 'compact': await this.handleCompact(); break;
+    case 'context': this.replCommands.cmdContext(); break;
+    case 'effort': {
+      const changed = await this.replCommands.cmdEffort(args, this.smartInput!);
+      if (changed) {
         await this.configManager.loadConfig();
         await this.deepAgent.reinitializeModel();
-        break;
-      case 'model': {
-        const changed = await this.replCommands.cmdModel(args, this.smartInput!);
-        if (changed) {
-          await this.configManager.loadConfig();
-          await this.deepAgent.reinitializeModel();
-          this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
-        }
-        break;
+        this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
       }
-      case 'init':
-        await this.projectCommands.cmdProject(['analyze'], this.smartInput!);
-        break;
-      case 'mentions': this.replCommands.cmdMentionsHelp(); break;
-      case 'tools': this.cmdTools(); break;
+      break;
+    }
+    case 'config':
+      await this.configCommands.handleConfigCommand(args, this.smartInput!);
+      await this.configManager.loadConfig();
+      await this.deepAgent.reinitializeModel();
+      break;
+    case 'model': {
+      const changed = await this.replCommands.cmdModel(args, this.smartInput!);
+      if (changed) {
+        await this.configManager.loadConfig();
+        await this.deepAgent.reinitializeModel();
+        this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
+      }
+      break;
+    }
+    case 'init':
+      await this.projectCommands.cmdProject(['analyze'], this.smartInput!);
+      break;
+    case 'mentions': this.replCommands.cmdMentionsHelp(); break;
+    case 'tools': this.cmdTools(); break;
 
-      case 'status': this.gitCommands.runGit('git status'); break;
-      case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
-      case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
-      case 'commit':
-        process.stdout.write(`  ${Colors.dim}Use /up to commit and push, or /split-up to split into multiple commits.${Colors.reset}\r\n`);
-        break;
-      case 'up':
-        await this.gitCommands.cmdUp(this.smartInput!);
-        break;
-      case 'split-up':
-        await this.gitCommands.cmdSplitUp(this.smartInput!);
-        break;
-      case 'pr':
-        await this.gitCommands.cmdPr(this.smartInput!);
-        break;
-      case 'unit-test':
-        await this.gitCommands.cmdUnitTest(this.smartInput!);
-        break;
-      case 'review': await this.gitCommands.cmdReview(args); break;
-      case 'fix': await this.gitCommands.cmdFix(args); break;
-      case 'ident': await this.gitCommands.cmdIdent(); break;
-      case 'release': await this.gitCommands.cmdRelease(args); break;
+    case 'status': this.gitCommands.runGit('git status'); break;
+    case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
+    case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
+    case 'commit':
+      process.stdout.write(`  ${Colors.dim}Use /up to commit and push, or /split-up to split into multiple commits.${Colors.reset}\r\n`);
+      break;
+    case 'up':
+      await this.gitCommands.cmdUp(this.smartInput!);
+      break;
+    case 'split-up':
+      await this.gitCommands.cmdSplitUp(this.smartInput!);
+      break;
+    case 'pr':
+      await this.gitCommands.cmdPr(this.smartInput!);
+      break;
+    case 'unit-test':
+      await this.gitCommands.cmdUnitTest(this.smartInput!);
+      break;
+    case 'review': await this.gitCommands.cmdReview(args); break;
+    case 'fix': await this.gitCommands.cmdFix(args); break;
+    case 'ident': await this.gitCommands.cmdIdent(); break;
+    case 'release': await this.gitCommands.cmdRelease(args); break;
 
-      case 'agents':
-        await this.agentCommands.cmdAgents(args, this.smartInput!);
-        break;
-      case 'skills':
-        await this.agentCommands.cmdSkills(args, this.smartInput!);
-        break;
+    case 'agents':
+      await this.agentCommands.cmdAgents(args, this.smartInput!);
+      break;
+    case 'skills':
+      await this.agentCommands.cmdSkills(args, this.smartInput!);
+      break;
 
-      case 'mcp':
-        await this.mcpCommands.cmdMcp(args, this.smartInput!);
-        break;
+    case 'mcp':
+      await this.mcpCommands.cmdMcp(args, this.smartInput!);
+      break;
 
-      case 'project':
-        await this.projectCommands.cmdProject(args, this.smartInput!);
-        break;
-      case 'project-deep':
-        const deepResult = await this.projectCommands.cmdProject(['deep'], this.smartInput!);
-        if (typeof deepResult === 'string') {
-          return await this.handleMessage(deepResult);
-        }
-        break;
+    case 'project':
+      await this.projectCommands.cmdProject(args, this.smartInput!);
+      break;
+    case 'project-deep': {
+      const deepResult = await this.projectCommands.cmdProject(['deep'], this.smartInput!);
+      if (typeof deepResult === 'string') {
+        return await this.handleMessage(deepResult);
+      }
+      break;
+    }
 
-      case 'kanban':
-        this.kanbanServer.start(!this.remoteServer.getIsRunning());
-        if (this.remoteServer.getIsRunning()) {
-          const remoteUrl = this.remoteServer.getPublicUrl();
-          if (remoteUrl) {
-            process.stdout.write(`  Kanban board → ${remoteUrl}/kanban\r\n`);
-          } else {
-            process.stdout.write(`  Kanban board → http://localhost:3333\r\n`);
-          }
+    case 'kanban':
+      this.kanbanServer.start(!this.remoteServer.getIsRunning());
+      if (this.remoteServer.getIsRunning()) {
+        const remoteUrl = this.remoteServer.getPublicUrl();
+        if (remoteUrl) {
+          process.stdout.write(`  Kanban board → ${remoteUrl}/kanban\r\n`);
         } else {
-          process.stdout.write(`  Kanban board → http://localhost:3333\r\n`);
+          process.stdout.write('  Kanban board → http://localhost:3333\r\n');
         }
-        break;
+      } else {
+        process.stdout.write('  Kanban board → http://localhost:3333\r\n');
+      }
+      break;
 
-      case 'remote':
-        await this.remoteServer.start();
-        break;
+    case 'remote':
+      await this.remoteServer.start();
+      break;
 
-      case 'rollback':
-        await this.snapshotCommandsService.cmdRollback(args.join(' '));
-        break;
-      case 'stats':
-        this.statsCommandsService.cmdStats();
-        break;
-      case 'replay':
-        this.replayCommandsService.cmdReplay(args.join(' '));
-        break;
-      case 'vault':
-        this.vaultCommandsService.cmdVault(args.join(' '));
-        break;
+    case 'rollback':
+      await this.snapshotCommandsService.cmdRollback(args.join(' '));
+      break;
+    case 'stats':
+      this.statsCommandsService.cmdStats();
+      break;
+    case 'replay':
+      this.replayCommandsService.cmdReplay(args.join(' '));
+      break;
+    case 'vault':
+      this.vaultCommandsService.cmdVault(args.join(' '));
+      break;
 
-      default:
-        process.stdout.write(`  ${Colors.red}Unknown command:${Colors.reset} ${Colors.dim}/${cmd}${Colors.reset}  ${Colors.dim}Run /help for reference${Colors.reset}\r\n`);
+    default:
+      process.stdout.write(this.ui.error(`Unknown command: /${cmd}. Run /help for reference.`));
     }
   }
 
   private async handleCompact(): Promise<void> {
     const msgCount = this.deepAgent.getMessageCount();
     if (msgCount < 4) {
-      process.stdout.write(`  ${Colors.dim}Nothing to compact — only ${msgCount} messages${Colors.reset}\r\n`);
+      process.stdout.write(this.ui.warning(`Nothing to compact - only ${msgCount} messages.`));
       return;
     }
-    process.stdout.write(`  ${Colors.dim}Summarizing ${msgCount} messages...${Colors.reset}\r\n`);
+    process.stdout.write(this.ui.panel({
+      title: 'Compact History',
+      sections: [{ lines: [`Summarizing ${msgCount} messages...`] }],
+    }));
     const result = await this.deepAgent.compactHistory();
     if (result.compacted) {
-      process.stdout.write(`  ${Colors.green}✓${Colors.reset}${Colors.dim} History compacted: ${result.messagesBefore} → ${result.messagesAfter} messages${Colors.reset}\r\n`);
+      process.stdout.write(this.ui.success(`History compacted: ${result.messagesBefore} -> ${result.messagesAfter} messages`));
     } else {
-      process.stdout.write(`  ${Colors.yellow}Could not compact — summarization failed${Colors.reset}\r\n`);
+      process.stdout.write(this.ui.warning('Could not compact - summarization failed.'));
     }
   }
 
@@ -649,7 +666,14 @@ export class ReplService {
       this.startSpinner('Thinking');
 
       let firstChunk = true;
-      let fullResponse = '';
+      let hasToolOutput = false;
+      let textBuffer = '';
+
+      const flushTextBuffer = () => {
+        if (!textBuffer) return;
+        this.writeInline(textBuffer);
+        textBuffer = '';
+      };
 
       const toolLabel = (chunk: string): string | null => {
         if (chunk.includes('▶ read file') || chunk.includes('▶ read_file')) return 'Reading';
@@ -683,11 +707,14 @@ export class ReplService {
         const isToolChunk = newLabel !== null;
 
         if (isToolChunk) {
+          flushTextBuffer();
           this.writeInline(chunk);
-          if (firstChunk) {
+          if (firstChunk && !hasToolOutput) {
             this.startSpinner('Working');
+            hasToolOutput = true;
           }
         } else if (isMeta || isToolResultChunk(chunk)) {
+          flushTextBuffer();
           this.writeInline(chunk);
         } else {
           if (firstChunk) {
@@ -695,12 +722,15 @@ export class ReplService {
             this.writeInline(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
             firstChunk = false;
           }
-          fullResponse += chunk;
-          this.writeInline(chunk);
+          textBuffer += chunk;
+          if (this.shouldFlushStreamText(textBuffer)) {
+            flushTextBuffer();
+          }
         }
       }
 
       if (!firstChunk) {
+        flushTextBuffer();
         this.writeInline('\r\n');
       } else {
         this.stopSpinner();
@@ -809,6 +839,11 @@ export class ReplService {
     this.smartInput?.refresh();
   }
 
+  private shouldFlushStreamText(buffer: string): boolean {
+    if (buffer.length >= 24) return true;
+    return /[\n.!?]$/.test(buffer);
+  }
+
   private updateSpinner(label: string): void {
     this.spinnerLabel = label;
     this.smartInput?.refresh();
@@ -826,52 +861,45 @@ export class ReplService {
 
   private cmdTools(): void {
     const allTools = this.toolsRegistry.getAllTools();
-    const w = (s: string) => process.stdout.write(s);
-
-    w('\r\n');
+    const sections: Array<{ title: string; lines: string[] }> = [];
 
     if (allTools.length > 0) {
-      const maxLen = Math.max(...allTools.map(t => t.name.length));
-      w(`  ${Colors.bold}Built-in${Colors.reset}  ${Colors.dim}(${allTools.length})${Colors.reset}\r\n`);
-      w(`  ${Colors.dim}${'─'.repeat(48)}${Colors.reset}\r\n`);
-      for (const t of allTools) {
-        const desc = t.description.length > 55 ? t.description.slice(0, 52) + '...' : t.description;
-        w(`  ${Colors.cyan}${t.name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
-      }
+      sections.push({
+        title: `Built-in (${allTools.length})`,
+        lines: allTools.map((t) => {
+          const desc = t.description.length > 55 ? t.description.slice(0, 52) + '...' : t.description;
+          return `${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}`;
+        }),
+      });
     }
 
     const mcpTools = this.mcpRegistry.getAllMcpTools();
     if (mcpTools.length > 0) {
-      w('\r\n');
       const shown = mcpTools.slice(0, 15);
-      const maxLen = Math.max(...shown.map(t => t.name.length));
-      w(`  ${Colors.bold}MCP${Colors.reset}  ${Colors.dim}(${mcpTools.length})${Colors.reset}\r\n`);
-      w(`  ${Colors.dim}${'─'.repeat(48)}${Colors.reset}\r\n`);
-      for (const t of shown) {
+      const lines = shown.map((t) => {
         const desc = t.description.length > 50 ? t.description.slice(0, 47) + '...' : t.description;
-        w(`  ${Colors.cyan}${t.name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
-      }
+        return `${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}`;
+      });
       if (mcpTools.length > 15) {
-        w(`  ${Colors.dim}... and ${mcpTools.length - 15} more. Run /mcp tools for full list${Colors.reset}\r\n`);
+        lines.push(`${Colors.dim}... and ${mcpTools.length - 15} more. Run /mcp tools for full list${Colors.reset}`);
       }
+      sections.push({ title: `MCP (${mcpTools.length})`, lines });
     }
 
     if (allTools.length === 0 && mcpTools.length === 0) {
-      w(`  ${Colors.dim}No tools available${Colors.reset}\r\n`);
+      sections.push({ title: 'Available', lines: [`${Colors.dim}No tools available${Colors.reset}`] });
     }
 
-    w('\r\n');
+    process.stdout.write(this.ui.panel({
+      title: 'Tools',
+      subtitle: `${allTools.length + mcpTools.length} available`,
+      sections,
+    }));
   }
 
   private getModelDisplayName(): string {
-    try {
-      const modelConfig = this.configManager.getModelConfig('default');
-      if (modelConfig) {
-        return `${modelConfig.provider}/${modelConfig.model}`;
-      }
-    } catch {
-    }
-    return `${this.configService.getProvider()}/${this.configService.getModel()}`;
+    const modelConfig = this.getDefaultModelConfig();
+    return `${modelConfig.provider}/${modelConfig.model}`;
   }
 
   private getDefaultEndpointLabel(): string {
@@ -885,6 +913,24 @@ export class ReplService {
     return this.configService.getProvider() === 'ollama' ? 'local runtime' : 'official api';
   }
 
+  private getDefaultModelConfig(): { provider: ProviderType; model: string } {
+    try {
+      const modelConfig = this.configManager.getModelConfig('default');
+      if (modelConfig?.provider && modelConfig?.model) {
+        return {
+          provider: modelConfig.provider,
+          model: modelConfig.model,
+        };
+      }
+    } catch {
+    }
+
+    return {
+      provider: this.configService.getProvider() as ProviderType,
+      model: this.configService.getModel(),
+    };
+  }
+
   private getDefaultModelProfileLabel(): string {
     try {
       const modelConfig = this.configManager.getModelConfig('default');
@@ -892,18 +938,28 @@ export class ReplService {
         if (isRecommendedModelForPurpose(modelConfig.provider, 'default', modelConfig.model)) {
           return 'recommended';
         }
-        const recommended = getRecommendedModel(modelConfig.provider, 'default');
-        return recommended ? `custom · rec ${recommended}` : 'custom';
+        return 'custom';
       }
     } catch {
     }
     return 'custom';
   }
 
+  private getEffortLabel(): string {
+    try {
+      if (typeof (this.configManager as any).getEffort === 'function') {
+        return (this.configManager as any).getEffort();
+      }
+    } catch {
+    }
+    return 'balanced';
+  }
+
   private getInputFooterLines(): string[] {
     const tokens = this.deepAgent.getTokenCount();
     const messages = this.deepAgent.getMessageCount();
     const agents = this.agentRegistry.resolveAllAgents().length;
+    const terminalWidth = process.stdout.columns || 80;
     const statusParts: string[] = [];
 
     if (this.isProcessing && this.spinnerLabel) {
@@ -922,16 +978,59 @@ export class ReplService {
     const left = [
       ...statusParts,
       `${Colors.subtle}tokens${Colors.reset} ${Colors.cyan}${this.formatCompactNumber(tokens)}${Colors.reset}`,
-      `${Colors.subtle}ctx${Colors.reset} ${Colors.cyan}${messages} msgs${Colors.reset}`,
+      `${Colors.subtle}ctx${Colors.reset} ${Colors.cyan}${this.getContextFooterLabel(tokens, messages)}${Colors.reset}`,
+      `${Colors.subtle}effort${Colors.reset} ${Colors.accent}${this.getEffortLabel()}${Colors.reset}`,
       `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getModelDisplayName()}${Colors.reset}`,
       `${Colors.subtle}endpoint${Colors.reset} ${Colors.cyan}${this.getDefaultEndpointLabel()}${Colors.reset}`,
       `${Colors.subtle}agents${Colors.reset} ${Colors.yellow}${agents}${Colors.reset} ${Colors.muted}${this.isProcessing ? 'running' : 'ready'}${Colors.reset}`,
     ];
 
+    const platformStatus = this.platformService.getStatus();
+    if (platformStatus !== 'disabled') {
+      left.push(`${Colors.subtle}platform${Colors.reset} ${platformStatus === 'online' ? Colors.green : Colors.yellow}${platformStatus}${Colors.reset}`);
+    }
+
     return [
-      `${Colors.subtle}${'─'.repeat(Math.max(24, Math.min((process.stdout.columns || 80) - 4, 96)))}${Colors.reset}`,
-      `  ${left.join(`  ${Colors.subtle}·${Colors.reset}  `)}`,
+      `${Colors.subtle}${'─'.repeat(Math.max(24, Math.min(terminalWidth - 4, 96)))}${Colors.reset}`,
+      ...this.wrapFooterParts(left, Math.max(24, terminalWidth - 1)),
     ];
+  }
+
+  private getContextFooterLabel(tokens: number, messages: number): string {
+    const modelConfig = this.getDefaultModelConfig();
+    const usage = getModelContextUsage(modelConfig.provider, modelConfig.model, tokens);
+    if (!usage) {
+      return `${messages} msgs`;
+    }
+
+    return `${messages} msgs · ${usage.remainingPercentLabel} livre`;
+  }
+
+  private wrapFooterParts(parts: string[], maxWidth: number): string[] {
+    const separator = `  ${Colors.subtle}·${Colors.reset}  `;
+    const indent = '  ';
+    const lines: string[] = [];
+    let current = '';
+
+    for (const part of parts) {
+      const next = current ? `${current}${separator}${part}` : `${indent}${part}`;
+
+      if (visibleWidth(next) <= maxWidth) {
+        current = next;
+        continue;
+      }
+
+      if (current) {
+        lines.push(current);
+      }
+      current = `${indent}${part}`;
+    }
+
+    if (current) {
+      lines.push(current);
+    }
+
+    return lines.length > 0 ? lines : [indent.trimEnd()];
   }
 
   private formatCompactNumber(value: number): string {
@@ -945,5 +1044,10 @@ export class ReplService {
   stop(): void {
     this.stopSpinner();
     this.smartInput?.destroy();
+  }
+
+  async shutdown(): Promise<void> {
+    this.stop();
+    await this.platformService.close();
   }
 }

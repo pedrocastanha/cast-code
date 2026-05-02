@@ -297,7 +297,7 @@ export class FilesystemToolsService {
               return `Error: exact old_string not found. Possible match at line ${approxMatch + 1}:\n  "${lines[approxMatch].trim()}"\n\nMake sure whitespace and indentation match exactly.`;
             }
 
-            return `Error: old_string not found in file. Make sure it matches the file content exactly (including whitespace).`;
+            return 'Error: old_string not found in file. Make sure it matches the file content exactly (including whitespace).';
           }
 
           const occurrences = content.split(oldString).length - 1;

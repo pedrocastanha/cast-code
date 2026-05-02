@@ -184,13 +184,13 @@ export class KanbanServerService {
         const taskList = tasks.map(t => `- [${t.id}] ${t.subject}: ${t.description}`).join('\n');
 
         const prompt = `Você é o Coordenador do Kanban. Existem as seguintes tarefas pendentes:\n\n${taskList}\n\n` +
-          `Sua missão é executá-las. Para que o usuário veja seu progresso no Board, você DEVE seguir este protocolo rigidamente:\n` +
-          `1. Escolha a tarefa mais prioritária.\n` +
-          `2. Chame 'task_update' com status='in_progress' para o ID da tarefa ANTES de começar.\n` +
-          `3. Execute o trabalho necessário.\n` +
-          `4. Chame 'task_update' com status='test' assim que terminar para o controle de qualidade humano.\n` +
-          `5. Repita para a próxima tarefa.\n\n` +
-          `Pode começar agora.`;
+          'Sua missão é executá-las. Para que o usuário veja seu progresso no Board, você DEVE seguir este protocolo rigidamente:\n' +
+          '1. Escolha a tarefa mais prioritária.\n' +
+          '2. Chame \'task_update\' com status=\'in_progress\' para o ID da tarefa ANTES de começar.\n' +
+          '3. Execute o trabalho necessário.\n' +
+          '4. Chame \'task_update\' com status=\'test\' assim que terminar para o controle de qualidade humano.\n' +
+          '5. Repita para a próxima tarefa.\n\n' +
+          'Pode começar agora.';
 
         const startMsg = `\n  Kanban: Starting intelligent auto-planner for ${tasks.length} tasks...\r\n`;
         process.stdout.write(startMsg);

@@ -1,4 +1,4 @@
-export const CAST_FONT_STACK = `'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace`;
+export const CAST_FONT_STACK = '\'JetBrains Mono\', \'Fira Code\', \'Cascadia Code\', \'Courier New\', monospace';
 
 export const CAST_COLORS = {
   bgDeep: '#040b16',
