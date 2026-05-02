@@ -311,7 +311,6 @@ export class ProjectAnalyzerService {
   }
   
   private async detectLanguages(projectPath: string): Promise<string[]> {
-    const languages: string[] = [];
     const counts: Record<string, number> = {};
     
     for (const [key, config] of Object.entries(LANGUAGES)) {
@@ -366,9 +365,8 @@ export class ProjectAnalyzerService {
   
   private async detectArchitecture(
     projectPath: string, 
-    directories: string[]
+    _directories: string[]
   ): Promise<ProjectContext['architecture'] | undefined> {
-    const dirSet = new Set(directories.map(d => d.toLowerCase()));
     const allDirs = await this.getAllDirectories(projectPath);
     const allDirsLower = allDirs.map(d => d.toLowerCase());
     
@@ -474,68 +472,68 @@ export class ProjectAnalyzerService {
     const external: string[] = [];
     
     switch (language) {
-      case 'typescript':
-      case 'javascript':
-        try {
-          const pkg = JSON.parse(await fs.readFile(path.join(projectPath, 'package.json'), 'utf-8'));
-          const allDeps = {
-            ...pkg.dependencies,
-            ...pkg.devDependencies,
-          };
+    case 'typescript':
+    case 'javascript':
+      try {
+        const pkg = JSON.parse(await fs.readFile(path.join(projectPath, 'package.json'), 'utf-8'));
+        const allDeps = {
+          ...pkg.dependencies,
+          ...pkg.devDependencies,
+        };
           
-          for (const [name, version] of Object.entries(allDeps)) {
-            if (name.startsWith('@') && name.includes('/')) {
-              const scope = name.split('/')[0];
-              if (scope === `@${pkg.name}` || name.startsWith('@internal')) {
-                internal.push(name);
-              } else {
-                external.push(name);
-              }
+        for (const [name] of Object.entries(allDeps)) {
+          if (name.startsWith('@') && name.includes('/')) {
+            const scope = name.split('/')[0];
+            if (scope === `@${pkg.name}` || name.startsWith('@internal')) {
+              internal.push(name);
             } else {
               external.push(name);
             }
+          } else {
+            external.push(name);
           }
-        } catch {}
-        break;
+        }
+      } catch {}
+      break;
         
-      case 'python':
-        try {
-          const requirements = await fs.readFile(path.join(projectPath, 'requirements.txt'), 'utf-8');
-          external.push(...requirements
+    case 'python':
+      try {
+        const requirements = await fs.readFile(path.join(projectPath, 'requirements.txt'), 'utf-8');
+        external.push(...requirements
+          .split('\n')
+          .map(line => line.split('==')[0].split('>=')[0].trim())
+          .filter(line => line && !line.startsWith('#') && !line.startsWith('-'))
+        );
+      } catch {}
+      break;
+        
+    case 'go':
+      try {
+        const modContent = await fs.readFile(path.join(projectPath, 'go.mod'), 'utf-8');
+        const matches = modContent.match(/require\s+\(([^)]+)\)/s);
+        if (matches) {
+          external.push(...matches[1]
             .split('\n')
-            .map(line => line.split('==')[0].split('>=')[0].trim())
-            .filter(line => line && !line.startsWith('#') && !line.startsWith('-'))
+            .map(line => line.trim().split(' ')[0])
+            .filter(line => line && !line.startsWith('//'))
           );
-        } catch {}
-        break;
+        }
+      } catch {}
+      break;
         
-      case 'go':
-        try {
-          const modContent = await fs.readFile(path.join(projectPath, 'go.mod'), 'utf-8');
-          const matches = modContent.match(/require\s+\(([^)]+)\)/s);
-          if (matches) {
-            external.push(...matches[1]
-              .split('\n')
-              .map(line => line.trim().split(' ')[0])
-              .filter(line => line && !line.startsWith('//'))
-            );
-          }
-        } catch {}
-        break;
-        
-      case 'rust':
-        try {
-          const cargo = await fs.readFile(path.join(projectPath, 'Cargo.toml'), 'utf-8');
-          const matches = cargo.match(/\[dependencies\]([^\[]+)/);
-          if (matches) {
-            external.push(...matches[1]
-              .split('\n')
-              .map(line => line.split('=')[0].trim())
-              .filter(line => line && !line.startsWith('#'))
-            );
-          }
-        } catch {}
-        break;
+    case 'rust':
+      try {
+        const cargo = await fs.readFile(path.join(projectPath, 'Cargo.toml'), 'utf-8');
+        const matches = cargo.match(/\[dependencies\]([^[]+)/);
+        if (matches) {
+          external.push(...matches[1]
+            .split('\n')
+            .map(line => line.split('=')[0].trim())
+            .filter(line => line && !line.startsWith('#'))
+          );
+        }
+      } catch {}
+      break;
     }
     
     return {
@@ -689,16 +687,16 @@ export class ProjectAnalyzerService {
     
     lines.push('---');
     lines.push(`name: ${context.name}`);
-    lines.push(`objective: |`);
+    lines.push('objective: |');
     lines.push(`  ${context.objective}`);
     lines.push(`primary_language: ${context.primaryLanguage}`);
-    lines.push(`languages:`);
+    lines.push('languages:');
     context.languages.forEach(lang => {
       const langName = LANGUAGES[lang]?.name || lang;
       lines.push(`  - ${langName}`);
     });
     if (context.architecture) {
-      lines.push(`architecture:`);
+      lines.push('architecture:');
       lines.push(`  pattern: ${context.architecture.pattern}`);
       lines.push(`  confidence: ${context.architecture.confidence}`);
     }

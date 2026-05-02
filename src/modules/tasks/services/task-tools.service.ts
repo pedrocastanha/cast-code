@@ -181,7 +181,7 @@ export class TaskToolsService {
         }
 
         if (type === 'choice' && choices) {
-          const choiceObjects = choices.map((c, i) => ({
+          const choiceObjects = choices.map((c: string, i: number) => ({
             key: String(i),
             label: c,
           }));
@@ -251,7 +251,7 @@ export class TaskToolsService {
       async ({ tasks }) => {
         try {
           const approval = await this.planModeService.exitPlanMode(
-            tasks.map((t) => ({
+            tasks.map((t: { subject: string; description: string; activeForm?: string; dependencies?: string[] }) => ({
               subject: t.subject,
               description: t.description,
               activeForm: t.activeForm,

@@ -225,8 +225,8 @@ export class UnitTestGeneratorService {
 
   private resolveTestPath(sourcePath: string, language: 'javascript' | 'java' | 'python'): string {
     if (language === 'java') {
-      if (sourcePath.includes('/src/main/java/')) {
-        return sourcePath.replace('/src/main/java/', '/src/test/java/').replace(/\.java$/, 'Test.java');
+      if (sourcePath.includes('src/main/java/')) {
+        return sourcePath.replace('src/main/java/', 'src/test/java/').replace(/\.java$/, 'Test.java');
       }
       return sourcePath.replace(/\.java$/, 'Test.java');
     }

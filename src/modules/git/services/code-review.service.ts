@@ -126,9 +126,9 @@ Return ONLY the formatted code in a code block.`;
     }
   }
 
-  async indentAll(pattern = 'src/**/*.{ts,tsx,js,jsx}'): Promise<{ success: number; failed: number }> {
+  async indentAll(_pattern = 'src/**/*.{ts,tsx,js,jsx}'): Promise<{ success: number; failed: number }> {
     try {
-      const files = execSync(`find src -type f -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx"`, {
+      const files = execSync('find src -type f -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx"', {
         cwd: process.cwd(),
         encoding: 'utf-8',
       }).trim().split('\n').filter(f => f);
@@ -239,7 +239,7 @@ Be thorough but constructive. Focus on important issues, not nitpicks.`;
 Return ONLY the fixed code in a markdown code block. Preserve all functionality while fixing issues.`;
   }
 
-  private parseReviewResponse(filePath: string, content: string, originalCode: string): ReviewResult {
+  private parseReviewResponse(filePath: string, content: string, _originalCode: string): ReviewResult {
     const issues: ReviewIssue[] = [];
     
     const scoreMatch = content.match(/SCORE:\s*(\d+)/i);

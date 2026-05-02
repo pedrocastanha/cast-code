@@ -112,7 +112,7 @@ export class MonorepoDetectorService {
     return undefined;
   }
 
-  private inferModuleName(parentDir: string, subdir: string, type: string): string {
+  private inferModuleName(parentDir: string, subdir: string, _type: string): string {
     const normalized = subdir.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
     if (['api', 'web', 'mobile', 'frontend', 'backend', 'admin', 'core', 'shared'].includes(normalized)) {

@@ -102,7 +102,7 @@ export class ReleaseNotesService {
       if (sinceTag) {
         cmd = `git log ${sinceTag}..HEAD --pretty=format:"%H|%s|%an|%ad" --date=short`;
       } else {
-        cmd = `git log -30 --pretty=format:"%H|%s|%an|%ad" --date=short`;
+        cmd = 'git log -30 --pretty=format:"%H|%s|%an|%ad" --date=short';
       }
       
       const output = execSync(cmd, { cwd, encoding: 'utf-8' });
@@ -117,7 +117,7 @@ export class ReleaseNotesService {
       const cwd = process.cwd();
       const cmd = sinceTag 
         ? `git diff --name-only ${sinceTag}..HEAD`
-        : `git diff --name-only HEAD~30..HEAD`;
+        : 'git diff --name-only HEAD~30..HEAD';
       
       const output = execSync(cmd, { cwd, encoding: 'utf-8' });
       return output.trim().split('\n').filter(f => f);
@@ -151,7 +151,7 @@ export class ReleaseNotesService {
       const cwd = process.cwd();
       const cmd = sinceTag
         ? `git log ${sinceTag}..HEAD --pretty=format:"%an" | sort | uniq`
-        : `git log -30 --pretty=format:"%an" | sort | uniq`;
+        : 'git log -30 --pretty=format:"%an" | sort | uniq';
       
       const output = execSync(cmd, { cwd, encoding: 'utf-8' });
       return output.trim().split('\n').filter(n => n).slice(0, 10);

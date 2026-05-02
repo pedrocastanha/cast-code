@@ -200,7 +200,6 @@ export class PrGeneratorService {
     baseBranch: string = 'develop'
   ): Promise<PRCreationResult> {
     const { platform } = this.detectPlatform();
-    const branch = this.getCurrentBranch();
 
     if (platform !== 'github') {
       return {
@@ -295,7 +294,7 @@ export class PrGeneratorService {
     }
   }
 
-  formatPRForClipboard(title: string, description: string, baseBranch: string): string {
+  formatPRForClipboard(_title: string, description: string, _baseBranch: string): string {
     return description;
   }
 
@@ -308,23 +307,23 @@ export class PrGeneratorService {
 
       const branch = this.getCurrentBranch();
 
-      let httpsUrl = remoteUrl
+      const httpsUrl = remoteUrl
         .replace(/^git@github\.com:/, 'https://github.com/')
         .replace(/^git@gitlab\.com:/, 'https://gitlab.com/')
         .replace(/^git@bitbucket\.org:/, 'https://bitbucket.org/')
         .replace(/\.git$/, '');
 
       switch (platform) {
-        case 'github':
-          return `${httpsUrl}/compare/${baseBranch}...${branch}?expand=1`;
-        case 'gitlab':
-          return `${httpsUrl}/merge_requests/new?merge_request[source_branch]=${branch}&merge_request[target_branch]=${baseBranch}`;
-        case 'bitbucket':
-          return `${httpsUrl}/pull-requests/new?source=${branch}&dest=${baseBranch}`;
-        case 'azure':
-          return null;
-        default:
-          return null;
+      case 'github':
+        return `${httpsUrl}/compare/${baseBranch}...${branch}?expand=1`;
+      case 'gitlab':
+        return `${httpsUrl}/merge_requests/new?merge_request[source_branch]=${branch}&merge_request[target_branch]=${baseBranch}`;
+      case 'bitbucket':
+        return `${httpsUrl}/pull-requests/new?source=${branch}&dest=${baseBranch}`;
+      case 'azure':
+        return null;
+      default:
+        return null;
       }
     } catch {
       return null;
@@ -339,7 +338,7 @@ export class PrGeneratorService {
   }
 
   private getCommitAnalysisSystemPrompt(): string {
-    return `Analyze a git commit. Provide:\n\n1. **Summary**: One sentence (max 100 chars)\n2. **Details**: Detailed paragraph about changes\n\nFormat:\nSUMMARY: <summary>\n\nDETAILS: <details>`;
+    return 'Analyze a git commit. Provide:\n\n1. **Summary**: One sentence (max 100 chars)\n2. **Details**: Detailed paragraph about changes\n\nFormat:\nSUMMARY: <summary>\n\nDETAILS: <details>';
   }
 
   private parseCommitAnalysis(content: string): { summary: string; details: string } {
@@ -388,7 +387,7 @@ export class PrGeneratorService {
 
   private getReviewReminder(): string {
     return this.lang() === 'en'
-      ? "Don't forget to review this description"
+      ? 'Don\'t forget to review this description'
       : 'Não se esqueça de revisar essa descrição';
   }
 
@@ -479,7 +478,7 @@ export class PrGeneratorService {
         '',
         '## 🔗 Task Link',
         '',
-        "Don't forget to review this description",
+        'Don\'t forget to review this description',
       ].join('\n');
     }
 

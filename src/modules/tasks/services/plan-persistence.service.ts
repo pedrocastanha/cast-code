@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TaskPlan, Task } from '../types/task.types';
+import { TaskPlan } from '../types/task.types';
 
 @Injectable()
 export class PlanPersistenceService {

@@ -51,10 +51,9 @@ export class DiscoveryToolsService {
   }
 
   private createListSkillsTool() {
-    const self = this;
     return tool(
-      async (_input: {}) => {
-        const skills = self.skillLoader.getAllSkills();
+      async () => {
+        const skills = this.skillLoader.getAllSkills();
         if (skills.length === 0) return 'No skills loaded.';
 
         const sections = skills.map((s) => {
@@ -67,7 +66,7 @@ export class DiscoveryToolsService {
           return [
             `### ${s.name}`,
             `**Purpose:** ${s.description || 'No description'}`,
-            `**Key guidelines:**`,
+            '**Key guidelines:**',
             guidelinesPreview,
             `**Load full content:** read_skill("${s.name}")`,
           ].join('\n');
@@ -85,12 +84,11 @@ export class DiscoveryToolsService {
   }
 
   private createReadSkillTool() {
-    const self = this;
     return tool(
       async (input: { name: string }) => {
-        const skill = self.skillLoader.getSkill(input.name);
+        const skill = this.skillLoader.getSkill(input.name);
         if (!skill) {
-          const available = self.skillLoader.getSkillNames().join(', ');
+          const available = this.skillLoader.getSkillNames().join(', ');
           return 'Skill "' + input.name + '" not found. Available: ' + available;
         }
         return (
@@ -114,10 +112,9 @@ export class DiscoveryToolsService {
   }
 
   private createListAgentsTool() {
-    const self = this;
     return tool(
-      async (_input: {}) => {
-        const agents = self.agentLoader.getAllAgents();
+      async () => {
+        const agents = this.agentLoader.getAllAgents();
         if (agents.length === 0) return 'No sub-agents loaded.';
 
         const sections = agents.map((a) => {
@@ -135,13 +132,13 @@ export class DiscoveryToolsService {
           return [
             `### ${a.name}`,
             `**Role:** ${a.description || 'No description'}`,
-            `**Specializes in:**`,
+            '**Specializes in:**',
             specializes,
             `**Best for:** Tasks that require focused ${a.description ? a.description.toLowerCase() : 'domain'} expertise${mcpNote}`,
-            `**Dispatch in background:**`,
+            '**Dispatch in background:**',
             `  → delegate to agent: "${a.name}" with a focused task description`,
-            `  → include all necessary context in the task`,
-            `  → track with task_create before dispatching`,
+            '  → include all necessary context in the task',
+            '  → track with task_create before dispatching',
           ].join('\n');
         });
 
@@ -157,10 +154,9 @@ export class DiscoveryToolsService {
   }
 
   private createSaveSnippetTool() {
-    const self = this;
     return tool(
       async (input: { name: string; code: string; description: string; language?: string }) => {
-        self.vaultService.saveSnippet(input.name, input.code, input.description, input.language || 'typescript');
+        this.vaultService.saveSnippet(input.name, input.code, input.description, input.language || 'typescript');
         return `Snippet "${input.name}" saved to vault. User can view it with /vault show "${input.name}".`;
       },
       {
@@ -283,10 +279,9 @@ export class DiscoveryToolsService {
   }
 
   private createAnalyzeImpactTool() {
-    const self = this;
     return tool(
       async (input: { file: string }) => {
-        const result = self.impactAnalysisService.analyze(input.file);
+        const result = this.impactAnalysisService.analyze(input.file);
         return result.summary;
       },
       {
