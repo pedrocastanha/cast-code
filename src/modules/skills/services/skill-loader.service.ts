@@ -56,8 +56,25 @@ export class SkillLoaderService implements OnModuleInit {
         description: frontmatter.description || '',
         tools: frontmatter.tools || [],
         guidelines: content,
+        source: 'local',
       });
     }
+  }
+
+  loadRemoteSkills(skills: SkillDefinition[]): string[] {
+    const overridden: string[] = [];
+
+    for (const skill of skills) {
+      if (this.skills.has(skill.name)) {
+        overridden.push(skill.name);
+      }
+      this.skills.set(skill.name, {
+        ...skill,
+        source: 'remote',
+      });
+    }
+
+    return overridden;
   }
 
   getSkill(name: string): SkillDefinition | undefined {

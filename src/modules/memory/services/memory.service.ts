@@ -69,8 +69,9 @@ export class MemoryService {
       return 'Memory not initialized. No project detected.';
     }
 
-    const safeName = filename.endsWith('.md') ? filename : `${filename}.md`;
-    const filePath = path.join(this.memoryDir, safeName);
+    const resolved = this.resolveMemoryFile(filename);
+    if (!resolved) return 'Invalid memory filename.';
+    const { safeName, filePath } = resolved;
 
     await fs.writeFile(filePath, content, 'utf-8');
     return `Memory saved: ${safeName}`;
@@ -82,8 +83,9 @@ export class MemoryService {
     }
 
     if (filename) {
-      const safeName = filename.endsWith('.md') ? filename : `${filename}.md`;
-      const filePath = path.join(this.memoryDir, safeName);
+      const resolved = this.resolveMemoryFile(filename);
+      if (!resolved) return 'Invalid memory filename.';
+      const { safeName, filePath } = resolved;
 
       try {
         return await fs.readFile(filePath, 'utf-8');
@@ -149,5 +151,19 @@ export class MemoryService {
 
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  private resolveMemoryFile(filename: string): { safeName: string; filePath: string } | null {
+    const cleanName = path.basename(filename.trim());
+    const safeName = cleanName.endsWith('.md') ? cleanName : `${cleanName}.md`;
+    if (!safeName || safeName === '.md' || safeName.includes('..') || path.isAbsolute(filename)) {
+      return null;
+    }
+    const filePath = path.resolve(this.memoryDir, safeName);
+    const memoryRoot = path.resolve(this.memoryDir);
+    if (!filePath.startsWith(`${memoryRoot}${path.sep}`)) {
+      return null;
+    }
+    return { safeName, filePath };
   }
 }

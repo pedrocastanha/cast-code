@@ -79,6 +79,10 @@ export class SkillRegistryService {
     await this.skillLoader.loadFromPath(projectPath);
   }
 
+  loadRemoteSkills(skills: SkillDefinition[]): string[] {
+    return this.skillLoader.loadRemoteSkills(skills);
+  }
+
   getSkillSummaries(): { name: string; description: string }[] {
     const skills = this.skillLoader.getAllSkills();
     return skills.map(s => ({

@@ -4,7 +4,7 @@ import { AgentLoaderService } from './agent-loader.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
-import { ResolvedAgent, SubagentDefinition } from '../types';
+import { AgentDefinition, ResolvedAgent, SubagentDefinition } from '../types';
 
 const FALLBACK_TOOL_NAMES = ['read_file', 'glob', 'grep', 'ls'];
 
@@ -42,7 +42,7 @@ export class AgentRegistryService {
         : this.toolsRegistry.getTools(FALLBACK_TOOL_NAMES);
     }
 
-    let mcpTools: StructuredTool[] = [];
+    const mcpTools: StructuredTool[] = [];
     if (agent.mcp && agent.mcp.length > 0) {
       for (const mcpName of agent.mcp) {
         mcpTools.push(...this.mcpRegistry.getMcpTools(mcpName));
@@ -62,7 +62,7 @@ export class AgentRegistryService {
       systemPrompt += `\n\n# Your Available Tools\nYou have access to these tools ONLY: ${toolNames}\nDo NOT attempt to use tools not in this list.`;
     }
 
-    systemPrompt += `\n\n# Execution Rules\n- Always use RELATIVE paths (e.g. \`src/index.ts\`). NEVER use absolute paths starting with \`/\` or \`~\`.\n- Execute your task completely. Do NOT ask for confirmation or leave work half-done.\n- After writing a file, re-read it to verify the result.`;
+    systemPrompt += '\n\n# Execution Rules\n- Always use RELATIVE paths (e.g. `src/index.ts`). NEVER use absolute paths starting with `/` or `~`.\n- Execute your task completely. Do NOT ask for confirmation or leave work half-done.\n- After writing a file, re-read it to verify the result.';
 
     if (projectContext) {
       systemPrompt += `\n\n# Project Context\n${projectContext}`;
@@ -101,5 +101,9 @@ export class AgentRegistryService {
 
   async loadProjectAgents(projectPath: string) {
     await this.agentLoader.loadFromPath(projectPath);
+  }
+
+  loadRemoteAgents(agents: AgentDefinition[]): string[] {
+    return this.agentLoader.loadRemoteAgents(agents);
   }
 }

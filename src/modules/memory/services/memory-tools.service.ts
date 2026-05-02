@@ -1,23 +1,30 @@
-import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { Inject, Injectable, forwardRef } from '@nestjs/common';
+import { StructuredTool, tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { MemoryService } from './memory.service';
+import { PlatformService } from '../../platform/services/platform.service';
 
 @Injectable()
 export class MemoryToolsService {
-  constructor(private readonly memoryService: MemoryService) {}
+  constructor(
+    private readonly memoryService: MemoryService,
+    @Inject(forwardRef(() => PlatformService))
+    private readonly platformService: PlatformService,
+  ) {}
 
-  getTools() {
+  getTools(): StructuredTool[] {
     return [
       this.createMemoryWriteTool(),
       this.createMemoryReadTool(),
       this.createMemorySearchTool(),
+      this.createRagSearchTool(),
     ];
   }
 
-  private createMemoryWriteTool() {
+  private createMemoryWriteTool(): StructuredTool {
     return tool(
-      async ({ filename, content }) => {
+      async (input: { filename: string; content: string }) => {
+        const { filename, content } = input;
         return this.memoryService.write(filename, content);
       },
       {
@@ -38,9 +45,10 @@ export class MemoryToolsService {
     );
   }
 
-  private createMemoryReadTool() {
+  private createMemoryReadTool(): StructuredTool {
     return tool(
-      async ({ filename }) => {
+      async (input: { filename?: string }) => {
+        const { filename } = input;
         return this.memoryService.read(filename);
       },
       {
@@ -59,9 +67,10 @@ export class MemoryToolsService {
     );
   }
 
-  private createMemorySearchTool() {
+  private createMemorySearchTool(): StructuredTool {
     return tool(
-      async ({ query }) => {
+      async (input: { query: string }) => {
+        const { query } = input;
         return this.memoryService.search(query);
       },
       {
@@ -74,4 +83,47 @@ export class MemoryToolsService {
       },
     );
   }
+
+  private createRagSearchTool(): StructuredTool {
+    return tool(
+      async (input: { query: string; topK?: number }) => {
+        const { query, topK } = input;
+        if (!this.platformService.isRagEnabled()) {
+          return 'Platform RAG is not enabled for this linked project. Link a Cast project with Memory/RAG enabled before using rag_search.';
+        }
+        try {
+          const retrieval = await this.platformService.retrieveMemory(query, topK);
+          if (!retrieval.results.length) {
+            return `No platform memory results found for "${query}".`;
+          }
+          return retrieval.results.map((result, index) => {
+            const related = (result.related || [])
+              .map((item) => `    - related ${item.unitId}: ${item.content}`)
+              .join('\n');
+            return [
+              `${index + 1}. ${result.unitId} score=${formatScore(result.score)}`,
+              result.sourceId ? `   source=${result.sourceId}` : '',
+              `   ${result.content}`,
+              related,
+            ].filter(Boolean).join('\n');
+          }).join('\n\n');
+        } catch (error) {
+          return `Platform RAG search failed: ${(error as Error).message}`;
+        }
+      },
+      {
+        name: 'rag_search',
+        description:
+          'Search the linked Cast platform Memory/RAG index for project docs, decisions, and indexed context. Use this before answering questions that may depend on platform knowledge.',
+        schema: z.object({
+          query: z.string().min(1).describe('Natural language search query for the project memory index.'),
+          topK: z.number().int().min(1).max(20).optional().describe('Maximum number of memory results to retrieve.'),
+        }),
+      },
+    );
+  }
+}
+
+function formatScore(score: number): string {
+  return Number.isFinite(score) ? score.toFixed(3) : '0.000';
 }

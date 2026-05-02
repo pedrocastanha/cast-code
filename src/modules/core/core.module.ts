@@ -16,6 +16,7 @@ import { SnapshotModule } from '../snapshots/snapshot.module';
 import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { WatcherModule } from '../watcher/watcher.module';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { WatcherModule } from '../watcher/watcher.module';
     StatsModule,
     ReplayModule,
     WatcherModule,
+    PlatformModule,
   ],
   providers: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService],
   exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule],

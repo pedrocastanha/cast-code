@@ -83,6 +83,7 @@ interface StatsData {
 export class StatsService {
   private currentSession: SessionStats;
   private data: StatsData = { sessions: [] };
+  private usageListener: ((event: { input: number; output: number; model: string; cost: number }) => void) | null = null;
 
   constructor() {
     this.ensureDir();
@@ -108,6 +109,16 @@ export class StatsService {
       this.currentSession.outputTokens,
     );
     this.persistCurrentSession();
+    this.usageListener?.({
+      input: inputTokens,
+      output: outputTokens,
+      model: this.currentSession.model,
+      cost: this.calculateCost(this.currentSession.model, inputTokens, outputTokens),
+    });
+  }
+
+  setUsageListener(listener: ((event: { input: number; output: number; model: string; cost: number }) => void) | null): void {
+    this.usageListener = listener;
   }
 
   getSessionStats(): Readonly<SessionStats> {

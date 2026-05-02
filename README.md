@@ -109,6 +109,11 @@ Configure com `/config init` ou edite `~/.cast/config.yaml` diretamente.
 | `/mcp list` | Lista os servidores MCP configurados |
 | `/mcp add` | Adiciona um servidor (30+ templates ou customizado) |
 
+### Platform
+| Comando | O que faz |
+|---|---|
+| `cast link --project <id>` | Vincula o diretório atual a um projeto remoto da Cast Platform |
+
 ---
 
 ## Injeção de contexto com `@`
@@ -212,7 +217,31 @@ src/modules/
   config/      configuração de providers e modelos
   mentions/    injeção de contexto via @-mention
   stats/       rastreamento de tokens e custo da sessão
+  platform/    link com Cast Platform, skills/agents remotos, cache e telemetria segura
 ```
+
+## Cast Platform CLI
+
+O CLI pode ser vinculado a um projeto remoto sem armazenar secrets no repositório:
+
+```bash
+export CAST_API_KEY="csk_..."
+cast link --project <project-id>
+```
+
+Isso cria ou atualiza `.cast/cast.yaml`:
+
+```yaml
+version: 1
+platform:
+  projectId: "uuid-do-projeto"
+  apiKeyEnv: "CAST_API_KEY"
+  apiUrl: "https://api.castplatform.dev"
+```
+
+O Cast puxa skills e agents remotos no boot, mas as versões locais em `.cast/skills/` e `.cast/agents/` sempre têm prioridade. Se a API estiver offline, o CLI usa `.cast/platform.cache.json` quando disponível e continua local-only quando não houver cache.
+
+Telemetria envia apenas metadados de sessão, comandos e tokens. Prompts, outputs, conteúdo de arquivos, diffs, stdout/stderr e valores de API key nunca são enviados.
 
 ---
 

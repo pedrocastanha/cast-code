@@ -49,29 +49,50 @@ export class AgentLoaderService implements OnModuleInit {
     const parsed = await this.markdownParser.parseAll<AgentFrontmatter>(customPath);
 
     for (const [name, { frontmatter, content }] of parsed) {
-      const existingAgent = this.agents.get(frontmatter.name || name);
+      const key = frontmatter.name || name;
+      const existingAgent = this.agents.get(key);
 
-      if (existingAgent) {
-        this.agents.set(frontmatter.name || name, {
+      if (existingAgent && existingAgent.source !== 'remote') {
+        this.agents.set(key, {
           ...existingAgent,
+          description: frontmatter.description || existingAgent.description,
           skills: [...new Set([...existingAgent.skills, ...(frontmatter.skills || [])])],
           mcp: [...new Set([...existingAgent.mcp, ...(frontmatter.mcp || [])])],
           systemPrompt: content || existingAgent.systemPrompt,
           model: frontmatter.model || existingAgent.model,
           temperature: frontmatter.temperature ?? existingAgent.temperature,
+          source: 'local',
         });
-      } else {
-        this.agents.set(frontmatter.name || name, {
-          name: frontmatter.name || name,
-          description: frontmatter.description || '',
-          model: frontmatter.model || DEFAULT_MODEL,
-          temperature: frontmatter.temperature ?? DEFAULT_TEMPERATURE,
-          skills: frontmatter.skills || [],
-          mcp: frontmatter.mcp || [],
-          systemPrompt: content,
-        });
+        continue;
       }
+
+      this.agents.set(key, {
+        name: key,
+        description: frontmatter.description || '',
+        model: frontmatter.model || DEFAULT_MODEL,
+        temperature: frontmatter.temperature ?? DEFAULT_TEMPERATURE,
+        skills: frontmatter.skills || [],
+        mcp: frontmatter.mcp || [],
+        systemPrompt: content,
+        source: 'local',
+      });
     }
+  }
+
+  loadRemoteAgents(agents: AgentDefinition[]): string[] {
+    const overridden: string[] = [];
+
+    for (const agent of agents) {
+      if (this.agents.has(agent.name)) {
+        overridden.push(agent.name);
+      }
+      this.agents.set(agent.name, {
+        ...agent,
+        source: 'remote',
+      });
+    }
+
+    return overridden;
   }
 
   getAgent(name: string): AgentDefinition | undefined {

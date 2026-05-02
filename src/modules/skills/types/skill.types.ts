@@ -11,6 +11,8 @@ export interface SkillDefinition {
   description: string;
   tools: string[];
   guidelines: string;
+  source?: 'builtin' | 'local' | 'remote';
+  updatedAt?: string;
 }
 
 export interface ResolvedSkill {

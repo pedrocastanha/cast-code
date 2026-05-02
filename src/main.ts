@@ -6,6 +6,8 @@ import { AppModule } from './app.module';
 import { ReplService } from './modules/repl/services/repl.service';
 import { ConfigManagerService } from './modules/config/services/config-manager.service';
 import { InitConfigService } from './modules/config/services/init-config.service';
+import { CastLinkService } from './modules/platform/services/cast-link.service';
+import { PlatformService } from './modules/platform/services/platform.service';
 
 config({ quiet: true });
 
@@ -44,6 +46,30 @@ async function bootstrap() {
   const args = process.argv.slice(2);
   const command = args[0];
 
+  if (command === 'link') {
+    const app = await NestFactory.createApplicationContext(AppModule, {
+      logger: false,
+    });
+
+    const getArg = (name: string): string | undefined => {
+      const idx = args.indexOf(name);
+      return idx >= 0 ? args[idx + 1] : undefined;
+    };
+
+    const linkService = app.get(CastLinkService);
+    const result = await linkService.link(process.cwd(), {
+      projectId: getArg('--project') || '',
+      apiUrl: getArg('--api-url'),
+      apiKeyEnv: getArg('--api-key-env'),
+    });
+    console.log(result.message);
+    await app.close();
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (command === 'config' || command === 'init') {
     const app = await NestFactory.createApplicationContext(AppModule, {
       logger: false,
@@ -80,10 +106,18 @@ async function bootstrap() {
 
   const repl = app.get(ReplService);
 
-  process.on('SIGINT', () => {
-    repl.stop();
-    app.close();
+  const shutdown = async () => {
+    await repl.shutdown();
+    await app.get(PlatformService).close();
+    await app.close();
     process.exit(0);
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown();
+  });
+  process.on('SIGTERM', () => {
+    void shutdown();
   });
 
   try {

@@ -90,23 +90,23 @@ export class McpRegistryService implements OnModuleDestroy {
       let zodType: z.ZodTypeAny;
 
       switch (prop.type) {
-        case 'string':
-          zodType = z.string();
-          break;
-        case 'number':
-          zodType = z.number();
-          break;
-        case 'boolean':
-          zodType = z.boolean();
-          break;
-        case 'array':
-          zodType = z.array(z.any());
-          break;
-        case 'object':
-          zodType = z.record(z.any());
-          break;
-        default:
-          zodType = z.any();
+      case 'string':
+        zodType = z.string();
+        break;
+      case 'number':
+        zodType = z.number();
+        break;
+      case 'boolean':
+        zodType = z.boolean();
+        break;
+      case 'array':
+        zodType = z.array(z.any());
+        break;
+      case 'object':
+        zodType = z.record(z.any());
+        break;
+      default:
+        zodType = z.any();
       }
 
       if (prop.description) {

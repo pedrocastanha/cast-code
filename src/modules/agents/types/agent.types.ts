@@ -17,6 +17,8 @@ export interface AgentDefinition {
   skills: string[];
   mcp: string[];
   systemPrompt: string;
+  source?: 'builtin' | 'local' | 'remote';
+  updatedAt?: string;
 }
 
 export interface ResolvedAgent {
