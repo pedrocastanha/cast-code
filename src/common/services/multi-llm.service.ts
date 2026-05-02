@@ -6,6 +6,8 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ConfigManagerService } from '../../modules/config/services/config-manager.service';
 import {
+  EffortProfile,
+  getEffortProfile,
   ModelPurpose,
   ProviderType,
   providerUsesOpenAICompatibleApi,
@@ -26,6 +28,8 @@ export class MultiLlmService {
     }
 
     const { provider, model, temperature } = modelConfig;
+    const effortProfile = this.getCurrentEffortProfile();
+    const maxTokens = modelConfig.maxTokens ?? effortProfile.maxOutputTokens;
     const providerConfig = this.configManager.getProviderConfig(provider);
 
     if (!providerConfig) {
@@ -40,6 +44,8 @@ export class MultiLlmService {
       providerConfig,
       model,
       temperature,
+      maxTokens,
+      effortProfile,
       streaming
     );
   }
@@ -48,11 +54,20 @@ export class MultiLlmService {
     return this.createModel(purpose, true);
   }
 
+  getCurrentEffortProfile(): EffortProfile {
+    const effort = typeof (this.configManager as any).getEffort === 'function'
+      ? (this.configManager as any).getEffort()
+      : undefined;
+    return getEffortProfile(effort);
+  }
+
   private createModelForProvider(
     provider: ProviderType,
     config: { apiKey?: string; baseUrl?: string },
     model: string,
     temperature: number | undefined,
+    maxTokens: number | undefined,
+    effortProfile: EffortProfile,
     streaming: boolean
   ): BaseChatModel {
     if (providerUsesOpenAICompatibleApi(provider)) {
@@ -61,37 +76,42 @@ export class MultiLlmService {
         config,
         model,
         temperature,
+        maxTokens,
+        effortProfile,
         streaming
       );
     }
 
     switch (provider) {
-      case 'anthropic':
-        return new ChatAnthropic({
-          modelName: model,
-          ...(temperature !== undefined ? { temperature } : {}),
-          anthropicApiKey: config.apiKey,
-          anthropicApiUrl: config.baseUrl,
-          streaming,
-        });
+    case 'anthropic':
+      return new ChatAnthropic({
+        modelName: model,
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(maxTokens !== undefined ? { maxTokens } : {}),
+        anthropicApiKey: config.apiKey,
+        anthropicApiUrl: config.baseUrl,
+        streaming,
+      } as any);
 
-      case 'gemini':
-        return new ChatGoogleGenerativeAI({
-          model,
-          ...(temperature !== undefined ? { temperature } : {}),
-          apiKey: config.apiKey,
-          streaming,
-        });
+    case 'gemini':
+      return new ChatGoogleGenerativeAI({
+        model,
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(maxTokens !== undefined ? { maxOutputTokens: maxTokens } : {}),
+        apiKey: config.apiKey,
+        streaming,
+      } as any);
 
-      case 'ollama':
-        return new ChatOllama({
-          model,
-          ...(temperature !== undefined ? { temperature } : {}),
-          baseUrl: config.baseUrl || 'http://localhost:11434',
-        });
+    case 'ollama':
+      return new ChatOllama({
+        model,
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(maxTokens !== undefined ? { numPredict: maxTokens } : {}),
+        baseUrl: config.baseUrl || 'http://localhost:11434',
+      } as any);
 
-      default:
-        throw new Error(`Unsupported provider: ${provider}`);
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
     }
   }
 
@@ -105,20 +125,27 @@ export class MultiLlmService {
     config: { apiKey?: string; baseUrl?: string },
     model: string,
     temperature: number | undefined,
+    maxTokens: number | undefined,
+    effortProfile: EffortProfile,
     streaming: boolean
   ): BaseChatModel {
     const baseURL = config.baseUrl || this.getDefaultBaseUrl(provider);
     const apiKey = config.apiKey || 'not-required';
+    const useResponsesApi = provider === 'openai' && this.requiresResponsesApi(model);
 
     return new ChatOpenAI({
       modelName: model,
       ...(temperature !== undefined ? { temperature } : {}),
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
       apiKey,
       configuration: {
         ...(baseURL ? { baseURL } : {}),
       },
-      ...(provider === 'openai' && this.requiresResponsesApi(model)
-        ? { useResponsesApi: true }
+      ...(useResponsesApi
+        ? {
+          useResponsesApi: true,
+          ...(effortProfile.reasoningEffort ? { reasoning: { effort: effortProfile.reasoningEffort } } : {}),
+        }
         : {}),
       streaming,
       streamUsage: streaming,
@@ -128,22 +155,22 @@ export class MultiLlmService {
 
   private getDefaultBaseUrl(provider: ProviderType): string | undefined {
     switch (provider) {
-      case 'openai':
-        return 'https://api.openai.com/v1';
-      case 'kimi':
-        return 'https://api.moonshot.ai/v1';
-      case 'qwen':
-        return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-      case 'glm':
-        return 'https://open.bigmodel.cn/api/paas/v4';
-      case 'deepseek':
-        return 'https://api.deepseek.com';
-      case 'openrouter':
-        return 'https://openrouter.ai/api/v1';
-      case 'selfhosted':
-        return 'http://localhost:1234/v1';
-      default:
-        return undefined;
+    case 'openai':
+      return 'https://api.openai.com/v1';
+    case 'kimi':
+      return 'https://api.moonshot.ai/v1';
+    case 'qwen':
+      return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    case 'glm':
+      return 'https://open.bigmodel.cn/api/paas/v4';
+    case 'deepseek':
+      return 'https://api.deepseek.com';
+    case 'openrouter':
+      return 'https://openrouter.ai/api/v1';
+    case 'selfhosted':
+      return 'http://localhost:1234/v1';
+    default:
+      return undefined;
     }
   }
 }

@@ -12,6 +12,7 @@ import {
   ModelConfig,
   CastConfig,
   ProvidersConfig,
+  BaseProviderConfig,
   ModelPurpose,
   getModelChoicesForPurpose,
   getRecommendedModel,
@@ -58,7 +59,7 @@ export class InitConfigService {
         return;
       }
       if (providerConfig) {
-        config.providers[provider] = providerConfig;
+        (config.providers as Record<string, BaseProviderConfig>)[provider] = providerConfig;
       }
     }
 
@@ -218,6 +219,7 @@ export class InitConfigService {
     );
     if (defaultModel === null) return false;
     config.models.default = defaultModel;
+    const configuredDefaultModel = config.models.default;
 
     const configureOthers = await confirmWithEsc({
       message: 'Deseja configurar modelos específicos para outras finalidades?',
@@ -230,10 +232,10 @@ export class InitConfigService {
       MODEL_PURPOSES.forEach((purpose) => {
         if (purpose.value !== 'default') {
           config.models[purpose.value] = {
-            provider: config.models.default.provider,
-            model: config.models.default.model,
-            ...(config.models.default.temperature !== undefined ? { temperature: config.models.default.temperature } : {}),
-            ...(config.models.default.maxTokens !== undefined ? { maxTokens: config.models.default.maxTokens } : {}),
+            provider: configuredDefaultModel.provider,
+            model: configuredDefaultModel.model,
+            ...(configuredDefaultModel.temperature !== undefined ? { temperature: configuredDefaultModel.temperature } : {}),
+            ...(configuredDefaultModel.maxTokens !== undefined ? { maxTokens: configuredDefaultModel.maxTokens } : {}),
           };
         }
       });

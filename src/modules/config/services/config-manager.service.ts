@@ -10,8 +10,11 @@ import {
   ProviderType,
   ProvidersConfig,
   BaseProviderConfig,
+  DEFAULT_EFFORT,
+  EffortLevel,
   OllamaConfig,
   providerRequiresBaseUrl,
+  normalizeEffortLevel,
 } from '../types/config.types';
 import { I18nService } from '../../i18n/services/i18n.service';
 
@@ -28,6 +31,7 @@ const DEFAULT_CONFIG: CastConfig = {
       model: 'gpt-5.4-mini',
     },
   },
+  effort: DEFAULT_EFFORT,
 };
 
 @Injectable()
@@ -92,6 +96,10 @@ export class ConfigManagerService {
     return this.config.models[purpose] || this.config.models.default;
   }
 
+  getEffort(): EffortLevel {
+    return normalizeEffortLevel(this.config.effort) || DEFAULT_EFFORT;
+  }
+
   getProviderConfig<T extends ProviderType>(
     provider: T
   ): ProvidersConfig[T] | undefined {
@@ -127,13 +135,13 @@ export class ConfigManagerService {
       if (provider === 'ollama') {
         this.config.providers[provider] = { baseUrl: config.baseUrl } as OllamaConfig;
       } else {
-        this.config.providers[provider] = {
+        (this.config.providers as Record<string, BaseProviderConfig>)[provider] = {
           apiKey: config.apiKey,
           baseUrl: config.baseUrl,
-        } as BaseProviderConfig;
+        };
       }
     } else {
-      this.config.providers[provider] = config as BaseProviderConfig;
+      (this.config.providers as Record<string, BaseProviderConfig>)[provider] = config;
     }
     await this.saveConfig();
   }
@@ -143,6 +151,11 @@ export class ConfigManagerService {
       this.config.models = {};
     }
     this.config.models[purpose] = modelConfig;
+    await this.saveConfig();
+  }
+
+  async setEffort(level: EffortLevel): Promise<void> {
+    this.config.effort = level;
     await this.saveConfig();
   }
 
@@ -158,6 +171,7 @@ export class ConfigManagerService {
         ...DEFAULT_CONFIG.models,
         ...(parsed.models || {}),
       },
+      effort: normalizeEffortLevel(parsed.effort) || DEFAULT_EFFORT,
       remote: parsed.remote,
       language: parsed.language,
     };

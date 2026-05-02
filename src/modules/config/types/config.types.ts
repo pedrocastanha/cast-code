@@ -49,6 +49,21 @@ export interface ModelConfig {
   maxTokens?: number;
 }
 
+export type EffortLevel = 'fast' | 'balanced' | 'deep' | 'max';
+
+export interface EffortProfile {
+  level: EffortLevel;
+  label: string;
+  description: string;
+  modelBias: 'cheap' | 'default' | 'quality';
+  maxOutputTokens: number;
+  maxToolCalls: number;
+  includeProjectStructure: 'minimal' | 'standard' | 'full';
+  planning: 'off' | 'suggest' | 'prefer';
+  review: boolean;
+  reasoningEffort?: 'low' | 'medium' | 'high';
+}
+
 export type ModelPurpose =
   | 'default'
   | 'subAgent'
@@ -73,6 +88,7 @@ export interface CastConfig {
   language?: 'en' | 'pt';
   providers: ProvidersConfig;
   models: ModelsConfig;
+  effort?: EffortLevel;
   remote?: RemoteConfig;
 }
 
@@ -146,13 +162,13 @@ export function getProviderEndpointKind(provider: ProviderType): ProviderEndpoin
 
 export function getProviderEndpointLabel(provider: ProviderType): string {
   switch (getProviderEndpointKind(provider)) {
-    case 'local':
-      return 'local runtime';
-    case 'compatible':
-      return 'openai-compatible';
-    case 'official':
-    default:
-      return 'official api';
+  case 'local':
+    return 'local runtime';
+  case 'compatible':
+    return 'openai-compatible';
+  case 'official':
+  default:
+    return 'official api';
   }
 }
 
@@ -451,6 +467,71 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
     ],
   },
 };
+
+export const DEFAULT_EFFORT: EffortLevel = 'balanced';
+
+export const EFFORT_PROFILES: Record<EffortLevel, EffortProfile> = {
+  fast: {
+    level: 'fast',
+    label: 'Fast',
+    description: 'Cheap, direct answers with a tight context and tool budget.',
+    modelBias: 'cheap',
+    maxOutputTokens: 1600,
+    maxToolCalls: 8,
+    includeProjectStructure: 'minimal',
+    planning: 'off',
+    review: false,
+    reasoningEffort: 'low',
+  },
+  balanced: {
+    level: 'balanced',
+    label: 'Balanced',
+    description: 'Default workflow with enough context for normal development.',
+    modelBias: 'default',
+    maxOutputTokens: 4000,
+    maxToolCalls: 20,
+    includeProjectStructure: 'standard',
+    planning: 'suggest',
+    review: false,
+    reasoningEffort: 'medium',
+  },
+  deep: {
+    level: 'deep',
+    label: 'Deep',
+    description: 'More deliberate planning, broader context, and stronger validation.',
+    modelBias: 'quality',
+    maxOutputTokens: 8000,
+    maxToolCalls: 45,
+    includeProjectStructure: 'full',
+    planning: 'prefer',
+    review: true,
+    reasoningEffort: 'high',
+  },
+  max: {
+    level: 'max',
+    label: 'Max',
+    description: 'Highest rigor for complex changes with the largest safe budget.',
+    modelBias: 'quality',
+    maxOutputTokens: 12000,
+    maxToolCalls: 80,
+    includeProjectStructure: 'full',
+    planning: 'prefer',
+    review: true,
+    reasoningEffort: 'high',
+  },
+};
+
+export function normalizeEffortLevel(value: string | undefined | null): EffortLevel | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'fast' || normalized === 'balanced' || normalized === 'deep' || normalized === 'max') {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function getEffortProfile(level: EffortLevel | undefined | null): EffortProfile {
+  return EFFORT_PROFILES[level || DEFAULT_EFFORT] || EFFORT_PROFILES[DEFAULT_EFFORT];
+}
 
 export const MODEL_PURPOSES: { value: ModelPurpose; label: string; description: string }[] = [
   { value: 'default', label: 'Padrão', description: 'Modelo principal para conversas gerais' },

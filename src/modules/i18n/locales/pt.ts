@@ -1,4 +1,4 @@
-import { en, LocaleKeys } from './en';
+import { LocaleKeys } from './en';
 
 export const pt: Record<LocaleKeys, string> = {
   agentThinking: 'Pensando...',
