@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { HumanMessage, ToolMessage } from '@langchain/core/messages';
 
 import { DeepAgentService } from './deep-agent.service';
 import { EFFORT_PROFILES } from '../../config/types/config.types';
@@ -160,5 +164,177 @@ describe('DeepAgentService compact chat route', () => {
       String(capturedMessages[0].content).length < 700,
       'capability questions should not send the full agent prompt',
     );
+  });
+});
+
+describe('DeepAgentService system prompt engineering workflow', () => {
+  test('requires adaptive clarification and test-first implementation for code changes', () => {
+    const service = buildService();
+
+    const prompt = (service as any).buildSystemPrompt('', '', [], [], [], [], '');
+
+    assert.match(prompt, /Adaptive Test-First Workflow/);
+    assert.match(prompt, /Ask clarifying questions only when ambiguity affects behavior/);
+    assert.match(prompt, /complex module has likely side effects/);
+    assert.match(prompt, /write or update the smallest meaningful failing test first/);
+    assert.match(prompt, /Do not ask questions just to delay clear work/);
+    assert.match(prompt, /Missing tests are not ambiguity/);
+    assert.match(prompt, /clear file extension is enough to infer the language/);
+  });
+
+  test('identifies clear single-file code edits as lean execution candidates', () => {
+    const service = buildService();
+
+    assert.equal(
+      (service as any).shouldUseLeanCodeAgent(
+        'Adicione validacao em src/discount.js: applyDiscount deve lancar RangeError quando percent for menor que 0 ou maior que 1. Escreva o teste antes de implementar e rode npm test.',
+        false,
+      ),
+      true,
+    );
+
+    assert.equal(
+      (service as any).shouldUseLeanCodeAgent(
+        'Refatore o backend inteiro e atualize auth/dtos/login.dto.ts e billing/service.ts',
+        false,
+      ),
+      false,
+    );
+
+    assert.equal(
+      (service as any).shouldUseLeanCodeAgent('Faz o mesmo ajuste nesse arquivo', false),
+      false,
+    );
+  });
+
+  test('lean prompt includes local test framework hints without sub-agent context', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'cast-lean-prompt-'));
+    writeFileSync(
+      join(projectRoot, 'package.json'),
+      JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    );
+
+    try {
+      const service = buildService();
+      (service as any).projectRoot = projectRoot;
+
+      const prompt = (service as any).buildLeanSystemPrompt();
+
+      assert.match(prompt, /npm test -> node --test/);
+      assert.match(prompt, /Use node:test/);
+      assert.match(prompt, /\.js import extensions/);
+      assert.match(prompt, /same language as the user request/i);
+      assert.match(prompt, /do not use describe\/it\/expect globals/i);
+      assert.match(prompt, /continue until the red test and final green verification have both run/i);
+      assert.match(prompt, /Use read_file, not shell, to inspect file contents/i);
+      assert.match(prompt, /After writing a test, run it before editing production code/i);
+      assert.match(prompt, /After a green test run, report what changed and do not ask whether to implement/i);
+      assert.doesNotMatch(prompt, /Available Sub-Agents|list_agents|delegate to agent/i);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('lean agent keeps only file edit and shell tools', () => {
+    const service = buildService();
+    const tools = [
+      { name: 'read_file' },
+      { name: 'write_file' },
+      { name: 'edit_file' },
+      { name: 'shell' },
+      { name: 'task' },
+      { name: 'memory_read' },
+      { name: 'rag_search' },
+    ];
+
+    assert.deepEqual(
+      (service as any).selectLeanTools(tools).map((tool: any) => tool.name),
+      ['read_file', 'write_file', 'edit_file', 'shell'],
+    );
+  });
+
+  test('lean agent exposes only the next useful tool group for the current TDD phase', () => {
+    const service = buildService();
+    const tools = [
+      { name: 'read_file' },
+      { name: 'write_file' },
+      { name: 'edit_file' },
+      { name: 'shell' },
+    ];
+    const human = new HumanMessage('Add validation in src/price.js and run npm test.');
+
+    assert.deepEqual(
+      (service as any).selectLeanStepTools([human], tools).map((tool: any) => tool.name),
+      ['read_file'],
+    );
+
+    assert.deepEqual(
+      (service as any).selectLeanStepTools([
+        human,
+        new ToolMessage({ content: '1: export function finalPrice() {}', name: 'read_file', tool_call_id: 'read' }),
+      ], tools).map((tool: any) => tool.name),
+      ['write_file', 'edit_file'],
+    );
+
+    assert.deepEqual(
+      (service as any).selectLeanStepTools([
+        human,
+        new ToolMessage({ content: 'File written successfully: test/price.test.js', name: 'write_file', tool_call_id: 'write' }),
+      ], tools).map((tool: any) => tool.name),
+      ['shell'],
+    );
+
+    assert.deepEqual(
+      (service as any).selectLeanStepTools([
+        human,
+        new ToolMessage({ content: 'Exit with error: not ok 1', name: 'shell', tool_call_id: 'red' }),
+      ], tools).map((tool: any) => tool.name),
+      ['read_file', 'write_file', 'edit_file', 'shell'],
+    );
+
+    assert.deepEqual(
+      (service as any).selectLeanStepTools([
+        human,
+        new ToolMessage({ content: 'File edited successfully: src/price.js', name: 'edit_file', tool_call_id: 'edit' }),
+      ], tools).map((tool: any) => tool.name),
+      ['read_file', 'shell'],
+    );
+
+    assert.deepEqual(
+      (service as any).selectLeanStepTools([
+        human,
+        new ToolMessage({ content: 'File edited successfully: src/price.js', name: 'edit_file', tool_call_id: 'edit' }),
+        new ToolMessage({ content: '1: export function finalPrice() {}', name: 'read_file', tool_call_id: 'reread' }),
+      ], tools).map((tool: any) => tool.name),
+      ['shell'],
+    );
+
+    assert.deepEqual(
+      (service as any).selectLeanStepTools([
+        human,
+        new ToolMessage({ content: 'ok 1\\n# pass 1\\n# fail 0', name: 'shell', tool_call_id: 'green' }),
+      ], tools).map((tool: any) => tool.name),
+      [],
+    );
+
+    assert.equal((service as any).getLeanToolChoice([{ name: 'shell' }]), 'required');
+    assert.equal((service as any).getLeanToolChoice([]), undefined);
+  });
+
+  test('lean final response does not ask to implement work after green verification', () => {
+    const service = buildService();
+
+    (service as any).lastToolOutputs = [
+      { tool: 'shell', output: 'ok 1\n# pass 3\n# fail 0' },
+    ];
+
+    const response = (service as any).sanitizeLeanFinalResponse(
+      'Escrevi e rodei os testes. Ambos passaram.\n\nQuer que eu implemente a validacao em src/price.js agora?',
+      'Adicione validacao em src/price.js e rode npm test.',
+    );
+
+    assert.match(response, /Escrevi e rodei os testes/);
+    assert.doesNotMatch(response, /Quer que eu implemente/i);
+    assert.doesNotMatch(response, /\?$/);
   });
 });
