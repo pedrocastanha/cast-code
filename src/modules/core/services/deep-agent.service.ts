@@ -2,7 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { execSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import * as path from 'path';
 import { createDeepAgent, FilesystemBackend } from 'deepagents';
+import {
+  ClearToolUsesEdit,
+  contextEditingMiddleware,
+  createAgent,
+  createMiddleware,
+} from 'langchain';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MarkdownRendererService } from '../../../common/services/markdown-renderer.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -24,6 +32,7 @@ import { FileWatcherService, FILE_CHANGE_EVENT } from '../../watcher/services/fi
 import { PromptLoaderService } from './prompt-loader.service';
 import { PromptClassifierService } from './prompt-classifier.service';
 import { PlatformService } from '../../platform/services/platform.service';
+import { ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT } from '../../../common/constants';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -51,14 +60,17 @@ const COMPACT_CHAT_PATTERNS = [
 @Injectable()
 export class DeepAgentService {
   private agent: any;
+  private leanAgent: any;
   private model: BaseChatModel | null = null;
   private messages: BaseMessage[] = [];
   private tokenCount = 0;
   private lastToolOutputs: { tool: string; output: string }[] = [];
 
   private cachedSystemPrompt: string = '';
+  private cachedLeanSystemPrompt: string = '';
   private cachedBasePrompt: string = '';
   private cachedExtraTools: any[] = [];
+  private cachedLeanTools: any[] = [];
   private cachedMcpTools: any[] = [];
   private cachedMcpDiscoveryTools: any[] = [];
   private cachedSubagents: any[] = [];
@@ -151,12 +163,14 @@ export class DeepAgentService {
     const mcpTools = this.mcpRegistry.getAllMcpTools();
 
     const extraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
+    const leanTools = this.selectLeanTools(allTools);
     const mcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
     this.cachedBasePrompt = this.buildBasePrompt(allTools, subagents);
     const systemPrompt = this.cachedBasePrompt;
 
     this.cachedSystemPrompt = systemPrompt;
     this.cachedExtraTools = extraTools;
+    this.cachedLeanTools = leanTools;
     this.cachedMcpTools = mcpTools;
     this.cachedMcpDiscoveryTools = mcpDiscoveryTools;
     this.cachedSubagents = subagents;
@@ -181,6 +195,8 @@ export class DeepAgentService {
     this.model = this.multiLlmService.createStreamingModel('default');
     this.cachedBasePrompt = this.buildBasePrompt(this.cachedExtraTools, this.cachedSubagents);
     this.cachedSystemPrompt = this.cachedBasePrompt;
+    this.cachedLeanSystemPrompt = '';
+    this.leanAgent = null;
     this.agent = createDeepAgent({
       model: this.model,
       systemPrompt: this.cachedSystemPrompt,
@@ -188,6 +204,11 @@ export class DeepAgentService {
       subagents: this.cachedSubagents,
       backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
     });
+  }
+
+  private selectLeanTools(tools: any[]): any[] {
+    const allowed = new Set(['read_file', 'write_file', 'edit_file', 'shell']);
+    return tools.filter((tool: any) => allowed.has(tool.name));
   }
 
   private getGitStatus(): string {
@@ -302,6 +323,240 @@ export class DeepAgentService {
     }
 
     return parts.join('\n\n');
+  }
+
+  private buildLeanSystemPrompt(): string {
+    const parts: string[] = [];
+    const langInstruction = this.i18nService.getAgentLanguageInstruction();
+    if (langInstruction && !/^Always respond in English\.?$/i.test(langInstruction.trim())) {
+      parts.push(langInstruction, '');
+    }
+
+    parts.push(
+      'You are Cast, an autonomous AI coding assistant running in lean mode for clear single-file work.',
+      'Use tools immediately, keep context small, and do not delegate to sub-agents for this task.',
+      'Reply in the same language as the user request unless the user explicitly asks otherwise.',
+      '',
+      '# Rules',
+      '- Use RELATIVE paths only.',
+      '- Read the target file before editing it.',
+      '- Make only the requested change.',
+      '- Re-read edited files after writing.',
+      '- Do not ask for confirmation to run tests when the user already requested verification.',
+      '- Use read_file, not shell, to inspect file contents.',
+      '- After writing a test, run it before editing production code.',
+      '- If the shell tool is available, use it to run the project test command from the working directory.',
+      '- Continue until the red test and final green verification have both run, unless a real blocker prevents progress.',
+      '- After a green test run, report what changed and do not ask whether to implement requested work.',
+      '',
+      ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT,
+      '',
+      '# Verification',
+      '- Run the smallest relevant test command first when adding or changing behavior.',
+      '- After implementation, rerun the focused test and broader verification according to risk.',
+      '',
+      '# Environment',
+      `- Working directory: ${this.projectRoot}`,
+      `- Platform: ${process.platform}`,
+    );
+
+    const packageHints = this.getLeanPackageHints();
+    if (packageHints) {
+      parts.push('', '# Local Test Hints', packageHints);
+    }
+
+    if (this.projectContext.hasContext()) {
+      parts.push('', '# Project Context', this.projectContext.getContextPrompt());
+    }
+
+    return parts.join('\n');
+  }
+
+  private getLeanPackageHints(): string {
+    const packageJsonPath = path.join(this.projectRoot, 'package.json');
+    if (!existsSync(packageJsonPath)) {
+      return '';
+    }
+
+    try {
+      const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+      const lines: string[] = [];
+      const testScript = typeof pkg?.scripts?.test === 'string' ? pkg.scripts.test : '';
+
+      if (testScript) {
+        lines.push(`- npm test -> ${testScript}`);
+      }
+
+      if (pkg?.type === 'module') {
+        lines.push('- This package uses ESM. Use .js import extensions in JavaScript tests.');
+      }
+
+      if (/\bnode\s+--test\b/.test(testScript)) {
+        lines.push('- Use node:test and node:assert/strict. Do not use Jest/Vitest globals unless existing tests prove that framework exists.');
+        lines.push('- For simple JavaScript node:test files, use `import test from "node:test"` and do not use describe/it/expect globals.');
+      }
+
+      return lines.join('\n');
+    } catch {
+      return '';
+    }
+  }
+
+  private shouldUseLeanCodeAgent(message: string, hasMentions: boolean): boolean {
+    if (hasMentions) {
+      return false;
+    }
+
+    const trimmed = message.trim();
+    if (!trimmed || trimmed.length > 700 || trimmed.includes('@')) {
+      return false;
+    }
+
+    if (/\b(same|previous|above|that|this|it|again|igual|mesmo|anterior|acima|isso|aquilo|nesse|neste|naquele|de novo)\b/i.test(trimmed)) {
+      return false;
+    }
+
+    const filePaths = this.getReferencedFilePaths(trimmed);
+    if (filePaths.length !== 1) {
+      return false;
+    }
+
+    const hasCodeAction =
+      /\b(add|change|update|modify|fix|implement|validate|throw|test|run|write|create|refactor)\b/i.test(trimmed)
+      || /\b(adicion|alter|atualiz|modific|corrij|corrigir|implemen|valid|lanc|lanç|teste|testar|rode|rodar|escrev|crie|criar|refator)\b/i.test(trimmed);
+
+    if (!hasCodeAction) {
+      return false;
+    }
+
+    const broadScope =
+      /\b(architecture|arquitetura|entire|whole|all|every|todos|todas|inteiro|inteira|modules|modulos|m[oó]dulos|project|projeto|app|application|sistema|frontend|backend)\b/i.test(trimmed);
+
+    return !broadScope;
+  }
+
+  private getReferencedFilePaths(message: string): string[] {
+    const matches = message.match(/\b[\w./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|java|go|rs|php|rb|cs|json|md|css|scss|html|yml|yaml)\b/g) ?? [];
+    return Array.from(new Set(matches));
+  }
+
+  private buildLeanMiddleware(): any[] {
+    return [
+      contextEditingMiddleware({
+        edits: [
+          new ClearToolUsesEdit({
+            trigger: { messages: 4 },
+            keep: { messages: 2 },
+            clearToolInputs: true,
+            placeholder: '[lean mode: older tool output omitted]',
+          }),
+        ],
+        tokenCountMethod: 'approx',
+      }),
+      createMiddleware({
+        name: 'lean_tool_budget',
+        wrapModelCall: async (request: any, handler: any) => {
+          const tools = this.selectLeanStepTools(request.messages ?? [], request.tools ?? []);
+          const { toolChoice: _toolChoice, ...requestWithoutToolChoice } = request;
+          const leanRequest = {
+            ...requestWithoutToolChoice,
+            tools,
+          };
+          const toolChoice = this.getLeanToolChoice(tools);
+          return handler(toolChoice ? { ...leanRequest, toolChoice } : leanRequest);
+        },
+      }),
+    ];
+  }
+
+  private selectLeanStepTools(messages: BaseMessage[], tools: any[]): any[] {
+    const byName = (names: string[]) => names
+      .map((name) => tools.find((tool: any) => tool.name === name))
+      .filter(Boolean);
+
+    const toolMessages = this.getLeanToolMessages(messages);
+    const lastTool = toolMessages.at(-1);
+    const previousTool = toolMessages.at(-2);
+    const hasEditedFiles = toolMessages.some((message) => ['write_file', 'edit_file'].includes(message.name));
+
+    if (!lastTool) {
+      return byName(['read_file']);
+    }
+
+    switch (lastTool.name) {
+    case 'read_file':
+      if (previousTool?.name === 'edit_file') {
+        return byName(['shell']);
+      }
+      return hasEditedFiles
+        ? byName(['write_file', 'edit_file', 'shell'])
+        : byName(['write_file', 'edit_file']);
+    case 'write_file':
+      return byName(['shell']);
+    case 'edit_file':
+      return byName(['read_file', 'shell']);
+    case 'shell':
+      return this.isLeanShellSuccess(lastTool.content)
+        ? []
+        : byName(['read_file', 'write_file', 'edit_file', 'shell']);
+    default:
+      return byName(['read_file', 'write_file', 'edit_file', 'shell']);
+    }
+  }
+
+  private getLeanToolChoice(tools: any[]): 'required' | undefined {
+    return tools.length > 0 ? 'required' : undefined;
+  }
+
+  private getLeanToolMessages(messages: BaseMessage[]): Array<{ name: string; content: string }> {
+    return messages
+      .filter((message: any) => message?._getType?.() === 'tool')
+      .map((message: any) => ({
+        name: message.name || message.lc_kwargs?.name || '',
+        content: this.extractTextFromModelContent(message.content),
+      }))
+      .filter((message) => message.name);
+  }
+
+  private isLeanShellSuccess(output: string): boolean {
+    const text = output.toLowerCase();
+    if (/exit with error|not ok|#\s*fail\s+[1-9]|referenceerror|syntaxerror|typeerror|error:/.test(text)) {
+      return false;
+    }
+    return /(^|\n)\s*ok\s+\d|#\s*pass\s+[1-9]|command completed with no output/.test(text);
+  }
+
+  private sanitizeLeanFinalResponse(response: string, userMessage: string): string {
+    const text = response.trim();
+    if (!text || !this.hasLeanGreenVerification()) {
+      return text;
+    }
+
+    const permissionQuestionPattern = /\b(?:quer|deseja|posso|devo|quer que eu|do you want|should i|would you like)\b[\s\S]{0,180}\b(?:implementar|aplicar|fazer|alterar|validar|corrigir|implemente|implement|apply|do|change|fix)\b[\s\S]{0,80}\?/i;
+    if (!permissionQuestionPattern.test(text)) {
+      return text;
+    }
+
+    const cleaned = text
+      .replace(permissionQuestionPattern, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    if (cleaned) {
+      return cleaned;
+    }
+
+    return this.isLikelyPortuguese(userMessage)
+      ? 'Concluido. A alteracao solicitada foi implementada e a verificacao passou.'
+      : 'Done. The requested change was implemented and verification passed.';
+  }
+
+  private hasLeanGreenVerification(): boolean {
+    return this.lastToolOutputs.some(({ tool, output }) => tool === 'shell' && this.isLeanShellSuccess(output));
+  }
+
+  private isLikelyPortuguese(message: string): boolean {
+    return /[áéíóúâêôãõç]|(?:adicione|altere|corrija|rode|escreva|implemente|validacao|validação|menor|maior)\b/i.test(message);
   }
 
   private shouldUseCompactChat(message: string, hasMentions: boolean): boolean {
@@ -473,6 +728,8 @@ export class DeepAgentService {
       '- Don\'t add features, refactor code, or make "improvements" beyond what was asked',
       '- Don\'t add docstrings, comments, or type annotations to code you didn\'t change',
       '- Preserve existing code style and conventions',
+      '',
+      ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT,
       '',
       '## Tool Use Discipline',
       '- ALWAYS read a file before editing it — never edit from memory',
@@ -946,6 +1203,10 @@ export class DeepAgentService {
     case 'memory_search':
       detail = input?.query ? ` "${input.query}"` : '';
       break;
+    case 'rag_search':
+      detail = input?.query ? ` "${String(input.query).slice(0, 80)}${String(input.query).length > 80 ? '...' : ''}"` : '';
+      if (input?.topK) detail += ` topK=${input.topK}`;
+      break;
     case 'mcp_list_servers':
       detail = ' Listing MCP servers';
       break;
@@ -1032,6 +1293,10 @@ export class DeepAgentService {
       const lines = output.split('\n').filter(l => l.trim());
       return rows(lines, 4, 120);
     }
+    case 'rag_search': {
+      const lines = output.split('\n').filter(l => l.trim());
+      return rows(lines, 6, 140);
+    }
     default: {
       const lines = output.split('\n').filter(l => l.trim());
       return rows(lines, 4, 120);
@@ -1104,27 +1369,48 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       return;
     }
 
-    const contextualPrompt = this.buildContextualPrompt(message, hasMentions);
-    if (contextualPrompt !== this.cachedSystemPrompt) {
-      this.cachedSystemPrompt = contextualPrompt;
-      this.agent = createDeepAgent({
-        model: this.model ?? undefined,
-        systemPrompt: contextualPrompt,
-        tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
-        subagents: this.cachedSubagents,
-        backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
-      });
+    const useLeanAgent = this.shouldUseLeanCodeAgent(message, hasMentions);
+    let activeAgent = this.agent;
+
+    if (useLeanAgent) {
+      const leanPrompt = this.buildLeanSystemPrompt();
+      if (!this.leanAgent || leanPrompt !== this.cachedLeanSystemPrompt) {
+        const leanModel = this.model ?? this.multiLlmService.createStreamingModel('default');
+        this.model = leanModel;
+        this.cachedLeanSystemPrompt = leanPrompt;
+        this.leanAgent = createAgent({
+          model: leanModel,
+          systemPrompt: leanPrompt,
+          tools: this.cachedLeanTools,
+          middleware: this.buildLeanMiddleware(),
+        });
+      }
+      activeAgent = this.leanAgent;
+    } else {
+      const contextualPrompt = this.buildContextualPrompt(message, hasMentions);
+      if (contextualPrompt !== this.cachedSystemPrompt) {
+        this.cachedSystemPrompt = contextualPrompt;
+        this.agent = createDeepAgent({
+          model: this.model ?? undefined,
+          systemPrompt: contextualPrompt,
+          tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
+          subagents: this.cachedSubagents,
+          backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
+        });
+      }
+      activeAgent = this.agent;
     }
 
-    this.messages.push(new HumanMessage(message));
+    const currentUserMessage = new HumanMessage(message);
+    this.messages.push(currentUserMessage);
     this.replayService.recordEntry({ role: 'user', content: message });
     this.lastToolOutputs = [];
 
     const effort = this.multiLlmService.getCurrentEffortProfile();
     let stream: any;
     try {
-      stream = this.agent.streamEvents(
-        { messages: this.messages },
+      stream = activeAgent.streamEvents(
+        { messages: useLeanAgent ? [currentUserMessage] : this.messages },
         { version: 'v2', recursionLimit: Math.max(8, effort.maxToolCalls * 2) },
       );
     } catch (error) {
@@ -1136,6 +1422,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     let lastToolName = '';
     let interactionInputTokens = 0;
     let interactionOutputTokens = 0;
+    let leanResponseBuffer = '';
     const pendingToolInputs: { name: string; input: any }[] = [];
 
     try {
@@ -1143,18 +1430,26 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
         if (event.event === 'on_chat_model_stream' && event.data?.chunk?.content) {
           const text = this.extractTextFromModelContent(event.data.chunk.content);
           if (text) {
-            yield text;
-            fullResponse += text;
+            if (useLeanAgent) {
+              leanResponseBuffer += text;
+            } else {
+              yield text;
+              fullResponse += text;
+            }
           }
         }
 
         if (event.event === 'on_chat_model_end') {
           const output = event.data?.output;
-          if (!fullResponse && output?.content) {
+          if (!fullResponse && !leanResponseBuffer && output?.content) {
             const fallbackText = this.extractTextFromModelContent(output.content);
             if (fallbackText) {
-              yield fallbackText;
-              fullResponse += fallbackText;
+              if (useLeanAgent) {
+                leanResponseBuffer += fallbackText;
+              } else {
+                yield fallbackText;
+                fullResponse += fallbackText;
+              }
             }
           }
           const usage = output?.usage_metadata
@@ -1214,6 +1509,14 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       const msg = (error as Error).message;
       if (!msg.includes('abort') && !msg.includes('cancel')) {
         yield `\n\x1b[31m  Stream error: ${msg}\x1b[0m\n`;
+      }
+    }
+
+    if (useLeanAgent && leanResponseBuffer.trim()) {
+      const finalResponse = this.sanitizeLeanFinalResponse(leanResponseBuffer, message);
+      if (finalResponse) {
+        yield finalResponse;
+        fullResponse = finalResponse;
       }
     }
 
