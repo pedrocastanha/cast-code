@@ -82,6 +82,12 @@ export interface PlatformMemoryRetrieval {
   results: PlatformMemoryRetrievalResult[];
 }
 
+export interface PlatformMemoryUsageResponse {
+  workspaceId?: string;
+  retrievalId?: string;
+  accepted: number;
+}
+
 export type PlatformStatus = 'disabled' | 'online' | 'offline' | 'error';
 
 export type PlatformEventType =

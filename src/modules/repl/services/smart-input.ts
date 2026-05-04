@@ -103,9 +103,7 @@ export class SmartInput implements ISmartInput {
   }
 
   start() {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-    }
+    this.setRawMode(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
 
@@ -142,6 +140,7 @@ export class SmartInput implements ISmartInput {
   }
 
   async question(query: string): Promise<string> {
+    this.ensurePromptInputActive();
     this.mode = 'question';
     this.questionBuffer = '';
     process.stdout.write(query + ' ');
@@ -160,6 +159,7 @@ export class SmartInput implements ISmartInput {
     }
 
     if (this.shouldUseInteractiveChoice()) {
+      this.ensurePromptInputActive();
       this.clearRenderedBlock();
       this.mode = 'choice';
       this.choiceMessage = message;
@@ -207,23 +207,26 @@ export class SmartInput implements ISmartInput {
     if (this.dataHandler) {
       process.stdin.removeListener('data', this.dataHandler);
     }
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
-    }
+    this.setRawMode(false);
     this.clearSuggestions();
     process.stdout.write('\r\n');
   }
 
   resume() {
+    this.ensurePromptInputActive();
+    this.showPrompt();
+  }
+
+  private ensurePromptInputActive() {
     this.isPaused = false;
     if (this.dataHandler) {
-      process.stdin.on('data', this.dataHandler);
+      const dataListeners = process.stdin.listeners('data');
+      if (!dataListeners.includes(this.dataHandler)) {
+        process.stdin.on('data', this.dataHandler);
+      }
     }
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-    }
+    this.setRawMode(true);
     process.stdin.resume();
-    this.showPrompt();
   }
 
   destroy() {
@@ -233,8 +236,12 @@ export class SmartInput implements ISmartInput {
       process.stdin.removeListener('data', this.dataHandler);
       this.dataHandler = null;
     }
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
+    this.setRawMode(false);
+  }
+
+  private setRawMode(enabled: boolean) {
+    if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+      process.stdin.setRawMode(enabled);
     }
   }
 

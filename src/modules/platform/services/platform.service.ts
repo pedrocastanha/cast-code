@@ -13,6 +13,7 @@ import {
   PlatformEventType,
   PlatformFeatures,
   PlatformMemoryRetrieval,
+  PlatformMemoryUsageResponse,
   PlatformProjectPayload,
   PlatformStatus,
 } from '../types';
@@ -133,6 +134,21 @@ export class PlatformService {
     return this.client.retrieveMemory(this.config, this.apiKey, {
       query: cleanQuery,
       topK: topK ?? defaultTopK,
+    });
+  }
+
+  async markMemoryUsed(retrievalId: string, unitIds: string[]): Promise<PlatformMemoryUsageResponse> {
+    if (!this.config || !this.apiKey || !this.isRagEnabled()) {
+      throw new Error('Platform RAG is not enabled for this project.');
+    }
+    const cleanRetrievalId = retrievalId.trim();
+    const cleanUnitIds = [...new Set(unitIds.map((unitId) => unitId.trim()).filter(Boolean))];
+    if (!cleanRetrievalId || cleanUnitIds.length === 0) {
+      return { accepted: 0 };
+    }
+    return this.client.markMemoryUsed(this.config, this.apiKey, {
+      retrievalId: cleanRetrievalId,
+      unitIds: cleanUnitIds,
     });
   }
 

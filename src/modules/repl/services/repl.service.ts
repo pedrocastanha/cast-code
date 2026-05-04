@@ -693,6 +693,7 @@ export class ReplService {
         if (chunk.includes('▶ glob') || chunk.includes('▶ grep') || chunk.includes('▶ ls')) return 'Searching';
         if (chunk.includes('▶ web search') || chunk.includes('▶ web_search')) return 'Searching web';
         if (chunk.includes('▶ web fetch') || chunk.includes('▶ web_fetch')) return 'Fetching';
+        if (chunk.includes('▶ rag search') || chunk.includes('▶ rag_search')) return 'RAG';
         if (chunk.includes('▶ memory')) return 'Memory';
         if (chunk.includes('▶ task')) return 'Tasks';
         if (chunk.includes('▶')) return 'Working';

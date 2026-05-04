@@ -116,12 +116,12 @@ export class FilesystemToolsService {
 
             const buffer = Buffer.alloc(512);
             const fd = await fs.open(resolvedPath, 'r');
-            await fd.read(buffer, 0, 512, 0);
+            const { bytesRead } = await fd.read(buffer, 0, 512, 0);
             await fd.close();
 
-            const hasBinaryBytes = buffer.some(
-              (byte, i) => i < 512 && byte === 0,
-            );
+            const hasBinaryBytes = buffer
+              .subarray(0, bytesRead)
+              .some((byte) => byte === 0);
             if (hasBinaryBytes) {
               return `"${resolvedPath}" appears to be a binary file (${Math.round(stat.size / 1024)}KB). Cannot display binary content.`;
             }

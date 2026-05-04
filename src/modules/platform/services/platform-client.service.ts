@@ -3,6 +3,7 @@ import {
   PlatformConfig,
   PlatformEvent,
   PlatformMemoryRetrieval,
+  PlatformMemoryUsageResponse,
   PlatformProjectPayload,
 } from '../types';
 
@@ -82,6 +83,21 @@ export class PlatformClientService {
       config,
       apiKey,
       `/v1/projects/${encodeURIComponent(config.projectId || '')}/memory/retrieve`,
+      this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  markMemoryUsed(
+    config: PlatformConfig,
+    apiKey: string,
+    body: { retrievalId: string; unitIds: string[] },
+    timeoutMs = 3000,
+  ): Promise<PlatformMemoryUsageResponse> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/memory/usage`,
       this.jsonInit('POST', body),
       timeoutMs,
     );
