@@ -131,4 +131,33 @@ describe('PlatformClientService', () => {
       global.fetch = originalFetch;
     }
   });
+
+  test('markMemoryUsed posts retrieval usage without exposing api keys in body', async () => {
+    const originalFetch = global.fetch;
+    let url = '';
+    let body = '';
+    try {
+      global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        url = String(input);
+        body = String(init?.body);
+        return new Response(JSON.stringify({ accepted: 1 }), { status: 200 });
+      }) as typeof fetch;
+
+      const service = new PlatformClientService();
+      const result = await service.markMemoryUsed(config, 'secret-key', {
+        retrievalId: 'ret-1',
+        unitIds: ['11111111-1111-4111-8111-111111111111'],
+      });
+
+      assert.equal(url, 'https://api.cast.test/v1/projects/project-1/memory/usage');
+      assert.deepEqual(JSON.parse(body), {
+        retrievalId: 'ret-1',
+        unitIds: ['11111111-1111-4111-8111-111111111111'],
+      });
+      assert.equal(result.accepted, 1);
+      assert.doesNotMatch(body, /secret-key/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });

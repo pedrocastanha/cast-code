@@ -81,4 +81,47 @@ describe('SmartInput choice menu', () => {
       if (originalStdoutTty) Object.defineProperty(process.stdout, 'isTTY', originalStdoutTty);
     }
   });
+
+  test('accepts choices after input was paused for an external prompt', async () => {
+    const input = buildInput();
+    const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const originalWrite = process.stdout.write;
+    const originalCi = process.env.CI;
+
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    delete process.env.CI;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+
+    try {
+      input.pause();
+      const selected = input.askChoice('Apply change?', [
+        { key: 'yes', label: 'Allow' },
+        { key: 'session', label: 'Allow all' },
+        { key: 'no', label: 'Deny' },
+      ]);
+
+      (input as any).handleData('2');
+
+      assert.equal(
+        await Promise.race([
+          selected,
+          new Promise<string>((resolve) => setTimeout(() => resolve('timeout'), 20)),
+        ]),
+        'session',
+      );
+    } finally {
+      input.destroy();
+      process.stdin.pause();
+      process.stdout.write = originalWrite;
+      if (originalStdinTty) Object.defineProperty(process.stdin, 'isTTY', originalStdinTty);
+      if (originalStdoutTty) Object.defineProperty(process.stdout, 'isTTY', originalStdoutTty);
+      if (originalCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = originalCi;
+      }
+    }
+  });
 });
