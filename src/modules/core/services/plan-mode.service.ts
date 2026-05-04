@@ -23,6 +23,10 @@ export class PlanModeService {
   constructor(private readonly multiLlmService: MultiLlmService) {}
 
   async shouldEnterPlanMode(userMessage: string): Promise<{ shouldPlan: boolean; reason?: string }> {
+    if (this.isClearSingleFileImplementationTask(userMessage)) {
+      return { shouldPlan: false };
+    }
+
     const indicators = [
       (userMessage.match(/\b\w+\.(ts|tsx|js|jsx|py|java|go|rs)\b/g)?.length ?? 0) > 1,
       /\b(and|then|also|additionally)\b.*\b(create|add|modify|update|delete|refactor|implement)\b/i.test(userMessage),
@@ -65,6 +69,31 @@ Reply ONLY with: YES or NO`;
     }
 
     return { shouldPlan: false };
+  }
+
+  private isClearSingleFileImplementationTask(userMessage: string): boolean {
+    const filePaths = this.getReferencedFilePaths(userMessage);
+    if (filePaths.length !== 1) {
+      return false;
+    }
+
+    const hasImplementationIntent =
+      /\b(add|change|update|modify|fix|implement|validate|throw|test|run|write|create)\b/i.test(userMessage)
+      || /\b(adicion|alter|atualiz|modific|corrij|corrigir|implemen|valid|lanc|lanç|teste|testar|rode|rodar|crie|criar|escrev)\b/i.test(userMessage);
+
+    if (!hasImplementationIntent) {
+      return false;
+    }
+
+    const broadScope =
+      /\b(architecture|arquitetura|entire|whole|all|every|todos|todas|inteiro|inteira|modules|modulos|m[oó]dulos|project|projeto|app|application|sistema)\b/i.test(userMessage);
+
+    return !broadScope;
+  }
+
+  private getReferencedFilePaths(userMessage: string): string[] {
+    const matches = userMessage.match(/\b[\w./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|java|go|rs|php|rb|cs|json|md|css|scss|html|yml|yaml)\b/g) ?? [];
+    return Array.from(new Set(matches));
   }
 
   async generatePlan(userMessage: string, context?: string): Promise<Plan> {
