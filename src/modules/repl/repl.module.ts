@@ -11,6 +11,7 @@ import { SnapshotCommandsService } from './services/commands/snapshot-commands.s
 import { StatsCommandsService } from './services/commands/stats-commands.service';
 import { ReplayCommandsService } from './services/commands/replay-commands.service';
 import { VaultCommandsService } from './services/commands/vault-commands.service';
+import { PlatformCommandsService } from './services/commands/platform-commands.service';
 import { CoreModule } from '../core/core.module';
 import { ToolsModule } from '../tools/tools.module';
 import { GitModule } from '../git/git.module';
@@ -62,6 +63,7 @@ import { PlatformModule } from '../platform/platform.module';
     StatsCommandsService,
     ReplayCommandsService,
     VaultCommandsService,
+    PlatformCommandsService,
   ],
   exports: [ReplService],
 })

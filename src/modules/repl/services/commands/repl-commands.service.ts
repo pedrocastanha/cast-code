@@ -82,6 +82,7 @@ export class ReplCommandsService {
           ['/project-deep', 'deep analysis and agent brief'],
           ['/model', 'show or change models'],
           ['/config', 'show/edit configuration'],
+          ['/link', 'link this directory to Cast Platform'],
         ]),
         commandSection('Tools and History', [
           ['/tools', 'list available tools'],

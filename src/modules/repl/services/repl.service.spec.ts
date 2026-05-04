@@ -53,6 +53,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       close: async () => {},
       getStatus: () => 'disabled',
     },
+    platformCommands: { cmdLink: async () => false },
   };
 
   const deps = { ...defaults, ...overrides };
@@ -83,6 +84,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deps.permissionService as any,
     deps.filesystemTools as any,
     deps.platformService as any,
+    deps.platformCommands as any,
   );
 };
 
@@ -108,6 +110,17 @@ describe('ReplService', () => {
     );
   });
 
+  test('filters command suggestions and exposes the /link option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/li');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/link'],
+      'only the /link command starts with /li',
+    );
+  });
+
   // Verifies the /unit-test command routes to gitCommands.cmdUnitTest with the active smart input.
   test('routes the /unit-test command to gitCommands.cmdUnitTest', async () => {
     const recorded: Array<unknown> = [];
@@ -128,6 +141,36 @@ describe('ReplService', () => {
 
     assert.strictEqual(recorded.length, 1, 'cmdUnitTest should be invoked exactly once');
     assert.strictEqual(recorded[0], smartInputStub, 'cmdUnitTest receives the current smart input instance');
+  });
+
+  test('routes /link to platformCommands and refreshes the agent after a link', async () => {
+    const recordedArgs: string[][] = [];
+    const smartInputStub = { showPrompt: () => {} };
+    let initializeCalls = 0;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => {
+          initializeCalls += 1;
+          return { toolCount: 0, projectPath: '' };
+        },
+        reinitializeModel: async () => {},
+        getTokenCount: () => 0,
+        getMessageCount: () => 0,
+      },
+      platformCommands: {
+        cmdLink: async (args: string[], input: unknown) => {
+          recordedArgs.push(args);
+          assert.strictEqual(input, smartInputStub);
+          return true;
+        },
+      },
+    });
+    (service as any).smartInput = smartInputStub;
+
+    await (service as any).handleCommand('/link --project project-1');
+
+    assert.deepStrictEqual(recordedArgs, [['--project', 'project-1']]);
+    assert.equal(initializeCalls, 1);
   });
 
   test('tracks slash commands without command arguments', async () => {

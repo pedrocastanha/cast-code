@@ -113,6 +113,9 @@ Configure com `/config init` ou edite `~/.cast/config.yaml` diretamente.
 | Comando | O que faz |
 |---|---|
 | `cast link --project <id>` | Vincula o diretório atual a um projeto remoto da Cast Platform |
+| `/link` | Vincula o diretório atual pela interface do CLI |
+| `/link --project <id>` | Vincula direto, sem sair do chat |
+| `/link status` | Mostra projeto, API URL, env var da key e status do RAG sem expor segredo |
 
 ---
 

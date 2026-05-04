@@ -25,6 +25,7 @@ import { SnapshotCommandsService } from './commands/snapshot-commands.service';
 import { StatsCommandsService } from './commands/stats-commands.service';
 import { ReplayCommandsService } from './commands/replay-commands.service';
 import { VaultCommandsService } from './commands/vault-commands.service';
+import { PlatformCommandsService } from './commands/platform-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { FilesystemToolsService } from '../../tools/services/filesystem-tools.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
@@ -78,6 +79,7 @@ export class ReplService {
     private readonly permissionService: PermissionService,
     private readonly filesystemTools: FilesystemToolsService,
     private readonly platformService: PlatformService,
+    private readonly platformCommands: PlatformCommandsService,
   ) { }
 
   async start(): Promise<void> {
@@ -269,6 +271,7 @@ export class ReplService {
       { text: '/effort', display: '/effort', description: 'Set runtime budget' },
       { text: '/model', display: '/model', description: 'Show model' },
       { text: '/config', display: '/config', description: 'Configuration' },
+      { text: '/link', display: '/link', description: 'Link Cast project' },
       { text: '/project', display: '/project', description: 'Project context' },
       { text: '/project-deep', display: '/project-deep', description: 'Deep project analysis' },
       { text: '/init', display: '/init', description: 'Analyze project and generate context' },
@@ -508,6 +511,13 @@ export class ReplService {
       await this.configManager.loadConfig();
       await this.deepAgent.reinitializeModel();
       break;
+    case 'link': {
+      const linked = await this.platformCommands.cmdLink(args, this.smartInput!);
+      if (linked) {
+        await this.deepAgent.initialize();
+      }
+      break;
+    }
     case 'model': {
       const changed = await this.replCommands.cmdModel(args, this.smartInput!);
       if (changed) {
