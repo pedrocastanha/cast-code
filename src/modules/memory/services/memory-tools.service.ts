@@ -96,7 +96,17 @@ export class MemoryToolsService {
           if (!retrieval.results.length) {
             return `No platform memory results found for "${query}".`;
           }
-          return retrieval.results.map((result, index) => {
+          const unitIds = uniqueStrings(retrieval.results.map((result) => result.unitId));
+          const marked = retrieval.retrievalId
+            ? await this.platformService.markMemoryUsed(retrieval.retrievalId, unitIds).catch(() => ({ accepted: 0 }))
+            : { accepted: 0 };
+          const header = [
+            retrieval.retrievalId ? `retrieval=${retrieval.retrievalId}` : 'retrieval=untracked',
+            `hits=${retrieval.results.length}`,
+            Number.isFinite(retrieval.latencyMs) ? `latency=${retrieval.latencyMs}ms` : '',
+            marked.accepted > 0 ? `used=${marked.accepted}` : '',
+          ].filter(Boolean).join(' ');
+          const rows = retrieval.results.map((result, index) => {
             const related = (result.related || [])
               .map((item) => `    - related ${item.unitId}: ${item.content}`)
               .join('\n');
@@ -107,6 +117,7 @@ export class MemoryToolsService {
               related,
             ].filter(Boolean).join('\n');
           }).join('\n\n');
+          return `${header}\n\n${rows}`;
         } catch (error) {
           return `Platform RAG search failed: ${(error as Error).message}`;
         }
@@ -126,4 +137,10 @@ export class MemoryToolsService {
 
 function formatScore(score: number): string {
   return Number.isFinite(score) ? score.toFixed(3) : '0.000';
+}
+
+function uniqueStrings(values: unknown[]): string[] {
+  return [...new Set(values
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean))];
 }
