@@ -64,6 +64,43 @@ describe('SessionTrackerService', () => {
     assert.equal((closed[0] as any).totalCost, undefined);
   });
 
+  test('sanitizes cached token counts without dropping usage metadata', async () => {
+    const posted: unknown[] = [];
+    const client = {
+      openSession: async () => ({ sessionId: 'session-1' }),
+      postEvents: async (_config: unknown, _apiKey: unknown, _sessionId: unknown, events: unknown[]) => {
+        posted.push(...events);
+      },
+      closeSession: async () => {},
+    };
+    const cache = {
+      appendPendingEvents: async () => {},
+      readPendingEvents: async () => [],
+      clearPendingEvents: async () => {},
+    };
+    const tracker = new SessionTrackerService(client as any, cache as any);
+
+    await tracker.start(config, 'secret-key', 'project-1');
+    tracker.track('tokens.consumed', {
+      input: 100,
+      cachedInput: 40,
+      output: 20,
+      model: 'gpt-4.1-mini',
+      cost: 0.001,
+      prompt: 'must not leak',
+    });
+    await tracker.flush();
+    tracker.stopTimer();
+
+    assert.deepEqual((posted[1] as any).payload, {
+      input: 100,
+      cachedInput: 40,
+      output: 20,
+      model: 'gpt-4.1-mini',
+      cost: 0.001,
+    });
+  });
+
   test('failed flush appends events to pending queue', async () => {
     const pending: unknown[] = [];
     const client = {

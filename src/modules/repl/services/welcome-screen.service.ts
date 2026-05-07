@@ -6,8 +6,6 @@ import { horizontalRule, padVisible, stripAnsi, wrapRow } from '../../../ui/cast
 export interface WelcomeScreenContext {
   projectPath?: string;
   model: string;
-  endpointLabel: string;
-  modelProfile: string;
   toolCount: number;
   agentCount: number;
 }
@@ -37,8 +35,6 @@ export class WelcomeScreenService {
       ),
       middle,
       wrapRow(`${this.label('model')} ${colorize(context.model, 'secondary')}`, innerWidth, borderColor),
-      wrapRow(`${this.label('endpoint')} ${colorize(context.endpointLabel, 'cyan')}`, innerWidth, borderColor),
-      wrapRow(`${this.label('profile')} ${colorize(context.modelProfile, 'green')}`, innerWidth, borderColor),
       wrapRow(`${this.label('project')} ${colorize(projectValue, 'green')}`, innerWidth, borderColor),
       wrapRow(`${this.label('tools')} ${colorize(context.toolCount.toString(), 'warning')} ${colorize('available', 'muted')}`, innerWidth, borderColor),
       wrapRow(`${this.label('agents')} ${colorize(context.agentCount.toString(), 'warning')} ${colorize('ready', 'muted')}`, innerWidth, borderColor),
@@ -47,11 +43,6 @@ export class WelcomeScreenService {
       ...CAST_COMMANDS.map(({ key, description }) =>
         wrapRow(`${colorize(key.padEnd(8), 'cyan')} ${colorize(description, 'muted')}`, innerWidth, borderColor),
       ),
-      middle,
-      wrapRow(colorize('ACTIVE AGENTS', 'subtle'), innerWidth, borderColor),
-      wrapRow(`${colorize(Icons.circle, 'green')} ${colorize('planner'.padEnd(10), 'cyan')} ${colorize('idle', 'subtle')}`, innerWidth, borderColor),
-      wrapRow(`${colorize(Icons.circle, 'green')} ${colorize('coder'.padEnd(10), 'cyan')} ${colorize('idle', 'subtle')}`, innerWidth, borderColor),
-      wrapRow(`${colorize(Icons.circle, 'subtle')} ${colorize('reviewer'.padEnd(10), 'cyan')} ${colorize('off', 'subtle')}`, innerWidth, borderColor),
     ];
 
     console.log('');
@@ -59,7 +50,6 @@ export class WelcomeScreenService {
     rows.forEach((row) => console.log(row));
     console.log(bottom);
     console.log('');
-    process.stdout.write(`  ${colorize('›', 'cyan')} ${colorize('type your prompt below', 'subtle')}\r\n\r\n`);
   }
 
   printBanner(): void {

@@ -70,6 +70,78 @@ const buildService = (overrides: Record<string, any> = {}) => {
 };
 
 describe('DeepAgentService compact chat route', () => {
+  test('extracts cached input tokens from provider usage metadata', () => {
+    const service = buildService();
+
+    assert.deepEqual((service as any).extractUsage({
+      usage_metadata: {
+        input_tokens: 2000,
+        output_tokens: 120,
+        input_token_details: { cache_read: 1536 },
+      },
+    }), {
+      input: 2000,
+      output: 120,
+      cachedInput: 1536,
+    });
+
+    assert.deepEqual((service as any).extractUsage({
+      response_metadata: {
+        usage: {
+          prompt_tokens: 2006,
+          completion_tokens: 300,
+          prompt_tokens_details: { cached_tokens: 1920 },
+        },
+      },
+    }), {
+      input: 2006,
+      output: 300,
+      cachedInput: 1920,
+    });
+
+    assert.deepEqual((service as any).extractUsage({
+      response_metadata: {
+        usage: {
+          input_tokens: 3000,
+          output_tokens: 120,
+          cache_read_input_tokens: 2048,
+        },
+      },
+    }), {
+      input: 3000,
+      output: 120,
+      cachedInput: 2048,
+    });
+
+    assert.deepEqual((service as any).extractUsage({
+      response_metadata: {
+        usageMetadata: {
+          inputTokenCount: 4096,
+          candidatesTokenCount: 250,
+          cachedContentTokenCount: 3072,
+        },
+      },
+    }), {
+      input: 4096,
+      output: 250,
+      cachedInput: 3072,
+    });
+
+    assert.deepEqual((service as any).extractUsage({
+      response_metadata: {
+        usage: {
+          prompt_tokens: 4096,
+          completion_tokens: 150,
+          prompt_cache_hit_tokens: 3072,
+        },
+      },
+    }), {
+      input: 4096,
+      output: 150,
+      cachedInput: 3072,
+    });
+  });
+
   test('short greetings stream through the compact model without invoking the deep agent', async () => {
     let deepAgentCalls = 0;
     let trackedUsage: any = null;
@@ -77,8 +149,8 @@ describe('DeepAgentService compact chat route', () => {
 
     const service = buildService({
       statsService: {
-        trackUsage: (model: string, inputTokens: number, outputTokens: number) => {
-          trackedUsage = { model, inputTokens, outputTokens };
+        trackUsage: (model: string, inputTokens: number, outputTokens: number, cachedInputTokens: number) => {
+          trackedUsage = { model, inputTokens, outputTokens, cachedInputTokens };
         },
         setUsageListener: () => {},
       },
@@ -117,6 +189,7 @@ describe('DeepAgentService compact chat route', () => {
       model: 'gpt-4.1-mini',
       inputTokens: 8,
       outputTokens: 10,
+      cachedInputTokens: 0,
     });
   });
 

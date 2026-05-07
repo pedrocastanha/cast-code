@@ -69,6 +69,7 @@ export interface SessionStats {
   date: string;
   model: string;
   inputTokens: number;
+  cachedInputTokens: number;
   outputTokens: number;
   totalTokens: number;
   estimatedCostUsd: number;
@@ -83,7 +84,7 @@ interface StatsData {
 export class StatsService {
   private currentSession: SessionStats;
   private data: StatsData = { sessions: [] };
-  private usageListener: ((event: { input: number; output: number; model: string; cost: number }) => void) | null = null;
+  private usageListener: ((event: { input: number; cachedInput: number; output: number; model: string; cost: number }) => void) | null = null;
 
   constructor() {
     this.ensureDir();
@@ -97,9 +98,10 @@ export class StatsService {
     }
   }
 
-  trackUsage(model: string, inputTokens: number, outputTokens: number): void {
+  trackUsage(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): void {
     this.currentSession.model = this.normalizeModelName(model);
     this.currentSession.inputTokens += inputTokens;
+    this.currentSession.cachedInputTokens += cachedInputTokens;
     this.currentSession.outputTokens += outputTokens;
     this.currentSession.totalTokens += inputTokens + outputTokens;
     this.currentSession.messageCount++;
@@ -111,13 +113,14 @@ export class StatsService {
     this.persistCurrentSession();
     this.usageListener?.({
       input: inputTokens,
+      cachedInput: cachedInputTokens,
       output: outputTokens,
       model: this.currentSession.model,
       cost: this.calculateCost(this.currentSession.model, inputTokens, outputTokens),
     });
   }
 
-  setUsageListener(listener: ((event: { input: number; output: number; model: string; cost: number }) => void) | null): void {
+  setUsageListener(listener: ((event: { input: number; cachedInput: number; output: number; model: string; cost: number }) => void) | null): void {
     this.usageListener = listener;
   }
 
@@ -171,6 +174,7 @@ export class StatsService {
       date: this.todayDateStr(),
       model: '',
       inputTokens: 0,
+      cachedInputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
       estimatedCostUsd: 0,

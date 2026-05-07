@@ -30,6 +30,25 @@ function captureStdout(run: () => void): string {
 }
 
 describe('SmartInput render layout', () => {
+  test('hard-wraps long input before rendering footer lines', () => {
+    const input = buildInput({
+      getFooterLines: () => ['footer'],
+    });
+    (input as any).terminalWidth = 10;
+    (input as any).buffer = 'aaaaaaaaaa';
+    (input as any).cursor = 10;
+
+    const output = captureStdout(() => {
+      (input as any).render();
+    });
+
+    assert.match(
+      output,
+      /› aaaaaaaa\r\naa\x1b\[J\r\nfooter/,
+      'input rows should be physically separated before footer is drawn',
+    );
+  });
+
   test('moves back over wrapped footer rows before placing the input cursor', () => {
     const input = buildInput({
       getFooterLines: () => ['1234567890123456789012345'],

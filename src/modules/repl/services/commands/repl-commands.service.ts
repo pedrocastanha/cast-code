@@ -229,7 +229,7 @@ export class ReplCommandsService {
     const selected = await smartInput.askChoice('Effort level', Object.values(EFFORT_PROFILES).map((profile) => ({
       key: profile.level,
       label: profile.label,
-      description: `${profile.description} · ${profile.maxToolCalls} tools · ${profile.maxOutputTokens} output tokens`,
+      description: `${profile.maxToolCalls} tools · ${profile.maxOutputTokens.toLocaleString()} tokens`,
     })));
 
     const level = normalizeEffortLevel(selected);

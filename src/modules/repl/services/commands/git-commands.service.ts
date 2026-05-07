@@ -350,8 +350,15 @@ export class GitCommandsService {
       width: 88,
     }));
 
-    const confirm = await smartInput.askChoice('Create this PR?', [
-      { key: 'y', label: 'yes', description: 'Create PR on GitHub' },
+    const { platform } = this.prGenerator.detectPlatform();
+    const canCreateAutomatically = platform === 'github';
+
+    const confirm = await smartInput.askChoice(canCreateAutomatically ? 'Create this PR?' : 'Copy PR description?', [
+      {
+        key: 'y',
+        label: canCreateAutomatically ? 'yes' : 'copy',
+        description: canCreateAutomatically ? 'Create PR on GitHub' : `Copy description for ${platform} PR`,
+      },
       { key: 'n', label: 'no', description: 'Cancel' },
       { key: 'e', label: 'edit', description: 'Edit title/description' },
     ]);
@@ -391,8 +398,6 @@ export class GitCommandsService {
       }
     }
 
-    const { platform } = this.prGenerator.detectPlatform();
-    
     if (platform === 'github') {
       try {
         execSync(`git push origin ${branch}`, { cwd: process.cwd() });
@@ -418,6 +423,8 @@ export class GitCommandsService {
         
         if (copied) {
           this.success('Copied to clipboard');
+        } else {
+          this.warning('Could not access clipboard. Install wl-clipboard, xclip, or xsel, or copy the description above.');
         }
 
         const createUrl = this.prGenerator.getPRCreateUrl(platform, baseBranch);

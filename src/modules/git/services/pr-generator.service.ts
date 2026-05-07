@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { MonorepoDetectorService } from './monorepo-detector.service';
@@ -27,6 +27,80 @@ export interface PRCreationResult {
   error?: string;
   description?: string;
   platform: 'github' | 'azure' | 'gitlab' | 'bitbucket' | 'unknown';
+}
+
+export interface ClipboardCommand {
+  command: string;
+  args: string[];
+}
+
+export interface ClipboardRunResult {
+  status?: number | null;
+  error?: unknown;
+}
+
+export type ClipboardRunner = (
+  command: string,
+  args: string[],
+  input: string,
+) => ClipboardRunResult;
+
+export function getClipboardCommands(
+  platform: NodeJS.Platform | string = process.platform,
+  env: Record<string, string | undefined> = process.env,
+): ClipboardCommand[] {
+  if (platform === 'darwin') {
+    return [{ command: 'pbcopy', args: [] }];
+  }
+
+  if (platform === 'win32') {
+    return [{ command: 'clip', args: [] }];
+  }
+
+  if (platform === 'linux') {
+    const commands: ClipboardCommand[] = [];
+
+    if (env.WAYLAND_DISPLAY) {
+      commands.push({ command: 'wl-copy', args: [] });
+    }
+
+    commands.push(
+      { command: 'xclip', args: ['-selection', 'clipboard'] },
+      { command: 'xsel', args: ['--clipboard', '--input'] },
+      { command: 'clip.exe', args: [] },
+    );
+
+    return commands;
+  }
+
+  return [];
+}
+
+export function copyTextToClipboard(
+  text: string,
+  options: {
+    platform?: NodeJS.Platform | string;
+    env?: Record<string, string | undefined>;
+    run?: ClipboardRunner;
+  } = {},
+): boolean {
+  const run: ClipboardRunner = options.run || ((command, args, input) => {
+    const result = spawnSync(command, args, {
+      input,
+      encoding: 'utf8',
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+    return { status: result.status, error: result.error };
+  });
+
+  for (const { command, args } of getClipboardCommands(options.platform, options.env)) {
+    const result = run(command, args, text);
+    if (!result.error && result.status === 0) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 @Injectable()
@@ -204,7 +278,7 @@ export class PrGeneratorService {
     if (platform !== 'github') {
       return {
         success: false,
-        error: `Automatic PR creation not supported for ${platform}. Description generated and copied to clipboard.`,
+        error: `Automatic PR creation not supported for ${platform}. Description generated for manual PR creation.`,
         description: this.formatPRForClipboard(title, description, baseBranch),
         platform,
       };
@@ -265,33 +339,7 @@ export class PrGeneratorService {
   }
 
   copyToClipboard(text: string): boolean {
-    try {
-      const platform = process.platform;
-      
-      if (platform === 'darwin') {
-        execSync(`echo ${JSON.stringify(text)} | pbcopy`);
-        return true;
-      } else if (platform === 'linux') {
-        try {
-          execSync(`echo ${JSON.stringify(text)} | xclip -selection clipboard`);
-          return true;
-        } catch {
-          try {
-            execSync(`echo ${JSON.stringify(text)} | xsel --clipboard --input`);
-            return true;
-          } catch {
-            return false;
-          }
-        }
-      } else if (platform === 'win32') {
-        execSync(`echo ${JSON.stringify(text)} | clip`);
-        return true;
-      }
-      
-      return false;
-    } catch {
-      return false;
-    }
+    return copyTextToClipboard(text);
   }
 
   formatPRForClipboard(_title: string, description: string, _baseBranch: string): string {

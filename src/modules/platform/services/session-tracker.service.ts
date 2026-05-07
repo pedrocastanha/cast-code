@@ -15,7 +15,7 @@ const ALLOWED_PAYLOAD_KEYS: Record<PlatformEventType, string[]> = {
   'agent.invoked': ['role', 'model'],
   'skill.used': ['name', 'source'],
   'command.run': ['command'],
-  'tokens.consumed': ['input', 'output', 'model', 'cost'],
+  'tokens.consumed': ['input', 'cachedInput', 'output', 'model', 'cost'],
   'session.ended': ['duration', 'totalTokens', 'totalCost'],
 };
 

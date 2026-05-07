@@ -43,6 +43,13 @@ const COMPACT_CHAT_SYSTEM_PROMPT = [
   'For capability questions, describe what you can help with without listing internal tools or agents.',
   'If the user asks for code, files, commands, or project work, ask them for the concrete task instead of pretending to inspect the project.',
 ].join(' ');
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cachedInput: number;
+}
+
 const DEEPAGENT_BUILTIN_TOOLS = new Set([
   'read_file', 'write_file', 'edit_file', 'glob', 'grep', 'ls',
   'write_todos', 'task',
@@ -64,6 +71,9 @@ export class DeepAgentService {
   private model: BaseChatModel | null = null;
   private messages: BaseMessage[] = [];
   private tokenCount = 0;
+  private cumulativeInputTokens = 0;
+  private cumulativeOutputTokens = 0;
+  private cumulativeCachedInputTokens = 0;
   private lastToolOutputs: { tool: string; output: string }[] = [];
 
   private cachedSystemPrompt: string = '';
@@ -589,6 +599,7 @@ export class DeepAgentService {
     let fullResponse = '';
     let interactionInputTokens = 0;
     let interactionOutputTokens = 0;
+    let interactionCachedInputTokens = 0;
     let hasExactUsage = false;
 
     try {
@@ -605,6 +616,7 @@ export class DeepAgentService {
           if (usage.input > 0 || usage.output > 0) {
             interactionInputTokens += usage.input;
             interactionOutputTokens += usage.output;
+            interactionCachedInputTokens += usage.cachedInput;
             hasExactUsage = true;
           }
         }
@@ -620,6 +632,7 @@ export class DeepAgentService {
         if (usage.input > 0 || usage.output > 0) {
           interactionInputTokens += usage.input;
           interactionOutputTokens += usage.output;
+          interactionCachedInputTokens += usage.cachedInput;
           hasExactUsage = true;
         }
       }
@@ -639,31 +652,66 @@ export class DeepAgentService {
     }
 
     this.tokenCount += interactionInputTokens + interactionOutputTokens;
+    this.cumulativeInputTokens += interactionInputTokens;
+    this.cumulativeOutputTokens += interactionOutputTokens;
+    this.cumulativeCachedInputTokens += interactionCachedInputTokens;
 
     if (hasExactUsage && (interactionInputTokens > 0 || interactionOutputTokens > 0)) {
       const modelName = (activeModel as any)?.modelName || (activeModel as any)?.model || 'unknown';
-      this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens);
+      this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens, interactionCachedInputTokens);
     }
-
-    const fmt = (n: number) => n.toLocaleString();
-    const prefix = hasExactUsage ? '' : '~';
-    yield `\n\x1b[2m  \u2500 in: ${prefix}${fmt(interactionInputTokens)} | out: ${prefix}${fmt(interactionOutputTokens)}\x1b[0m\n`;
   }
 
-  private extractUsage(output: any): { input: number; output: number } {
+  private extractUsage(output: any): TokenUsage {
     const usage = output?.usage_metadata
+      || output?.usageMetadata
       || output?.response_metadata?.usage
+      || output?.response_metadata?.usageMetadata
       || output?.response_metadata?.tokenUsage
-      || output?.additional_kwargs?.usage;
+      || output?.additional_kwargs?.usage
+      || output?.additional_kwargs?.usageMetadata;
 
     if (!usage) {
-      return { input: 0, output: 0 };
+      return { input: 0, output: 0, cachedInput: 0 };
     }
 
     return {
-      input: usage.input_tokens || usage.prompt_tokens || usage.promptTokens || usage.inputTokens || 0,
-      output: usage.output_tokens || usage.completion_tokens || usage.completionTokens || usage.outputTokens || 0,
+      input: usage.input_tokens
+        || usage.prompt_tokens
+        || usage.promptTokens
+        || usage.inputTokens
+        || usage.inputTokenCount
+        || usage.promptTokenCount
+        || 0,
+      output: usage.output_tokens
+        || usage.completion_tokens
+        || usage.completionTokens
+        || usage.outputTokens
+        || usage.outputTokenCount
+        || usage.candidatesTokenCount
+        || 0,
+      cachedInput: this.extractCachedInputTokens(usage),
     };
+  }
+
+  private extractCachedInputTokens(usage: any): number {
+    return usage.input_token_details?.cache_read
+      || usage.input_token_details?.cached_tokens
+      || usage.inputTokenDetails?.cacheRead
+      || usage.inputTokenDetails?.cachedTokens
+      || usage.input_tokens_details?.cached_tokens
+      || usage.inputTokensDetails?.cachedTokens
+      || usage.prompt_tokens_details?.cached_tokens
+      || usage.promptTokensDetails?.cachedTokens
+      || usage.cache_read_input_tokens
+      || usage.cacheReadInputTokens
+      || usage.prompt_cache_hit_tokens
+      || usage.promptCacheHitTokens
+      || usage.cached_tokens
+      || usage.cachedTokens
+      || usage.cached_content_token_count
+      || usage.cachedContentTokenCount
+      || 0;
   }
 
   private estimateTokens(text: string): number {
@@ -870,10 +918,15 @@ export class DeepAgentService {
       '',
       '## Plan Mode Workflow',
       '1. **enter_plan_mode** — signals you are planning',
-      '2. **Explore rapidly**: Use glob and grep efficiently to understand codebase',
+      '2. **Explore FIRST**: Use glob and grep to understand the codebase BEFORE asking anything',
       '3. **Design**: Create structured plan with specific file changes and order',
       '4. **exit_plan_mode** — present plan for approval',
       '5. **Execute immediately** after approval without asking for further confirmation',
+      '',
+      '## Critical: Explore Before Asking',
+      'NEVER ask the user clarifying questions before exploring the codebase.',
+      'Read the project structure, existing files, and patterns FIRST.',
+      'Only use ask_user_question if — AFTER exploring — there is still genuinely ambiguous information that cannot be inferred from the code.',
       '',
       '## Critical: Autonomous Execution',
       'AFTER the user approves your plan, you MUST:',
@@ -887,7 +940,6 @@ export class DeepAgentService {
       '- Specify WHAT changes and WHY for each file',
       '- Order by dependency (foundations first)',
       '- Include verification at the end',
-      '- Use ask_user_question ONLY to clarify requirements, not to ask for permission to execute',
       '',
     );
 
@@ -1032,7 +1084,7 @@ export class DeepAgentService {
       '| Test fails after your change | Analyze the failure and fix it |',
       '| Build fails | Read the error, fix the cause |',
       '| File you need doesn\'t exist | Search broader, check for alternatives |',
-      '| Task is ambiguous | ask_user_question BEFORE starting |',
+      '| Task is ambiguous | Explore codebase first, then ask_user_question if still unclear |',
       '| Task has multiple approaches | Briefly explain options, pick the best one |',
       '| Something could break | Use enter_plan_mode and verify |',
       '',
@@ -1422,6 +1474,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     let lastToolName = '';
     let interactionInputTokens = 0;
     let interactionOutputTokens = 0;
+    let interactionCachedInputTokens = 0;
     let leanResponseBuffer = '';
     const pendingToolInputs: { name: string; input: any }[] = [];
 
@@ -1455,8 +1508,10 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           const usage = output?.usage_metadata
             || output?.response_metadata?.usage;
           if (usage) {
-            interactionInputTokens += usage.input_tokens || usage.prompt_tokens || usage.promptTokens || 0;
-            interactionOutputTokens += usage.output_tokens || usage.completion_tokens || usage.completionTokens || 0;
+            const extracted = this.extractUsage(output);
+            interactionInputTokens += extracted.input;
+            interactionOutputTokens += extracted.output;
+            interactionCachedInputTokens += extracted.cachedInput;
           }
           const toolCalls = output?.tool_calls ?? output?.additional_kwargs?.tool_calls;
           if (Array.isArray(toolCalls)) {
@@ -1526,19 +1581,22 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     this.tokenCount += interactionInputTokens + interactionOutputTokens;
+    this.cumulativeInputTokens += interactionInputTokens;
+    this.cumulativeOutputTokens += interactionOutputTokens;
+    this.cumulativeCachedInputTokens += interactionCachedInputTokens;
 
     if (interactionInputTokens > 0 || interactionOutputTokens > 0) {
       const modelName = (this.model as any)?.modelName || (this.model as any)?.model || 'unknown';
-      this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens);
+      this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens, interactionCachedInputTokens);
     }
-
-    const fmt = (n: number) => n.toLocaleString();
-    yield `\n\x1b[2m  \u2500 in: ${fmt(interactionInputTokens)} | out: ${fmt(interactionOutputTokens)}\x1b[0m\n`;
   }
 
   clearHistory() {
     this.messages = [];
     this.tokenCount = 0;
+    this.cumulativeInputTokens = 0;
+    this.cumulativeOutputTokens = 0;
+    this.cumulativeCachedInputTokens = 0;
   }
 
   private extractTextFromModelContent(content: unknown): string {
@@ -1598,6 +1656,18 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
   getTokenCount(): number {
     return this.tokenCount;
+  }
+
+  getSessionTokenUsage(): TokenUsage {
+    return {
+      input: this.cumulativeInputTokens,
+      output: this.cumulativeOutputTokens,
+      cachedInput: this.cumulativeCachedInputTokens,
+    };
+  }
+
+  getLastInteractionTokens(): TokenUsage {
+    return this.getSessionTokenUsage();
   }
 
   getLastToolOutputs(): { tool: string; output: string }[] {

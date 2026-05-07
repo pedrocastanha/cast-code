@@ -46,6 +46,7 @@ export interface ISmartInput {
   beginExternalOutput?(): void;
   endExternalOutput?(): void;
   printExternal(text: string): void;
+  writeOutputLine(line: string): void;
   showPrompt(): void;
   enterPassiveMode(): void;
   exitPassiveMode(): void;
@@ -246,7 +247,7 @@ export class SmartInput implements ISmartInput {
   }
 
   refresh() {
-    if (this.isPaused || this.mode === 'question' || this.externalOutputActive) {
+    if (this.isPaused || this.mode === 'question' || this.mode === 'choice' || this.externalOutputActive) {
       return;
     }
     this.render();
@@ -281,6 +282,9 @@ export class SmartInput implements ISmartInput {
 
     this.clearRenderedBlock();
     process.stdout.write(text);
+    if (text.length > 0 && !text.endsWith('\n')) {
+      process.stdout.write('\r\n');
+    }
     this.render();
   }
 
@@ -662,9 +666,40 @@ export class SmartInput implements ISmartInput {
 
   private submitLine() {
     const line = this.buffer;
-
     this.clearSuggestions();
-    process.stdout.write('\r\n');
+
+    const termWidth = this.getTerminalWidth();
+    const inputRows = this.renderedInputRows;
+    const curRow = this.cursorRow;
+
+    if (curRow < inputRows - 1) {
+      process.stdout.write(`\x1b[${inputRows - 1 - curRow}B`);
+    }
+    if (inputRows > 1) {
+      process.stdout.write(`\x1b[${inputRows - 1}A`);
+    }
+    process.stdout.write('\r');
+
+    for (let i = 0; i < inputRows; i++) {
+      process.stdout.write('\x1b[2K');
+      if (i < inputRows - 1) process.stdout.write('\n');
+    }
+    if (inputRows > 1) {
+      process.stdout.write(`\x1b[${inputRows - 1}A`);
+    }
+    process.stdout.write('\r');
+
+    if (line.trim()) {
+      const display = ` ${line}`;
+      const padLen = Math.max(0, termWidth - display.length);
+      process.stdout.write(`\x1b[48;5;235m\x1b[38;5;250m${display}${' '.repeat(padLen)}\x1b[0m\r\n`);
+    } else {
+      process.stdout.write('\r\n');
+    }
+
+    this.renderedInputRows = 0;
+    this.renderedLines = 0;
+    this.cursorRow = 0;
 
     if (line.trim()) {
       this.history.unshift(line);
@@ -777,14 +812,31 @@ export class SmartInput implements ISmartInput {
     this.renderedLines = 0;
   }
 
+  writeOutputLine(line: string): void {
+    if (this.externalOutputActive || this.isPaused || this.mode === 'question') {
+      process.stdout.write(line + '\r\n');
+      return;
+    }
+    this.clearRenderedBlock();
+    process.stdout.write(line + '\r\n');
+    this.render();
+  }
+
   private render() {
     const write = (s: string) => process.stdout.write(s);
     const totalLength = this.promptLen + this.buffer.length;
-    const inputRows = this.countInputRows(totalLength);
-    const footerLines = this.getFooterLines();
+    const inputLines = this.buildInputLines();
+    const promptRows = inputLines.length;
+    const footerLines = this.suggestions.length > 0 ? [] : this.getFooterLines();
+    const inputRows = promptRows;
     this.clearRenderedBlock();
 
-    write(this.prompt + this.buffer);
+    for (let i = 0; i < inputLines.length; i++) {
+      write(inputLines[i]);
+      if (i < inputLines.length - 1) {
+        write('\r\n');
+      }
+    }
 
     write('\x1b[J');
 
@@ -859,6 +911,33 @@ export class SmartInput implements ISmartInput {
     this.cursorRow = targetRow;
   }
 
+  private buildInputLines(): string[] {
+    const width = this.getTerminalWidth();
+    const firstInputWidth = Math.max(0, width - this.promptLen);
+    const lines: string[] = [];
+    let offset = 0;
+
+    if (firstInputWidth > 0) {
+      const firstChunk = this.buffer.slice(0, firstInputWidth);
+      lines.push(this.prompt + firstChunk);
+      offset = firstChunk.length;
+    } else {
+      lines.push(this.prompt);
+    }
+
+    while (offset < this.buffer.length) {
+      lines.push(this.buffer.slice(offset, offset + width));
+      offset += width;
+    }
+
+    const totalLength = this.promptLen + this.buffer.length;
+    if (totalLength > 0 && totalLength % width === 0) {
+      lines.push('');
+    }
+
+    return lines;
+  }
+
   private clearSuggestions() {
     if (this.renderedLines > 0) {
       const width = this.getTerminalWidth();
@@ -896,10 +975,12 @@ export class SmartInput implements ISmartInput {
       `${Colors.dim}  ↑/↓ move · Enter select · number shortcuts · Ctrl+C cancel${Colors.reset}`,
     ];
 
+    let totalRows = 0;
     for (const line of lines) {
       process.stdout.write(`${line}\r\n`);
+      totalRows += this.countWrappedRows(line);
     }
-    this.choiceRenderedLines = lines.length;
+    this.choiceRenderedLines = totalRows;
   }
 
   private clearChoiceMenu() {
@@ -907,15 +988,16 @@ export class SmartInput implements ISmartInput {
       return;
     }
 
-    process.stdout.write(`\x1b[${this.choiceRenderedLines}A`);
-    for (let i = 0; i < this.choiceRenderedLines; i++) {
-      process.stdout.write('\x1b[K');
-      if (i < this.choiceRenderedLines - 1) {
+    const n = this.choiceRenderedLines;
+    process.stdout.write(`\x1b[${n}A`);
+    for (let i = 0; i < n; i++) {
+      process.stdout.write('\x1b[2K');
+      if (i < n - 1) {
         process.stdout.write('\n');
       }
     }
-    if (this.choiceRenderedLines > 1) {
-      process.stdout.write(`\x1b[${this.choiceRenderedLines - 1}A`);
+    if (n > 1) {
+      process.stdout.write(`\x1b[${n - 1}A`);
     }
     process.stdout.write('\r');
     this.choiceRenderedLines = 0;

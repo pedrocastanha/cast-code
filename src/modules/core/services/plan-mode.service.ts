@@ -1,4 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { execSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 
@@ -99,16 +102,16 @@ Reply ONLY with: YES or NO`;
   async generatePlan(userMessage: string, context?: string): Promise<Plan> {
     const llm = this.multiLlmService.createModel('planner');
     
-    const prompt = `Create a detailed plan for this request:
+    const prompt = `Create a detailed implementation plan for this request.
 
 **Request:** ${userMessage}
 
-${context ? `**Context:** ${context}\n` : ''}
+${context ? `**Project context (use this to derive accurate file paths and patterns):**\n${context}\n` : ''}
 
-Generate a step-by-step plan. Each step should:
+Generate a step-by-step plan grounded in the actual project structure above. Each step must:
 - Be atomic (one logical action)
-- Include specific files to modify
-- Have clear description
+- Reference REAL files from the project context, or new files that follow existing naming patterns
+- Have a clear description
 - Include estimated time (optional)
 
 **OUTPUT FORMAT:**
@@ -119,9 +122,7 @@ COMPLEXITY: <low|medium|high>
 STEPS:
 1. [Description] | Files: file1.ts, file2.ts | Time: 10min | Depends on: none
 2. [Description] | Files: file3.ts | Time: 15min | Depends on: 1
-3. [Description] | Files: file4.ts | Time: 5min | Depends on: 1,2
-
-Be specific about file paths and changes.`;
+3. [Description] | Files: file4.ts | Time: 5min | Depends on: 1,2`;
 
     const response = await llm.invoke([
       new SystemMessage('You are a senior software architect. Create clear, actionable plans.'),
@@ -130,6 +131,33 @@ Be specific about file paths and changes.`;
 
     const text = this.extractContent(response.content);
     return this.parsePlan(text, userMessage);
+  }
+
+  async gatherProjectContext(): Promise<string> {
+    const cwd = process.cwd();
+    const parts: string[] = [];
+
+    try {
+      const tree = execSync('find . -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/.next/*" -type f -name "*.ts" | head -60', {
+        cwd,
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim();
+      if (tree) parts.push(`Project TypeScript files:\n${tree}`);
+    } catch {}
+
+    const configFiles = ['package.json', 'tsconfig.json', 'nest-cli.json'];
+    for (const f of configFiles) {
+      const p = join(cwd, f);
+      if (existsSync(p)) {
+        try {
+          const content = readFileSync(p, 'utf8');
+          parts.push(`${f}:\n${content.slice(0, 800)}`);
+        } catch {}
+      }
+    }
+
+    return parts.length > 0 ? parts.join('\n\n') : '';
   }
 
   async generateClarifyingQuestions(userMessage: string): Promise<string[]> {

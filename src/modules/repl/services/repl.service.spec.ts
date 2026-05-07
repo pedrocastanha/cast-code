@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { ReplService } from './repl.service';
-import { visibleWidth } from '../../../ui/cast-design/cli-renderer';
+import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
 const buildReplService = (overrides: Record<string, any> = {}) => {
   const defaults = {
@@ -10,6 +10,8 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       reinitializeModel: async () => {},
       getTokenCount: () => 0,
       getMessageCount: () => 0,
+      getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+      getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
     },
     configService: {},
     configManager: { loadConfig: async () => {}, getModelConfig: () => undefined },
@@ -305,30 +307,28 @@ describe('ReplService', () => {
     }
   });
 
-  test('input footer exposes tokens, context percentage, model, and agent readiness', () => {
+  test('input footer exposes input, cached input, output, effort, and model', () => {
     const service = buildReplService({
       deepAgent: {
         initialize: async () => ({ toolCount: 0, projectPath: '' }),
         reinitializeModel: async () => {},
-        getTokenCount: () => 20_000,
-        getMessageCount: () => 12,
+        getSessionTokenUsage: () => ({ input: 20_000, output: 4_000, cachedInput: 6_000 }),
       },
       configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
       configManager: { getModelConfig: () => ({ provider: 'openai', model: 'gpt-4.1-mini' }) },
-      agentRegistry: { resolveAllAgents: () => [{}, {}, {}] },
     });
 
     const lines = (service as any).getInputFooterLines();
-    const combined = lines.join(' ');
+    const combined = stripAnsi(lines.join(' '));
 
     assert(lines.length >= 2, 'footer should render a divider and telemetry lines');
     assert.match(combined, /tokens/i);
-    assert.match(combined, /ctx/i);
-    assert.match(combined, /98\.1%/);
-    assert.match(combined, /livre/i);
+    assert.match(combined, /in 20k \[6k cached\]/i);
+    assert.match(combined, /out 4k/i);
+    assert.match(combined, /effort/i);
+    assert.match(combined, /balanced/i);
     assert.match(combined, /model/i);
-    assert.match(combined, /agents/i);
-    assert.match(combined, /3/);
+    assert.match(combined, /gpt-4\.1-mini/);
   });
 
   test('input footer wraps telemetry at separators on narrow terminals', () => {
@@ -340,18 +340,14 @@ describe('ReplService', () => {
         deepAgent: {
           initialize: async () => ({ toolCount: 0, projectPath: '' }),
           reinitializeModel: async () => {},
-          getTokenCount: () => 9300,
-          getMessageCount: () => 42,
+          getSessionTokenUsage: () => ({ input: 9300, output: 1200, cachedInput: 8000 }),
         },
         configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
         configManager: { getModelConfig: () => undefined },
-        agentRegistry: { resolveAllAgents: () => [{}, {}, {}, {}, {}, {}, {}] },
-        platformService: {
-          track: () => {},
-          close: async () => {},
-          getStatus: () => 'error',
-        },
       });
+      (service as any).isProcessing = true;
+      (service as any).spinnerLabel = 'Thinking';
+      (service as any).pendingLines = ['queued prompt'];
 
       const lines = (service as any).getInputFooterLines();
 
@@ -360,8 +356,10 @@ describe('ReplService', () => {
         lines.every((line: string) => visibleWidth(line) <= 56),
         `footer lines should fit terminal width: ${lines.join(' | ')}`,
       );
-      assert.match(lines.join(' '), /endpoint/i);
-      assert.match(lines.join(' '), /platform/i);
+      const combined = stripAnsi(lines.join(' '));
+      assert.match(combined, /queue/i);
+      assert.match(combined, /thinking/i);
+      assert.match(combined, /cached/i);
     } finally {
       if (originalColumns) {
         Object.defineProperty(process.stdout, 'columns', originalColumns);
@@ -369,16 +367,17 @@ describe('ReplService', () => {
     }
   });
 
-  test('handleMessage batches tiny response chunks without suspending the prompt', async () => {
+  test('handleMessage batches tiny response chunks in an external output block', async () => {
     const writes: string[] = [];
+    const outputLines: string[] = [];
     let beginExternalOutputCalls = 0;
     let endExternalOutputCalls = 0;
+    const originalWrite = process.stdout.write;
     const service = buildReplService({
       deepAgent: {
         initialize: async () => ({ toolCount: 0, projectPath: '' }),
         reinitializeModel: async () => {},
-        getTokenCount: () => 0,
-        getMessageCount: () => 0,
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
         chat: async function* () {
           yield 'O';
           yield 'l';
@@ -397,22 +396,30 @@ describe('ReplService', () => {
       planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
     });
 
-    (service as any).smartInput = {
-      refresh: () => {},
-      beginExternalOutput: () => { beginExternalOutputCalls += 1; },
-      endExternalOutput: () => { endExternalOutputCalls += 1; },
-      printExternal: (value: string) => writes.push(value),
-    };
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
 
-    await (service as any).handleMessage('oi');
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => { beginExternalOutputCalls += 1; },
+        endExternalOutput: () => { endExternalOutputCalls += 1; },
+        printExternal: (value: string) => writes.push(value),
+        writeOutputLine: (value: string) => outputLines.push(value),
+      };
 
-    assert(!writes.includes('O'), 'single-character text chunks should not be printed independently');
-    assert(!writes.includes('l'), 'single-character text chunks should not be printed independently');
-    assert(
-      writes.some((value) => value.includes('Olá!')),
-      'buffered text should be printed as readable phrases',
-    );
-    assert.equal(beginExternalOutputCalls, 0, 'response output should keep the prompt editable while streaming');
-    assert.equal(endExternalOutputCalls, 0, 'response output should not need to unlock the prompt after streaming');
+      await (service as any).handleMessage('oi');
+
+      assert(!writes.includes('O'), 'single-character text chunks should not be printed independently');
+      assert(!writes.includes('l'), 'single-character text chunks should not be printed independently');
+      assert.match(writes.join(''), /Olá! Como posso ajudar\?/);
+      assert.equal(beginExternalOutputCalls, 1, 'response text should enter an external output block once');
+      assert.equal(endExternalOutputCalls, 1, 'response text should leave the external output block once');
+      assert.equal(outputLines.length, 1, 'a separator should be written after the response block');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
   });
 });

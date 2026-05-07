@@ -3,11 +3,9 @@ import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
 import {
-  getProviderEndpointLabel,
   isRecommendedModelForPurpose,
   ProviderType,
 } from '../../config/types/config.types';
-import { getModelContextUsage } from '../../config/utils/model-context';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -91,8 +89,6 @@ export class ReplService {
     this.welcomeScreen.printWelcomeScreen({
       projectPath: initResult.projectPath || undefined,
       model: this.getModelDisplayName(),
-      endpointLabel: this.getDefaultEndpointLabel(),
-      modelProfile: this.getDefaultModelProfileLabel(),
       toolCount: initResult.toolCount,
       agentCount,
     });
@@ -137,7 +133,14 @@ export class ReplService {
       this.handleFileWritePrompt(filePath, diffPreview, isNew),
     );
 
+    process.stdout.write(this.buildSeparatorLine() + '\r\n');
     this.smartInput.start();
+  }
+
+  private buildSeparatorLine(): string {
+    const width = process.stdout.columns || 80;
+    const sepWidth = Math.max(24, Math.min(width - 4, 96));
+    return `${Colors.subtle}${'─'.repeat(sepWidth)}${Colors.reset}`;
   }
 
   private async handlePermissionPrompt(
@@ -148,38 +151,27 @@ export class ReplService {
     this.smartInput?.pause();
 
     try {
-      process.stdout.write('\r\n');
-      process.stdout.write(`  ${Colors.yellow}Permission required${Colors.reset}\r\n`);
-      process.stdout.write(`  ${Colors.dim}${'─'.repeat(40)}${Colors.reset}\r\n`);
-      process.stdout.write(`  ${Colors.dim}${command}${Colors.reset}\r\n`);
-      process.stdout.write('\r\n');
+      const isDangerous = dangerLevel === DangerLevel.DANGEROUS;
+      const iconColor = isDangerous ? Colors.red : Colors.yellow;
+      const cmd = command.length > 80 ? command.slice(0, 78) + '…' : command;
 
-      if (dangerLevel === DangerLevel.DANGEROUS) {
-        process.stdout.write(
-          `  ${Colors.red}Warning: this command is potentially dangerous${Colors.reset}\r\n\r\n`,
-        );
+      process.stdout.write('\r\n');
+      process.stdout.write(`  ${iconColor}${Icons.circle}${Colors.reset} ${Colors.dim}Shell${Colors.reset}  ${cmd}\r\n`);
+
+      if (isDangerous) {
+        process.stdout.write(`\r\n  ${Colors.red}⚠  Potentially dangerous — may cause irreversible changes${Colors.reset}\r\n`);
       }
 
+      process.stdout.write('\r\n');
+
       const choices = [
-        { key: 'allow-once', label: 'Allow once', description: 'Execute just this time' },
-        {
-          key: 'allow-session',
-          label: 'Allow for session',
-          description: 'Allow during this session',
-        },
-        ...(dangerLevel !== DangerLevel.DANGEROUS
-          ? [
-            {
-              key: 'allow-always',
-              label: 'Always allow',
-              description: 'Never ask again for this command',
-            },
-          ]
-          : []),
-        { key: 'deny', label: 'Deny', description: 'Do not execute' },
+        { key: 'allow-once', label: 'Yes', description: 'allow once' },
+        { key: 'allow-session', label: "Yes, don't ask again", description: 'for this session' },
+        ...(!isDangerous ? [{ key: 'allow-always', label: 'Yes, always allow', description: 'save rule' }] : []),
+        { key: 'deny', label: 'No', description: 'deny' },
       ] as const;
 
-      const choice = await this.smartInput!.askChoice('What do you want to do?', [...choices]);
+      const choice = await this.smartInput!.askChoice('Allow Cast to run this command?', [...choices]);
 
       switch (choice) {
       case 'allow-once':
@@ -207,33 +199,35 @@ export class ReplService {
         : filePath;
 
       process.stdout.write('\r\n');
-      process.stdout.write(`  ${Colors.yellow}${isNew ? 'Create' : 'Edit'} file${Colors.reset}  ${Colors.cyan}${rel}${Colors.reset}\r\n`);
-      process.stdout.write(`  ${Colors.dim}${'─'.repeat(50)}${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.cyan}${Icons.circle}${Colors.reset} ${Colors.dim}${isNew ? 'Create' : 'Write'}${Colors.reset}  ${Colors.cyan}${rel}${Colors.reset}\r\n`);
 
       if (!isNew && diffPreview) {
         const lines = diffPreview.split('\n');
-        for (const line of lines) {
-          const trimmed = line;
-          if (trimmed.startsWith('+')) {
-            process.stdout.write(`  ${Colors.green}${trimmed}${Colors.reset}\r\n`);
-          } else if (trimmed.startsWith('-')) {
-            process.stdout.write(`  ${Colors.red}${trimmed}${Colors.reset}\r\n`);
+        const visible = lines.slice(0, 20);
+        process.stdout.write('\r\n');
+        for (const line of visible) {
+          if (line.startsWith('+')) {
+            process.stdout.write(`  ${Colors.green}${line}${Colors.reset}\r\n`);
+          } else if (line.startsWith('-')) {
+            process.stdout.write(`  ${Colors.red}${line}${Colors.reset}\r\n`);
           } else {
-            process.stdout.write(`  ${Colors.dim}${trimmed}${Colors.reset}\r\n`);
+            process.stdout.write(`  ${Colors.dim}${line}${Colors.reset}\r\n`);
           }
         }
-        process.stdout.write('\r\n');
-      } else if (isNew) {
-        process.stdout.write(`  ${Colors.dim}(new file)${Colors.reset}\r\n\r\n`);
+        if (lines.length > 20) {
+          process.stdout.write(`  ${Colors.dim}… ${lines.length - 20} more lines${Colors.reset}\r\n`);
+        }
       }
 
+      process.stdout.write('\r\n');
+
       const choices = [
-        { key: 'yes', label: 'Allow', description: 'Apply this change' },
-        { key: 'session', label: 'Allow all', description: 'Allow all file changes this session' },
-        { key: 'no', label: 'Deny', description: 'Skip this change' },
+        { key: 'yes', label: 'Yes', description: 'apply change' },
+        { key: 'session', label: 'Yes, allow all', description: "don't ask again this session" },
+        { key: 'no', label: 'No', description: 'skip' },
       ] as const;
 
-      const choice = await this.smartInput!.askChoice('Apply change?', [...choices]);
+      const choice = await this.smartInput!.askChoice('Apply this change?', [...choices]);
 
       if (choice === 'session') {
         this.filesystemTools.setFileWriteHandler(() => Promise.resolve(true));
@@ -637,6 +631,8 @@ export class ReplService {
     this.abortController = new AbortController();
     this.smartInput?.refresh();
 
+    let separatorWritten = false;
+
     try {
       let messageToProcess = message;
 
@@ -678,10 +674,36 @@ export class ReplService {
       let firstChunk = true;
       let hasToolOutput = false;
       let textBuffer = '';
+      let inTextMode = false;
+
+      const startTextMode = () => {
+        if (!inTextMode) {
+          this.smartInput?.beginExternalOutput();
+          inTextMode = true;
+        }
+      };
+
+      const endTextMode = () => {
+        if (inTextMode) {
+          if (textBuffer) {
+            process.stdout.write(textBuffer);
+            textBuffer = '';
+          }
+          process.stdout.write('\r\n');
+          this.smartInput?.writeOutputLine(this.buildSeparatorLine());
+          separatorWritten = true;
+          this.smartInput?.endExternalOutput();
+          inTextMode = false;
+        }
+      };
 
       const flushTextBuffer = () => {
         if (!textBuffer) return;
-        this.writeInline(textBuffer);
+        if (inTextMode) {
+          process.stdout.write(textBuffer);
+        } else {
+          this.writeInline(textBuffer);
+        }
         textBuffer = '';
       };
 
@@ -718,6 +740,7 @@ export class ReplService {
         const isToolChunk = newLabel !== null;
 
         if (isToolChunk) {
+          endTextMode();
           flushTextBuffer();
           this.writeInline(chunk);
           if (firstChunk && !hasToolOutput) {
@@ -725,12 +748,14 @@ export class ReplService {
             hasToolOutput = true;
           }
         } else if (isMeta || isToolResultChunk(chunk)) {
+          endTextMode();
           flushTextBuffer();
           this.writeInline(chunk);
         } else {
           if (firstChunk) {
             this.stopSpinner();
             this.writeInline(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
+            startTextMode();
             firstChunk = false;
           }
           textBuffer += chunk;
@@ -741,8 +766,7 @@ export class ReplService {
       }
 
       if (!firstChunk) {
-        flushTextBuffer();
-        this.writeInline('\r\n');
+        endTextMode();
       } else {
         this.stopSpinner();
       }
@@ -755,6 +779,9 @@ export class ReplService {
     } finally {
       this.isProcessing = false;
       this.abortController = null;
+      if (!separatorWritten) {
+        this.smartInput?.writeOutputLine(this.buildSeparatorLine());
+      }
       this.startNextQueuedLine();
       this.smartInput?.refresh();
     }
@@ -762,25 +789,10 @@ export class ReplService {
 
   private async runInteractivePlanMode(userMessage: string): Promise<string | null> {
     process.stdout.write(`\r\n${Colors.cyan}${Colors.bold}📋 PLAN MODE${Colors.reset}\r\n`);
-    process.stdout.write(`${Colors.dim}Build plan first, execute after approval${Colors.reset}\r\n\r\n`);
+    process.stdout.write(`${Colors.dim}Exploring project, then building plan…${Colors.reset}\r\n\r\n`);
 
-    const clarifyingQuestions = await this.planMode.generateClarifyingQuestions(userMessage);
-    const answers: string[] = [];
-
-    if (clarifyingQuestions.length > 0) {
-      process.stdout.write(`${Colors.dim}I need a few quick clarifications:${Colors.reset}\r\n`);
-      for (let i = 0; i < clarifyingQuestions.length; i++) {
-        const q = clarifyingQuestions[i];
-        const answer = await this.smartInput!.question(`${Colors.yellow}Q${i + 1}:${Colors.reset} ${q} `);
-        if (answer.trim()) {
-          answers.push(`- ${q} => ${answer.trim()}`);
-        }
-      }
-      process.stdout.write('\r\n');
-    }
-
-    const context = answers.length > 0 ? `User clarifications:\n${answers.join('\n')}` : undefined;
-    let plan = await this.planMode.generatePlan(userMessage, context);
+    const projectContext = await this.planMode.gatherProjectContext();
+    let plan = await this.planMode.generatePlan(userMessage, projectContext);
 
     while (true) {
       process.stdout.write(this.planMode.formatPlanForDisplay(plan));
@@ -806,7 +818,7 @@ export class ReplService {
         continue;
       }
 
-      return this.buildPlanExecutionPrompt(userMessage, plan, answers);
+      return this.buildPlanExecutionPrompt(userMessage, plan, []);
     }
   }
 
@@ -913,17 +925,6 @@ export class ReplService {
     return `${modelConfig.provider}/${modelConfig.model}`;
   }
 
-  private getDefaultEndpointLabel(): string {
-    try {
-      const modelConfig = this.configManager.getModelConfig('default');
-      if (modelConfig) {
-        return getProviderEndpointLabel(modelConfig.provider);
-      }
-    } catch {
-    }
-    return this.configService.getProvider() === 'ollama' ? 'local runtime' : 'official api';
-  }
-
   private getDefaultModelConfig(): { provider: ProviderType; model: string } {
     try {
       const modelConfig = this.configManager.getModelConfig('default');
@@ -967,54 +968,44 @@ export class ReplService {
   }
 
   private getInputFooterLines(): string[] {
-    const tokens = this.deepAgent.getTokenCount();
-    const messages = this.deepAgent.getMessageCount();
-    const agents = this.agentRegistry.resolveAllAgents().length;
+    const usage = typeof (this.deepAgent as any).getSessionTokenUsage === 'function'
+      ? (this.deepAgent as any).getSessionTokenUsage()
+      : this.deepAgent.getLastInteractionTokens();
+    const inTok = usage.input || 0;
+    const outTok = usage.output || 0;
+    const cachedInTok = usage.cachedInput || 0;
     const terminalWidth = process.stdout.columns || 80;
-    const statusParts: string[] = [];
+    const parts: string[] = [];
 
     if (this.isProcessing && this.spinnerLabel) {
       const spinner = Icons.spinner[this.spinnerFrameIndex % Icons.spinner.length];
-      statusParts.push(
-        `${Colors.subtle}state${Colors.reset} ${Colors.cyan}${spinner}${Colors.reset} ${Colors.muted}${this.spinnerLabel.toLowerCase()}${Colors.reset}`,
+      parts.push(
+        `${Colors.subtle}${spinner}${Colors.reset} ${Colors.muted}${this.spinnerLabel.toLowerCase()}${Colors.reset}`,
       );
     }
 
     if (this.pendingLines.length > 0) {
-      statusParts.push(
+      parts.push(
         `${Colors.subtle}queue${Colors.reset} ${Colors.yellow}${this.pendingLines.length}${Colors.reset}`,
       );
     }
 
-    const left = [
-      ...statusParts,
-      `${Colors.subtle}tokens${Colors.reset} ${Colors.cyan}${this.formatCompactNumber(tokens)}${Colors.reset}`,
-      `${Colors.subtle}ctx${Colors.reset} ${Colors.cyan}${this.getContextFooterLabel(tokens, messages)}${Colors.reset}`,
+    const inputLabel = cachedInTok > 0
+      ? `${this.formatCompactNumber(inTok)} [${this.formatCompactNumber(cachedInTok)} cached]`
+      : this.formatCompactNumber(inTok);
+    const outputLabel = this.formatCompactNumber(outTok);
+
+    parts.push(
+      `${Colors.subtle}tokens${Colors.reset} ${Colors.cyan}in ${inputLabel}${Colors.reset}`,
+      `${Colors.subtle}out${Colors.reset} ${Colors.cyan}${outputLabel}${Colors.reset}`,
       `${Colors.subtle}effort${Colors.reset} ${Colors.accent}${this.getEffortLabel()}${Colors.reset}`,
       `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getModelDisplayName()}${Colors.reset}`,
-      `${Colors.subtle}endpoint${Colors.reset} ${Colors.cyan}${this.getDefaultEndpointLabel()}${Colors.reset}`,
-      `${Colors.subtle}agents${Colors.reset} ${Colors.yellow}${agents}${Colors.reset} ${Colors.muted}${this.isProcessing ? 'running' : 'ready'}${Colors.reset}`,
-    ];
-
-    const platformStatus = this.platformService.getStatus();
-    if (platformStatus !== 'disabled') {
-      left.push(`${Colors.subtle}platform${Colors.reset} ${platformStatus === 'online' ? Colors.green : Colors.yellow}${platformStatus}${Colors.reset}`);
-    }
+    );
 
     return [
       `${Colors.subtle}${'─'.repeat(Math.max(24, Math.min(terminalWidth - 4, 96)))}${Colors.reset}`,
-      ...this.wrapFooterParts(left, Math.max(24, terminalWidth - 1)),
+      ...this.wrapFooterParts(parts, Math.max(24, terminalWidth - 1)),
     ];
-  }
-
-  private getContextFooterLabel(tokens: number, messages: number): string {
-    const modelConfig = this.getDefaultModelConfig();
-    const usage = getModelContextUsage(modelConfig.provider, modelConfig.model, tokens);
-    if (!usage) {
-      return `${messages} msgs`;
-    }
-
-    return `${messages} msgs · ${usage.remainingPercentLabel} livre`;
   }
 
   private wrapFooterParts(parts: string[], maxWidth: number): string[] {

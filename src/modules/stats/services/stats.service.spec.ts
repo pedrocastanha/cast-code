@@ -8,11 +8,12 @@ describe('StatsService usage listener', () => {
     const events: Array<Record<string, unknown>> = [];
     service.setUsageListener((event) => events.push(event));
 
-    service.trackUsage('openai/gpt-4.1-mini', 100, 50);
+    service.trackUsage('openai/gpt-4.1-mini', 100, 50, 40);
 
     assert.equal(events.length, 1);
-    assert.deepEqual(Object.keys(events[0]).sort(), ['cost', 'input', 'model', 'output']);
+    assert.deepEqual(Object.keys(events[0]).sort(), ['cachedInput', 'cost', 'input', 'model', 'output']);
     assert.equal(events[0].input, 100);
+    assert.equal(events[0].cachedInput, 40);
     assert.equal(events[0].output, 50);
     assert.equal(events[0].model, 'gpt-4.1-mini');
   });
