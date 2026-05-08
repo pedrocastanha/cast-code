@@ -1259,6 +1259,28 @@ export class DeepAgentService {
       detail = input?.query ? ` "${String(input.query).slice(0, 80)}${String(input.query).length > 80 ? '...' : ''}"` : '';
       if (input?.topK) detail += ` topK=${input.topK}`;
       break;
+    case 'task': {
+      const agentName = input?.subagent_type || input?.agent || input?.name;
+      const description = input?.description || input?.task || input?.prompt;
+      detail = agentName ? ` agent ${agentName}` : '';
+      if (description) {
+        const text = String(description);
+        detail += ` "${text.slice(0, 80)}${text.length > 80 ? '...' : ''}"`;
+      }
+      break;
+    }
+    case 'list_skills':
+      detail = ' available';
+      break;
+    case 'read_skill':
+      detail = input?.name ? ` ${input.name}` : '';
+      break;
+    case 'list_agents':
+      detail = ' available';
+      break;
+    case 'cast_command':
+      detail = input?.command ? ` ${input.command}` : '';
+      break;
     case 'mcp_list_servers':
       detail = ' Listing MCP servers';
       break;

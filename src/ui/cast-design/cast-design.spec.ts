@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { CAST_COLORS, getCastCssVariables, getCastBaseCss, padVisible, stripAnsi, visibleWidth, wrapRow } from './index';
+import { CAST_COLORS, CAST_COMMANDS, getCastCssVariables, getCastBaseCss, padVisible, stripAnsi, visibleWidth, wrapRow } from './index';
 
 describe('cast design system', () => {
   test('exposes the approved cyberpunk token palette', () => {
@@ -36,5 +36,12 @@ describe('cast design system', () => {
 
     assert.equal(plain.length, 16);
     assert.match(plain, /^│ hello\s+ │$/);
+  });
+
+  test('quick command catalog points to the implemented agents command', () => {
+    const commandKeys: string[] = CAST_COMMANDS.map((command) => command.key);
+
+    assert(commandKeys.includes('/agents'));
+    assert(!commandKeys.includes('/agent'));
   });
 });

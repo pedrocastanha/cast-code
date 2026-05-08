@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -45,6 +45,52 @@ describe('FilesystemToolsService read_file', () => {
       assert.match(output, /binary file/i);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects absolute read paths outside the configured project root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cast-fs-root-'));
+    const outside = mkdtempSync(join(tmpdir(), 'cast-fs-outside-'));
+    const outsideFile = join(outside, 'secret.txt');
+    writeFileSync(outsideFile, 'do not read me');
+
+    try {
+      const service = new FilesystemToolsService();
+      service.setRootDir(root);
+      const readFile = service.getTools().find((tool) => tool.name === 'read_file');
+      assert(readFile);
+
+      const output = String(await readFile.invoke({ file_path: outsideFile }));
+
+      assert.match(output, /outside the project root/i);
+      assert.doesNotMatch(output, /do not read me/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects writes outside the configured project root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cast-fs-root-'));
+    const outside = mkdtempSync(join(tmpdir(), 'cast-fs-outside-'));
+    const outsideFile = join(outside, 'created.txt');
+
+    try {
+      const service = new FilesystemToolsService();
+      service.setRootDir(root);
+      const writeFile = service.getTools().find((tool) => tool.name === 'write_file');
+      assert(writeFile);
+
+      const output = String(await writeFile.invoke({
+        file_path: outsideFile,
+        content: 'do not write me',
+      }));
+
+      assert.match(output, /outside the project root/i);
+      assert.equal(existsSync(outsideFile), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 });

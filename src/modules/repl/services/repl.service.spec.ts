@@ -13,7 +13,10 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
       getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
     },
-    configService: {},
+    configService: {
+      getProvider: () => 'openai',
+      getModel: () => 'gpt-4.1-mini',
+    },
     configManager: { loadConfig: async () => {}, getModelConfig: () => undefined },
     mentionsService: {},
     mcpRegistry: {},
@@ -56,6 +59,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       getStatus: () => 'disabled',
     },
     platformCommands: { cmdLink: async () => false },
+    discoveryTools: { setCastCommandHandler: () => {} },
   };
 
   const deps = { ...defaults, ...overrides };
@@ -87,6 +91,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deps.filesystemTools as any,
     deps.platformService as any,
     deps.platformCommands as any,
+    deps.discoveryTools as any,
   );
 };
 
@@ -143,6 +148,92 @@ describe('ReplService', () => {
 
     assert.strictEqual(recorded.length, 1, 'cmdUnitTest should be invoked exactly once');
     assert.strictEqual(recorded[0], smartInputStub, 'cmdUnitTest receives the current smart input instance');
+  });
+
+  test('agent-triggered Cast command asks permission before routing to slash command', async () => {
+    const runGitCalls: string[] = [];
+    const choices: string[] = [];
+    const service = buildReplService({
+      gitCommands: {
+        runGit: (command: string) => { runGitCalls.push(command); },
+        cmdPr: async () => {},
+        cmdUnitTest: async () => {},
+        cmdReview: async () => {},
+        cmdFix: async () => {},
+        cmdIdent: async () => {},
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async (message: string) => {
+        choices.push(message);
+        return 'y';
+      },
+    };
+
+    const result = await (service as any).handleAgentCastCommand('/status');
+
+    assert.match(result, /executed/i);
+    assert.deepEqual(choices, ['Allow Cast to run /status?']);
+    assert.deepEqual(runGitCalls, ['git status']);
+  });
+
+  test('agent-triggered Cast command denial does not route the slash command', async () => {
+    const runGitCalls: string[] = [];
+    const service = buildReplService({
+      gitCommands: {
+        runGit: (command: string) => { runGitCalls.push(command); },
+        cmdPr: async () => {},
+        cmdUnitTest: async () => {},
+        cmdReview: async () => {},
+        cmdFix: async () => {},
+        cmdIdent: async () => {},
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async () => 'n',
+    };
+
+    const result = await (service as any).handleAgentCastCommand('/status');
+
+    assert.match(result, /denied/i);
+    assert.deepEqual(runGitCalls, []);
+  });
+
+  test('registers the agent Cast command handler during startup', async () => {
+    let registeredHandler: ((command: string) => Promise<string>) | null = null;
+    const service = buildReplService({
+      discoveryTools: {
+        setCastCommandHandler: (handler: (command: string) => Promise<string>) => {
+          registeredHandler = handler;
+        },
+      },
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+      },
+      agentRegistry: { resolveAllAgents: () => [] },
+      remoteServer: { onMessage: () => {} },
+      permissionService: { setPermissionHandler: () => {} },
+      filesystemTools: { setFileWriteHandler: () => {} },
+    });
+
+    const originalWrite = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    try {
+      await service.start();
+      assert(registeredHandler);
+    } finally {
+      service.stop();
+      process.stdin.pause();
+      process.stdout.write = originalWrite;
+    }
   });
 
   test('routes /link to platformCommands and refreshes the agent after a link', async () => {
@@ -418,6 +509,96 @@ describe('ReplService', () => {
       assert.equal(beginExternalOutputCalls, 1, 'response text should enter an external output block once');
       assert.equal(endExternalOutputCalls, 1, 'response text should leave the external output block once');
       assert.equal(outputLines.length, 1, 'a separator should be written after the response block');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('file write prompt treats cancellation as denied', async () => {
+    const originalWrite = process.stdout.write;
+    const writes: string[] = [];
+    const service = buildReplService({
+      filesystemTools: {
+        setFileWriteHandler: () => {},
+      },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        refresh: () => {},
+        pause: () => {},
+        resume: () => {},
+        askChoice: async (message: string) => {
+          assert.equal(message, 'Apply this change?');
+          return '';
+        },
+      };
+
+      const allowed = await (service as any).handleFileWritePrompt(
+        '/tmp/cast-write-target.txt',
+        '',
+        true,
+      );
+
+      assert.equal(allowed, false);
+      assert.match(writes.join(''), /Create/);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('interactive plan mode asks generated clarifying questions before approval', async () => {
+    const originalWrite = process.stdout.write;
+    const writes: string[] = [];
+    const questions: string[] = [];
+    let clarifyingCalls = 0;
+
+    const service = buildReplService({
+      planMode: {
+        gatherProjectContext: async () => 'Project files: src/a.ts',
+        generatePlan: async () => ({
+          title: 'Plan title',
+          overview: 'Plan overview',
+          complexity: 'medium',
+          shouldPlan: true,
+          steps: [
+            { id: 1, description: 'Update behavior', files: ['src/a.ts'] },
+          ],
+        }),
+        generateClarifyingQuestions: async () => {
+          clarifyingCalls += 1;
+          return ['Should this keep backward compatibility?'];
+        },
+        formatPlanForDisplay: () => 'formatted plan\n',
+      },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        askChoice: async () => 'a',
+        question: async (question: string) => {
+          questions.push(stripAnsi(question));
+          return 'Yes, keep it compatible.';
+        },
+      };
+
+      const prompt = await (service as any).runInteractivePlanMode('Improve plan mode');
+
+      assert.equal(clarifyingCalls, 1);
+      assert.deepEqual(questions, ['Should this keep backward compatibility? ']);
+      assert.match(prompt, /User clarifications:/);
+      assert.match(prompt, /Should this keep backward compatibility\? Yes, keep it compatible\./);
+      assert.match(writes.join(''), /PLAN MODE/);
     } finally {
       process.stdout.write = originalWrite;
     }

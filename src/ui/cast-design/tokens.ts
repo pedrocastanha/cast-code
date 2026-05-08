@@ -49,7 +49,7 @@ export const CAST_SPACING = {
 export const CAST_COMMANDS = [
   { key: '/help', description: 'Show all commands' },
   { key: '/init', description: 'Map project context' },
-  { key: '/agent', description: 'Spawn a new sub-agent' },
+  { key: '/agents', description: 'List and inspect sub-agents' },
   { key: '@file', description: 'Inject file into prompt' },
   { key: 'Tab', description: 'Accept suggestions' },
 ] as const;

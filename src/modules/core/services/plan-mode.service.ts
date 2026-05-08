@@ -26,6 +26,14 @@ export class PlanModeService {
   constructor(private readonly multiLlmService: MultiLlmService) {}
 
   async shouldEnterPlanMode(userMessage: string): Promise<{ shouldPlan: boolean; reason?: string }> {
+    const effort = typeof (this.multiLlmService as any).getCurrentEffortProfile === 'function'
+      ? (this.multiLlmService as any).getCurrentEffortProfile()
+      : null;
+
+    if (effort?.planning === 'off') {
+      return { shouldPlan: false, reason: 'Planning disabled by fast effort' };
+    }
+
     if (this.isClearSingleFileImplementationTask(userMessage)) {
       return { shouldPlan: false };
     }
@@ -39,6 +47,10 @@ export class PlanModeService {
     ];
 
     const complexityScore = indicators.filter(Boolean).length;
+
+    if (effort?.planning === 'prefer' && (complexityScore >= 1 || userMessage.length > 80)) {
+      return { shouldPlan: true, reason: `Planning preferred by ${effort.level} effort` };
+    }
     
     if (complexityScore >= 2) {
       return { shouldPlan: true, reason: 'Multiple files or complex changes detected' };

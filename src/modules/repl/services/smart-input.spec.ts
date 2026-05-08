@@ -143,4 +143,75 @@ describe('SmartInput choice menu', () => {
       }
     }
   });
+
+  test('accepts y/n shortcuts when choice keys match', async () => {
+    const input = buildInput();
+    const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const originalWrite = process.stdout.write;
+    const originalCi = process.env.CI;
+
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    delete process.env.CI;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+
+    try {
+      const selected = input.askChoice('Create plan?', [
+        { key: 'y', label: 'yes' },
+        { key: 'n', label: 'no' },
+      ]);
+
+      (input as any).handleData('n');
+
+      assert.equal(await selected, 'n');
+    } finally {
+      input.destroy();
+      process.stdin.pause();
+      process.stdout.write = originalWrite;
+      if (originalStdinTty) Object.defineProperty(process.stdin, 'isTTY', originalStdinTty);
+      if (originalStdoutTty) Object.defineProperty(process.stdout, 'isTTY', originalStdoutTty);
+      if (originalCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = originalCi;
+      }
+    }
+  });
+
+  test('q resolves as cancellation instead of a selectable command', async () => {
+    const input = buildInput();
+    const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const originalWrite = process.stdout.write;
+    const originalCi = process.env.CI;
+
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    delete process.env.CI;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+
+    try {
+      const selected = input.askChoice('Apply change?', [
+        { key: 'yes', label: 'Allow' },
+        { key: 'session', label: 'Allow all' },
+        { key: 'no', label: 'Deny' },
+      ]);
+
+      (input as any).handleData('q');
+
+      assert.equal(await selected, '');
+    } finally {
+      input.destroy();
+      process.stdin.pause();
+      process.stdout.write = originalWrite;
+      if (originalStdinTty) Object.defineProperty(process.stdin, 'isTTY', originalStdinTty);
+      if (originalStdoutTty) Object.defineProperty(process.stdout, 'isTTY', originalStdoutTty);
+      if (originalCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = originalCi;
+      }
+    }
+  });
 });

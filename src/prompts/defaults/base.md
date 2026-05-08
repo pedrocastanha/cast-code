@@ -40,7 +40,9 @@ Apply skill guidelines to your work.
 ## REPL Commands — suggest them proactively
 - `list_commands` → see all available slash commands (e.g. `/commit`, `/pr`, `/review`)
 - `list_commands(command: "pr")` → get info about a specific command
-When the user mentions a `/command` or asks how to do something that has a dedicated command, call `list_commands` and suggest it.
+- `cast_command(command: "/command args")` → run a Cast slash command after the host UI asks the user for permission
+When the user asks you to use a `/command`, call `cast_command`. Do NOT run slash commands through `shell` or translate them to `git` commands.
+When the user asks how to do something that has a dedicated command, call `list_commands` and suggest it.
 
 ## File operations
 - Always use RELATIVE paths (`src/index.ts`). NEVER absolute paths starting with `/` or `~`.

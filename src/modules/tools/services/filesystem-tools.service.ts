@@ -36,7 +36,7 @@ export class FilesystemToolsService {
   }
 
   setRootDir(dir: string): void {
-    this.rootDir = dir;
+    this.rootDir = path.resolve(dir);
   }
 
   clearSession(): void {
@@ -65,6 +65,22 @@ export class FilesystemToolsService {
       if (first !== undefined) readFiles.delete(first);
     }
     readFiles.add(filePath);
+  }
+
+  private resolveInsideRoot(targetPath: string): { ok: true; path: string } | { ok: false; error: string } {
+    const root = path.resolve(this.rootDir);
+    const resolved = path.isAbsolute(targetPath)
+      ? path.resolve(targetPath)
+      : path.resolve(root, targetPath);
+
+    if (resolved === root || resolved.startsWith(root + path.sep)) {
+      return { ok: true, path: resolved };
+    }
+
+    return {
+      ok: false,
+      error: `Error: Path "${targetPath}" resolves outside the project root (${root}). Use a relative path inside the working directory.`,
+    };
   }
 
   private buildTools(readFiles: Set<string>) {
@@ -98,9 +114,11 @@ export class FilesystemToolsService {
             return 'Error: file_path is required';
           }
 
-          const resolvedPath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(this.rootDir, filePath);
+          const resolved = this.resolveInsideRoot(filePath);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           try {
             const stat = await fs.stat(resolvedPath);
@@ -207,9 +225,11 @@ export class FilesystemToolsService {
             return 'Error: file_path and content are required';
           }
 
-          const resolvedPath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(this.rootDir, filePath);
+          const resolved = this.resolveInsideRoot(filePath);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           let fileExists = false;
           try {
@@ -272,9 +292,11 @@ export class FilesystemToolsService {
             return 'Error: file_path, old_string, and new_string are required';
           }
 
-          const resolvedPath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(this.rootDir, filePath);
+          const resolved = this.resolveInsideRoot(filePath);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           if (oldString === newString) {
             return 'Error: old_string and new_string are identical. No changes needed.';
@@ -351,9 +373,11 @@ export class FilesystemToolsService {
     return tool(
       async ({ pattern, cwd }) => {
         try {
-          const searchDir = cwd
-            ? (path.isAbsolute(cwd) ? cwd : path.resolve(this.rootDir, cwd))
-            : this.rootDir;
+          const resolved = this.resolveInsideRoot(cwd || '.');
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const searchDir = resolved.path;
 
           const files = await glob(pattern, {
             cwd: searchDir,
@@ -417,7 +441,11 @@ export class FilesystemToolsService {
             return 'Error: pattern is required';
           }
 
-          const baseDir = searchPath || this.rootDir;
+          const resolvedSearch = this.resolveInsideRoot(searchPath || '.');
+          if (!resolvedSearch.ok) {
+            return resolvedSearch.error;
+          }
+          const baseDir = resolvedSearch.path;
           const files = await glob(filePattern || '**/*', {
             cwd: baseDir,
             nodir: true,
@@ -571,9 +599,11 @@ export class FilesystemToolsService {
           const directory =
             (input as any).directory || (input as any).path || this.rootDir;
 
-          const resolvedPath = path.isAbsolute(directory)
-            ? directory
-            : path.resolve(this.rootDir, directory);
+          const resolved = this.resolveInsideRoot(directory);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
 

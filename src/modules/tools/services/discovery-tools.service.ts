@@ -6,6 +6,8 @@ import { SkillLoaderService } from '../../skills/services/skill-loader.service';
 import { VaultService } from '../../vault/services/vault.service';
 import { ImpactAnalysisService } from './impact-analysis.service';
 
+type CastCommandHandler = (command: string) => Promise<string> | string;
+
 /**
  * Extract up to `max` meaningful bullet points from markdown content.
  * Scans for list items (lines starting with "- " or "* " or "N. ") and
@@ -32,12 +34,18 @@ function extractBulletPoints(content: string, max = 3): string[] {
 
 @Injectable()
 export class DiscoveryToolsService {
+  private castCommandHandler: CastCommandHandler | null = null;
+
   constructor(
     private readonly agentLoader: AgentLoaderService,
     private readonly skillLoader: SkillLoaderService,
     private readonly vaultService: VaultService,
     private readonly impactAnalysisService: ImpactAnalysisService,
   ) {}
+
+  setCastCommandHandler(handler: CastCommandHandler): void {
+    this.castCommandHandler = handler;
+  }
 
   getTools() {
     return [
@@ -47,6 +55,7 @@ export class DiscoveryToolsService {
       this.createSaveSnippetTool(),
       this.createAnalyzeImpactTool(),
       this.createListCommandsTool(),
+      this.createCastCommandTool(),
     ];
   }
 
@@ -265,7 +274,7 @@ export class DiscoveryToolsService {
           return `### ${s.section}\n${rows}`;
         });
 
-        return `## REPL Commands\n\n${sections.join('\n\n')}`;
+        return `## REPL Commands\n\n${sections.join('\n\n')}\n\nUse cast_command(command: "/command args") to run a Cast slash command after explicit user permission. Do not run slash commands through shell.`;
       },
       {
         name: 'list_commands',
@@ -273,6 +282,44 @@ export class DiscoveryToolsService {
           'List available REPL slash commands (e.g. /commit, /pr, /review, /kanban). Call this when the user mentions a /command or asks what commands are available in cast. Optionally pass a command name to get info about a specific one.',
         schema: z.object({
           command: z.string().optional().describe('Specific command to look up, e.g. "pr" or "/commit". Omit to list all.'),
+        }),
+      },
+    );
+  }
+
+  private createCastCommandTool() {
+    return tool(
+      async (input: { command: string }) => {
+        const command = String(input.command || '').trim();
+
+        if (!command.startsWith('/')) {
+          return 'Error: cast_command only accepts Cast slash commands, such as "/status" or "/up". Do not pass shell commands.';
+        }
+
+        if (/[\r\n]/.test(command)) {
+          return 'Error: cast_command accepts exactly one slash command at a time.';
+        }
+
+        if (/^\/(?:exit|quit)\b/i.test(command)) {
+          return 'Error: /exit and /quit cannot be run by the agent. The user must exit Cast directly.';
+        }
+
+        if (!this.castCommandHandler) {
+          return 'Error: Cast command execution is not available in this context.';
+        }
+
+        try {
+          return await this.castCommandHandler(command);
+        } catch (error) {
+          return `Error running Cast command: ${(error as Error).message}`;
+        }
+      },
+      {
+        name: 'cast_command',
+        description:
+          'Run a Cast REPL slash command such as /status, /diff, /up, /pr, /review, /agents, or /skills. The host UI always asks the user for permission before executing. Use this instead of shell when the user mentions a Cast /command.',
+        schema: z.object({
+          command: z.string().describe('The Cast slash command to run, including arguments, e.g. "/up" or "/review src/app.ts".'),
         }),
       },
     );

@@ -410,4 +410,38 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     assert.doesNotMatch(response, /Quer que eu implemente/i);
     assert.doesNotMatch(response, /\?$/);
   });
+
+  test('tool start output names delegated sub-agents with task description', () => {
+    const service = buildService();
+
+    const output = (service as any).formatToolStart('task', {
+      subagent_type: 'reviewer',
+      description: 'Review plan-mode behavior',
+    });
+
+    assert.match(output, /agent reviewer/);
+    assert.match(output, /Review plan-mode behavior/);
+    assert.doesNotMatch(output, /subagent_type=reviewer/);
+  });
+
+  test('tool start output uses readable labels for skill discovery tools', () => {
+    const service = buildService();
+
+    assert.match(
+      (service as any).formatToolStart('list_skills', {}),
+      /list skills/,
+    );
+    assert.match(
+      (service as any).formatToolStart('read_skill', { name: 'planning' }),
+      /planning/,
+    );
+    assert.match(
+      (service as any).formatToolStart('list_agents', {}),
+      /list agents/,
+    );
+    assert.match(
+      (service as any).formatToolStart('cast_command', { command: '/up' }),
+      /\/up/,
+    );
+  });
 });

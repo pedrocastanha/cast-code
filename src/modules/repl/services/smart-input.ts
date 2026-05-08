@@ -392,7 +392,7 @@ export class SmartInput implements ISmartInput {
       }
 
       if (data[i] === 'q') {
-        this.resolveChoice('q');
+        this.resolveChoice('');
         return;
       }
 
@@ -400,6 +400,25 @@ export class SmartInput implements ISmartInput {
       if (Number.isInteger(numeric) && numeric >= 1 && numeric <= this.choiceOptions.length) {
         this.resolveChoice(this.choiceOptions[numeric - 1].key);
         return;
+      }
+
+      if (code >= 0x20) {
+        const shortcut = data[i].toLowerCase();
+        const exactKey = this.choiceOptions.find((choice) =>
+          choice.key.length === 1 && choice.key.toLowerCase() === shortcut,
+        );
+        if (exactKey) {
+          this.resolveChoice(exactKey.key);
+          return;
+        }
+
+        const labelMatch = this.choiceOptions.find((choice) =>
+          choice.label.trim().toLowerCase().startsWith(shortcut),
+        );
+        if (labelMatch) {
+          this.resolveChoice(labelMatch.key);
+          return;
+        }
       }
 
       i++;

@@ -26,6 +26,7 @@ import { VaultCommandsService } from './commands/vault-commands.service';
 import { PlatformCommandsService } from './commands/platform-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { FilesystemToolsService } from '../../tools/services/filesystem-tools.service';
+import { DiscoveryToolsService } from '../../tools/services/discovery-tools.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
 import { RemoteServerService } from '../../remote/services/remote-server.service';
 import { PermissionService } from '../../permissions/services/permission.service';
@@ -78,6 +79,7 @@ export class ReplService {
     private readonly filesystemTools: FilesystemToolsService,
     private readonly platformService: PlatformService,
     private readonly platformCommands: PlatformCommandsService,
+    private readonly discoveryTools?: DiscoveryToolsService,
   ) { }
 
   async start(): Promise<void> {
@@ -131,6 +133,9 @@ export class ReplService {
 
     this.filesystemTools.setFileWriteHandler((filePath, diffPreview, isNew) =>
       this.handleFileWritePrompt(filePath, diffPreview, isNew),
+    );
+    this.discoveryTools?.setCastCommandHandler((command) =>
+      this.handleAgentCastCommand(command),
     );
 
     process.stdout.write(this.buildSeparatorLine() + '\r\n');
@@ -233,7 +238,45 @@ export class ReplService {
         this.filesystemTools.setFileWriteHandler(() => Promise.resolve(true));
       }
 
-      return choice !== 'no';
+      return choice === 'yes' || choice === 'session';
+    } finally {
+      this.smartInput?.resume();
+    }
+  }
+
+  private async handleAgentCastCommand(command: string): Promise<string> {
+    const normalized = command.trim();
+
+    if (!normalized.startsWith('/') || /[\r\n]/.test(normalized)) {
+      return 'Cast command rejected: expected one slash command, such as /status.';
+    }
+
+    if (/^\/(?:exit|quit)\b/i.test(normalized)) {
+      return 'Cast command rejected: /exit and /quit must be run directly by the user.';
+    }
+
+    if (!this.smartInput) {
+      return 'Cast command rejected: interactive input is not available.';
+    }
+
+    this.stopSpinner();
+    this.smartInput.pause();
+
+    try {
+      process.stdout.write('\r\n');
+      process.stdout.write(`  ${Colors.cyan}${Icons.circle}${Colors.reset} ${Colors.dim}Cast command${Colors.reset}  ${Colors.cyan}${normalized}${Colors.reset}\r\n\r\n`);
+
+      const choice = await this.smartInput.askChoice(`Allow Cast to run ${normalized}?`, [
+        { key: 'y', label: 'Yes', description: 'run command' },
+        { key: 'n', label: 'No', description: 'deny' },
+      ]);
+
+      if (choice !== 'y') {
+        return `Cast command denied by user: ${normalized}`;
+      }
+
+      await this.handleCommand(normalized);
+      return `Cast command executed: ${normalized}`;
     } finally {
       this.smartInput?.resume();
     }
@@ -646,6 +689,12 @@ export class ReplService {
           ]
         );
 
+        if (!usePlan) {
+          this.isProcessing = false;
+          this.smartInput?.refresh();
+          return;
+        }
+
         if (usePlan === 'y') {
           const plannedMessage = await this.runInteractivePlanMode(message);
           if (!plannedMessage) {
@@ -717,6 +766,7 @@ export class ReplService {
         if (chunk.includes('▶ web fetch') || chunk.includes('▶ web_fetch')) return 'Fetching';
         if (chunk.includes('▶ rag search') || chunk.includes('▶ rag_search')) return 'RAG';
         if (chunk.includes('▶ memory')) return 'Memory';
+        if (chunk.includes('▶ cast command') || chunk.includes('▶ cast_command')) return 'Cast command';
         if (chunk.includes('▶ task')) return 'Tasks';
         if (chunk.includes('▶')) return 'Working';
         return null;
@@ -792,7 +842,20 @@ export class ReplService {
     process.stdout.write(`${Colors.dim}Exploring project, then building plan…${Colors.reset}\r\n\r\n`);
 
     const projectContext = await this.planMode.gatherProjectContext();
-    let plan = await this.planMode.generatePlan(userMessage, projectContext);
+    const clarifications: string[] = [];
+    const questions = await this.planMode.generateClarifyingQuestions(userMessage);
+
+    for (const question of questions) {
+      const answer = await this.smartInput!.question(`${Colors.cyan}${question}${Colors.reset} `);
+      if (answer.trim()) {
+        clarifications.push(`${question} ${answer.trim()}`);
+      }
+    }
+
+    const planningContext = clarifications.length > 0
+      ? `${projectContext}\n\nUser clarifications:\n${clarifications.join('\n')}`
+      : projectContext;
+    let plan = await this.planMode.generatePlan(userMessage, planningContext);
 
     while (true) {
       process.stdout.write(this.planMode.formatPlanForDisplay(plan));
@@ -803,7 +866,7 @@ export class ReplService {
         { key: 'c', label: 'cancel', description: 'Cancel and return to prompt' },
       ]);
 
-      if (action === 'c') {
+      if (!action || action === 'c') {
         process.stdout.write(`${Colors.dim}  Plan cancelled${Colors.reset}\r\n\r\n`);
         return null;
       }
@@ -818,7 +881,7 @@ export class ReplService {
         continue;
       }
 
-      return this.buildPlanExecutionPrompt(userMessage, plan, []);
+      return this.buildPlanExecutionPrompt(userMessage, plan, clarifications);
     }
   }
 

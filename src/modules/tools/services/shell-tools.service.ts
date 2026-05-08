@@ -29,7 +29,23 @@ export class ShellToolsService {
   constructor(private permissionService: PermissionService) {}
 
   setRootDir(dir: string): void {
-    this.rootDir = dir;
+    this.rootDir = path.resolve(dir);
+  }
+
+  private resolveWorkingDirectory(cwd?: string): { ok: true; cwd: string } | { ok: false; error: string } {
+    const root = path.resolve(this.rootDir);
+    const resolved = cwd
+      ? (path.isAbsolute(cwd) ? path.resolve(cwd) : path.resolve(root, cwd))
+      : root;
+
+    if (resolved === root || resolved.startsWith(root + path.sep)) {
+      return { ok: true, cwd: resolved };
+    }
+
+    return {
+      ok: false,
+      error: `Error: cwd "${cwd}" resolves outside the project root (${root}). Use a relative working directory inside the project.`,
+    };
   }
 
   private buildTools(state: ShellSessionState) {
@@ -58,6 +74,11 @@ export class ShellToolsService {
   private createShellTool() {
     return tool(
       async ({ command, cwd, timeout }) => {
+        const resolvedCwd = this.resolveWorkingDirectory(cwd);
+        if (!resolvedCwd.ok) {
+          return resolvedCwd.error;
+        }
+
         const allowed = await this.permissionService.checkPermission(command);
 
         if (!allowed) {
@@ -66,7 +87,7 @@ export class ShellToolsService {
 
         try {
           const { stdout, stderr } = await execAsync(command, {
-            cwd: cwd || this.rootDir,
+            cwd: resolvedCwd.cwd,
             timeout: timeout || 120000, // Default 2min, max 10min
             maxBuffer: 10 * 1024 * 1024,
           });
@@ -111,6 +132,11 @@ export class ShellToolsService {
   private createBackgroundShellTool(state: ShellSessionState) {
     return tool(
       async ({ command, cwd }) => {
+        const resolvedCwd = this.resolveWorkingDirectory(cwd);
+        if (!resolvedCwd.ok) {
+          return resolvedCwd.error;
+        }
+
         const allowed = await this.permissionService.checkPermission(command);
 
         if (!allowed) {
@@ -124,7 +150,7 @@ export class ShellToolsService {
           const logFd = require('fs').openSync(outputFile, 'w');
 
           const child = spawn(command, {
-            cwd: cwd || this.rootDir,
+            cwd: resolvedCwd.cwd,
             shell: true,
             detached: true,
             stdio: ['ignore', logFd, logFd],
