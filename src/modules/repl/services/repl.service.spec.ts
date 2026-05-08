@@ -193,9 +193,38 @@ describe('ReplService', () => {
       (service as any).handleAgentCastCommand('/status'),
     );
 
-    assert.match(result, /executed/i);
+    assert.match(result, /finished/i);
     assert.deepEqual(choices, ['Run this Cast command?']);
     assert.deepEqual(runGitCalls, ['git status']);
+  });
+
+  test('agent-triggered Cast command returns the command output to the agent', async () => {
+    const service = buildReplService({
+      gitCommands: {
+        runGit: () => {},
+        cmdPr: async () => {
+          process.stdout.write('\r\n  ! No commits found between feat/cast-platform and main\r\n');
+        },
+        cmdUnitTest: async () => {},
+        cmdReview: async () => {},
+        cmdFix: async () => {},
+        cmdIdent: async () => {},
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async () => 'y',
+      question: async () => '',
+    };
+
+    const { result } = await captureStdoutAsync<string>(() =>
+      (service as any).handleAgentCastCommand('/pr main'),
+    );
+
+    assert.match(result, /Cast command finished: \/pr main/);
+    assert.match(result, /No commits found between feat\/cast-platform and main/);
   });
 
   test('agent-triggered Cast command renders a permission panel with command context', async () => {
@@ -217,8 +246,8 @@ describe('ReplService', () => {
     );
 
     const visibleOutput = stripAnsi(output);
-    assert.match(visibleOutput, /Cast Command agent request/);
-    assert.match(visibleOutput, /Command\s+\/up/);
+    assert.match(visibleOutput, /Cast command\s+\/up/);
+    assert.match(visibleOutput, /Action\s+Commit and push current changes/);
     assert.match(visibleOutput, /Approval\s+required/);
     assert.deepEqual(choicePrompts, ['Run this Cast command?']);
   });
@@ -485,6 +514,25 @@ describe('ReplService', () => {
     assert.match(combined, /gpt-4\.1-mini/);
   });
 
+  test('input footer includes estimated session cost when available', () => {
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 20_000, output: 4_000, cachedInput: 6_000 }),
+      },
+      statsCommandsService: {
+        setDefaultModel: () => {},
+        cmdStats: () => {},
+        getSessionCostLabel: () => '$0.01',
+      },
+    });
+
+    const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
+
+    assert.match(combined, /cost \$0\.01/i);
+  });
+
   test('input footer wraps telemetry at separators on narrow terminals', () => {
     const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
     Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 56 });
@@ -625,6 +673,54 @@ describe('ReplService', () => {
       assert(finalTextIndex > beginIndex, 'final assistant response should be written inside external output mode');
       assert.equal(castHeaderPrint, undefined, 'assistant header should not be printed through prompt rendering');
       assert.equal(outputLines.length, 1, 'one final separator should be written after the response block');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('handleMessage keeps post-tool text outside the prompt after earlier assistant text', async () => {
+    const events: string[] = [];
+    const originalWrite = process.stdout.write;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* () {
+          yield 'Vou rodar o comando.';
+          yield '\n\x1b[2m  ▶ \x1b[0m\x1b[2m\x1b[38;5;45mcast command\x1b[0m\x1b[2m /pr main\x1b[0m\n';
+          yield '\x1b[2m    \x1b[32m✓\x1b[0m\x1b[2m Output returned to Cast\x1b[0m\n';
+          yield 'Nao criei a PR porque nao havia commits.';
+        },
+      },
+      mentionsService: {
+        processMessage: async (message: string) => ({ expandedMessage: message, mentions: [] }),
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        events.push(`stdout:${stripAnsi(String(chunk))}`);
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => { events.push('begin'); },
+        endExternalOutput: () => { events.push('end'); },
+        printExternal: (value: string) => events.push(`print:${stripAnsi(value)}`),
+        writeOutputLine: () => {},
+      };
+
+      await (service as any).handleMessage('usa /pr main');
+
+      const finalPrint = events.find((event) => event.startsWith('print:') && event.includes('Nao criei a PR'));
+      const finalStdout = events.find((event) => event.startsWith('stdout:') && event.includes('Nao criei a PR'));
+
+      assert.equal(finalPrint, undefined, 'post-tool assistant text should not be rendered through prompt printExternal');
+      assert(finalStdout, 'post-tool assistant text should be written in external output mode');
     } finally {
       process.stdout.write = originalWrite;
     }

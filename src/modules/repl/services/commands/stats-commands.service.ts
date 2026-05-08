@@ -13,6 +13,11 @@ export class StatsCommandsService {
     this.statsService.setDefaultModel(model);
   }
 
+  getSessionCostLabel(): string {
+    const session = this.statsService.getSessionStats();
+    return `$${session.estimatedCostUsd.toFixed(2)}`;
+  }
+
   cmdStats(): void {
     const session = this.statsService.getSessionStats();
     const today = this.statsService.getTodayStats();

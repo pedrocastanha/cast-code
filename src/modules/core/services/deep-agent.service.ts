@@ -1371,6 +1371,11 @@ export class DeepAgentService {
       const lines = output.split('\n').filter(l => l.trim());
       return rows(lines, 6, 140);
     }
+    case 'cast_command':
+      if (/denied/i.test(output)) {
+        return err('Cast command denied');
+      }
+      return ok('Output returned to Cast');
     default: {
       const lines = output.split('\n').filter(l => l.trim());
       return rows(lines, 4, 120);

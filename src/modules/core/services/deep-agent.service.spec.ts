@@ -444,4 +444,17 @@ describe('DeepAgentService system prompt engineering workflow', () => {
       /\/up/,
     );
   });
+
+  test('tool end output keeps Cast command results compact in the UI', () => {
+    const service = buildService();
+
+    const output = (service as any).formatToolEnd(
+      'cast_command',
+      'Cast command finished: /pr main\n\nOutput:\n! No commits found between feat/cast-platform and main',
+    );
+
+    assert.match(output, /output returned to Cast/i);
+    assert.doesNotMatch(output, /No commits found/);
+    assert.doesNotMatch(output, /executed/i);
+  });
 });

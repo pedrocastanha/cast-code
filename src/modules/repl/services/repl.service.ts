@@ -264,20 +264,10 @@ export class ReplService {
     this.smartInput.pause();
 
     try {
-      process.stdout.write(this.ui.panel({
-        title: 'Cast Command',
-        subtitle: 'agent request',
-        sections: [
-          {
-            rows: [
-              { label: 'Command', value: `${Colors.cyan}${normalized}${Colors.reset}` },
-              { label: 'Action', value: this.describeCastCommand(normalized) },
-              { label: 'Approval', value: `${Colors.warning}required${Colors.reset}` },
-            ],
-          },
-        ],
-        footer: 'Use arrows + Enter, or press y/n.',
-      }));
+      process.stdout.write('\r\n');
+      process.stdout.write(`  ${Colors.cyan}${Icons.circle}${Colors.reset} ${Colors.bold}Cast command${Colors.reset}  ${Colors.cyan}${normalized}${Colors.reset}\r\n`);
+      process.stdout.write(`    ${Colors.subtle}Action${Colors.reset}    ${this.describeCastCommand(normalized)}\r\n`);
+      process.stdout.write(`    ${Colors.subtle}Approval${Colors.reset}  ${Colors.warning}required${Colors.reset} ${Colors.subtle}(y/n or arrows)${Colors.reset}\r\n\r\n`);
 
       const choice = await this.smartInput.askChoice('Run this Cast command?', [
         { key: 'y', label: 'Yes', description: 'run command' },
@@ -290,8 +280,13 @@ export class ReplService {
       }
 
       process.stdout.write(`  ${Colors.cyan}Running${Colors.reset} ${Colors.cyan}${normalized}${Colors.reset}\r\n\r\n`);
-      await this.handleCommand(normalized);
-      return `Cast command executed: ${normalized}`;
+      const output = await this.captureVisibleOutput(() => this.handleCommand(normalized));
+      return [
+        `Cast command finished: ${normalized}`,
+        '',
+        'Output:',
+        output || '(no visible output)',
+      ].join('\n');
     } finally {
       if (shouldResumePrompt) {
         this.smartInput?.resume();
@@ -317,6 +312,36 @@ export class ReplService {
       tools: 'List available tools',
     };
     return descriptions[cmd] || 'Run an existing Cast slash command';
+  }
+
+  private async captureVisibleOutput(action: () => Promise<void>): Promise<string> {
+    const previousWrite = process.stdout.write;
+    let captured = '';
+
+    process.stdout.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean => {
+      if (typeof chunk === 'string') {
+        captured += chunk;
+      } else if (Buffer.isBuffer(chunk)) {
+        captured += chunk.toString();
+      } else if (chunk instanceof Uint8Array) {
+        captured += Buffer.from(chunk).toString();
+      }
+      return previousWrite.call(process.stdout, chunk as any, encoding as any, cb as any);
+    }) as typeof process.stdout.write;
+
+    try {
+      await action();
+    } finally {
+      process.stdout.write = previousWrite;
+    }
+
+    return stripAnsi(captured)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .join('\n')
+      .trim();
   }
 
   private getCommandSuggestions(input: string): Array<{ text: string; display: string; description: string }> {
@@ -759,13 +784,17 @@ export class ReplService {
 
       let firstChunk = true;
       let hasToolOutput = false;
+      let hasAssistantHeader = false;
       let textBuffer = '';
       let inTextMode = false;
 
       const startTextMode = () => {
         if (!inTextMode) {
           this.smartInput?.beginExternalOutput();
-          process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
+          if (!hasAssistantHeader) {
+            process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
+            hasAssistantHeader = true;
+          }
           inTextMode = true;
         }
       };
@@ -843,9 +872,9 @@ export class ReplService {
         } else {
           if (firstChunk) {
             this.stopSpinner();
-            startTextMode();
             firstChunk = false;
           }
+          startTextMode();
           textBuffer += chunk;
           if (this.shouldFlushStreamText(textBuffer)) {
             flushTextBuffer();
@@ -1095,10 +1124,14 @@ export class ReplService {
       ? `${this.formatCompactNumber(inTok)} [${this.formatCompactNumber(cachedInTok)} cached]`
       : this.formatCompactNumber(inTok);
     const outputLabel = this.formatCompactNumber(outTok);
+    const costLabel = typeof (this.statsCommandsService as any).getSessionCostLabel === 'function'
+      ? (this.statsCommandsService as any).getSessionCostLabel()
+      : '';
 
     parts.push(
       `${Colors.subtle}tokens${Colors.reset} ${Colors.cyan}in ${inputLabel}${Colors.reset}`,
       `${Colors.subtle}out${Colors.reset} ${Colors.cyan}${outputLabel}${Colors.reset}`,
+      ...(costLabel ? [`${Colors.subtle}cost${Colors.reset} ${Colors.success}${costLabel}${Colors.reset}`] : []),
       `${Colors.subtle}effort${Colors.reset} ${Colors.accent}${this.getEffortLabel()}${Colors.reset}`,
       `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getModelDisplayName()}${Colors.reset}`,
     );
