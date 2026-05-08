@@ -209,6 +209,7 @@ export class SmartInput implements ISmartInput {
       process.stdin.removeListener('data', this.dataHandler);
     }
     this.setRawMode(false);
+    this.clearRenderedBlock();
     this.clearSuggestions();
     process.stdout.write('\r\n');
   }

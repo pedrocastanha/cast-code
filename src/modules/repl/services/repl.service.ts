@@ -38,7 +38,7 @@ import {
 import { Colors, Icons } from '../utils/theme';
 import { PlatformService } from '../../platform/services/platform.service';
 import { CommandUiService } from './command-ui.service';
-import { visibleWidth } from '../../../ui/cast-design/cli-renderer';
+import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
 @Injectable()
 export class ReplService {
@@ -259,27 +259,64 @@ export class ReplService {
       return 'Cast command rejected: interactive input is not available.';
     }
 
+    const shouldResumePrompt = !this.isProcessing;
     this.stopSpinner();
     this.smartInput.pause();
 
     try {
-      process.stdout.write('\r\n');
-      process.stdout.write(`  ${Colors.cyan}${Icons.circle}${Colors.reset} ${Colors.dim}Cast command${Colors.reset}  ${Colors.cyan}${normalized}${Colors.reset}\r\n\r\n`);
+      process.stdout.write(this.ui.panel({
+        title: 'Cast Command',
+        subtitle: 'agent request',
+        sections: [
+          {
+            rows: [
+              { label: 'Command', value: `${Colors.cyan}${normalized}${Colors.reset}` },
+              { label: 'Action', value: this.describeCastCommand(normalized) },
+              { label: 'Approval', value: `${Colors.warning}required${Colors.reset}` },
+            ],
+          },
+        ],
+        footer: 'Use arrows + Enter, or press y/n.',
+      }));
 
-      const choice = await this.smartInput.askChoice(`Allow Cast to run ${normalized}?`, [
+      const choice = await this.smartInput.askChoice('Run this Cast command?', [
         { key: 'y', label: 'Yes', description: 'run command' },
         { key: 'n', label: 'No', description: 'deny' },
       ]);
 
       if (choice !== 'y') {
+        process.stdout.write(this.ui.warning(`Cast command denied: ${normalized}`));
         return `Cast command denied by user: ${normalized}`;
       }
 
+      process.stdout.write(`  ${Colors.cyan}Running${Colors.reset} ${Colors.cyan}${normalized}${Colors.reset}\r\n\r\n`);
       await this.handleCommand(normalized);
       return `Cast command executed: ${normalized}`;
     } finally {
-      this.smartInput?.resume();
+      if (shouldResumePrompt) {
+        this.smartInput?.resume();
+      }
     }
+  }
+
+  private describeCastCommand(command: string): string {
+    const cmd = command.slice(1).split(/\s+/)[0].toLowerCase();
+    const descriptions: Record<string, string> = {
+      status: 'Show current git status',
+      diff: 'Show git diff',
+      log: 'Show recent commits',
+      up: 'Commit and push current changes',
+      'split-up': 'Split changes into multiple commits',
+      pr: 'Create or prepare a pull request',
+      review: 'Run code review',
+      fix: 'Auto-fix a target file',
+      ident: 'Format project files',
+      release: 'Generate release notes',
+      agents: 'List or manage Cast agents',
+      skills: 'List or manage Cast skills',
+      tools: 'List available tools',
+    };
+    return descriptions[cmd] || 'Run an existing Cast slash command';
   }
 
   private getCommandSuggestions(input: string): Array<{ text: string; display: string; description: string }> {
@@ -728,6 +765,7 @@ export class ReplService {
       const startTextMode = () => {
         if (!inTextMode) {
           this.smartInput?.beginExternalOutput();
+          process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
           inTextMode = true;
         }
       };
@@ -757,18 +795,19 @@ export class ReplService {
       };
 
       const toolLabel = (chunk: string): string | null => {
-        if (chunk.includes('▶ read file') || chunk.includes('▶ read_file')) return 'Reading';
-        if (chunk.includes('▶ write file') || chunk.includes('▶ write_file')) return 'Writing';
-        if (chunk.includes('▶ edit file') || chunk.includes('▶ edit_file')) return 'Editing';
-        if (chunk.includes('▶ shell')) return 'Running';
-        if (chunk.includes('▶ glob') || chunk.includes('▶ grep') || chunk.includes('▶ ls')) return 'Searching';
-        if (chunk.includes('▶ web search') || chunk.includes('▶ web_search')) return 'Searching web';
-        if (chunk.includes('▶ web fetch') || chunk.includes('▶ web_fetch')) return 'Fetching';
-        if (chunk.includes('▶ rag search') || chunk.includes('▶ rag_search')) return 'RAG';
-        if (chunk.includes('▶ memory')) return 'Memory';
-        if (chunk.includes('▶ cast command') || chunk.includes('▶ cast_command')) return 'Cast command';
-        if (chunk.includes('▶ task')) return 'Tasks';
-        if (chunk.includes('▶')) return 'Working';
+        const plain = stripAnsi(chunk);
+        if (plain.includes('▶ read file') || plain.includes('▶ read_file')) return 'Reading';
+        if (plain.includes('▶ write file') || plain.includes('▶ write_file')) return 'Writing';
+        if (plain.includes('▶ edit file') || plain.includes('▶ edit_file')) return 'Editing';
+        if (plain.includes('▶ shell')) return 'Running';
+        if (plain.includes('▶ glob') || plain.includes('▶ grep') || plain.includes('▶ ls')) return 'Searching';
+        if (plain.includes('▶ web search') || plain.includes('▶ web_search')) return 'Searching web';
+        if (plain.includes('▶ web fetch') || plain.includes('▶ web_fetch')) return 'Fetching';
+        if (plain.includes('▶ rag search') || plain.includes('▶ rag_search')) return 'RAG';
+        if (plain.includes('▶ memory')) return 'Memory';
+        if (plain.includes('▶ cast command') || plain.includes('▶ cast_command')) return 'Cast command';
+        if (plain.includes('▶ task')) return 'Tasks';
+        if (plain.includes('▶')) return 'Working';
         return null;
       };
 
@@ -804,7 +843,6 @@ export class ReplService {
         } else {
           if (firstChunk) {
             this.stopSpinner();
-            this.writeInline(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
             startTextMode();
             firstChunk = false;
           }

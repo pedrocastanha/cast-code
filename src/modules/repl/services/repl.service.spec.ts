@@ -95,6 +95,22 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
   );
 };
 
+const captureStdoutAsync = async <T>(run: (writes: string[]) => Promise<T>): Promise<{ result: T; output: string }> => {
+  const originalWrite = process.stdout.write;
+  const writes: string[] = [];
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  try {
+    const result = await run(writes);
+    return { result, output: writes.join('') };
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+};
+
 describe('ReplService', () => {
   // Ensures command suggestions honor filtering and include the recently added /unit-test command.
   test('filters command suggestions and exposes the /unit-test option', () => {
@@ -173,11 +189,56 @@ describe('ReplService', () => {
       },
     };
 
-    const result = await (service as any).handleAgentCastCommand('/status');
+    const { result } = await captureStdoutAsync<string>(() =>
+      (service as any).handleAgentCastCommand('/status'),
+    );
 
     assert.match(result, /executed/i);
-    assert.deepEqual(choices, ['Allow Cast to run /status?']);
+    assert.deepEqual(choices, ['Run this Cast command?']);
     assert.deepEqual(runGitCalls, ['git status']);
+  });
+
+  test('agent-triggered Cast command renders a permission panel with command context', async () => {
+    const choicePrompts: string[] = [];
+    const service = buildReplService();
+
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async (message: string) => {
+        choicePrompts.push(message);
+        return 'n';
+      },
+    };
+
+    const { output } = await captureStdoutAsync(() =>
+      (service as any).handleAgentCastCommand('/up'),
+    );
+
+    const visibleOutput = stripAnsi(output);
+    assert.match(visibleOutput, /Cast Command agent request/);
+    assert.match(visibleOutput, /Command\s+\/up/);
+    assert.match(visibleOutput, /Approval\s+required/);
+    assert.deepEqual(choicePrompts, ['Run this Cast command?']);
+  });
+
+  test('agent-triggered Cast command does not redraw the prompt while agent output continues', async () => {
+    let resumeCalls = 0;
+    const service = buildReplService();
+    (service as any).isProcessing = true;
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => { resumeCalls += 1; },
+      askChoice: async () => 'n',
+    };
+
+    await captureStdoutAsync(() =>
+      (service as any).handleAgentCastCommand('/status'),
+    );
+
+    assert.equal(resumeCalls, 0);
   });
 
   test('agent-triggered Cast command denial does not route the slash command', async () => {
@@ -199,7 +260,9 @@ describe('ReplService', () => {
       askChoice: async () => 'n',
     };
 
-    const result = await (service as any).handleAgentCastCommand('/status');
+    const { result } = await captureStdoutAsync<string>(() =>
+      (service as any).handleAgentCastCommand('/status'),
+    );
 
     assert.match(result, /denied/i);
     assert.deepEqual(runGitCalls, []);
@@ -509,6 +572,59 @@ describe('ReplService', () => {
       assert.equal(beginExternalOutputCalls, 1, 'response text should enter an external output block once');
       assert.equal(endExternalOutputCalls, 1, 'response text should leave the external output block once');
       assert.equal(outputLines.length, 1, 'a separator should be written after the response block');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('handleMessage keeps final assistant text outside the prompt after a Cast command tool', async () => {
+    const events: string[] = [];
+    const outputLines: string[] = [];
+    const originalWrite = process.stdout.write;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* () {
+          yield '\n\x1b[2m  ▶ \x1b[0m\x1b[2m\x1b[38;5;45mcast command\x1b[0m\x1b[2m /up\x1b[0m\n';
+          yield '\x1b[2m    \x1b[32m✓\x1b[0m\x1b[2m Cast command executed: /up\x1b[0m\n';
+          yield 'Realizei o comando /up.';
+        },
+      },
+      mentionsService: {
+        processMessage: async (message: string) => ({ expandedMessage: message, mentions: [] }),
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        events.push(`stdout:${stripAnsi(String(chunk))}`);
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => { events.push('begin'); },
+        endExternalOutput: () => { events.push('end'); },
+        printExternal: (value: string) => events.push(`print:${stripAnsi(value)}`),
+        writeOutputLine: (value: string) => outputLines.push(value),
+      };
+
+      await (service as any).handleMessage('man, vc pode usar o /up?');
+
+      const toolPrintIndex = events.findIndex((event) => event.startsWith('print:') && event.includes('▶ cast command /up'));
+      const beginIndex = events.indexOf('begin');
+      const finalTextIndex = events.findIndex((event) => event.startsWith('stdout:') && event.includes('Realizei o comando /up.'));
+      const castHeaderPrint = events.find((event) => event.startsWith('print:') && /^\s*print:\s*Cast\s*$/m.test(event));
+
+      assert(toolPrintIndex >= 0, 'tool start should render as tool output before assistant text mode');
+      assert(beginIndex > toolPrintIndex, 'assistant text mode should begin after tool output');
+      assert(finalTextIndex > beginIndex, 'final assistant response should be written inside external output mode');
+      assert.equal(castHeaderPrint, undefined, 'assistant header should not be printed through prompt rendering');
+      assert.equal(outputLines.length, 1, 'one final separator should be written after the response block');
     } finally {
       process.stdout.write = originalWrite;
     }
