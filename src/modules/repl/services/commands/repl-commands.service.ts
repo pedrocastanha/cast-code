@@ -89,6 +89,7 @@ export class ReplCommandsService {
           ['/mcp', 'MCP servers and tools'],
           ['/kanban', 'open task board'],
           ['/remote', 'start remote web interface'],
+          ['/benchmark', 'local benchmark lab'],
           ['/rollback [file]', 'restore file from snapshot'],
           ['/stats', 'show token and cost stats'],
           ['/replay', 'save/view session replays'],

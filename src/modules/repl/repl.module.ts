@@ -29,6 +29,7 @@ import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { VaultModule } from '../vault/vault.module';
 import { PlatformModule } from '../platform/platform.module';
+import { BenchmarkModule } from '../benchmark/benchmark.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { PlatformModule } from '../platform/platform.module';
     ReplayModule,
     VaultModule,
     PlatformModule,
+    BenchmarkModule,
   ],
   providers: [
     ReplService,

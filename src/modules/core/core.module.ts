@@ -17,6 +17,8 @@ import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { WatcherModule } from '../watcher/watcher.module';
 import { PlatformModule } from '../platform/platform.module';
+import { StateModule } from '../state/state.module';
+import { BenchmarkModule } from '../benchmark/benchmark.module';
 
 @Module({
   imports: [
@@ -34,8 +36,10 @@ import { PlatformModule } from '../platform/platform.module';
     ReplayModule,
     WatcherModule,
     PlatformModule,
+    StateModule,
+    BenchmarkModule,
   ],
   providers: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService],
-  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule],
+  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule, StateModule, BenchmarkModule],
 })
 export class CoreModule {}

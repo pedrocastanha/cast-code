@@ -12,6 +12,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       getMessageCount: () => 0,
       getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
       getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+      setLocalSessionId: () => {},
     },
     configService: {
       getProvider: () => 'openai',
@@ -59,7 +60,9 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       getStatus: () => 'disabled',
     },
     platformCommands: { cmdLink: async () => false },
+    benchmarkCommands: { handleBenchmarkCommand: async () => {} },
     discoveryTools: { setCastCommandHandler: () => {} },
+    localSessionStore: undefined,
   };
 
   const deps = { ...defaults, ...overrides };
@@ -91,7 +94,9 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deps.filesystemTools as any,
     deps.platformService as any,
     deps.platformCommands as any,
+    deps.benchmarkCommands as any,
     deps.discoveryTools as any,
+    deps.localSessionStore as any,
   );
 };
 
@@ -141,6 +146,17 @@ describe('ReplService', () => {
       suggestions.map((s: { text: string }) => s.text),
       ['/link'],
       'only the /link command starts with /li',
+    );
+  });
+
+  test('filters command suggestions and exposes the /benchmark option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/bench');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/benchmark'],
+      'only the /benchmark command starts with /bench',
     );
   });
 
@@ -227,6 +243,102 @@ describe('ReplService', () => {
     assert.match(result, /Cast command finished: \/pr main/);
     assert.match(result, /No commits found between feat\/cast-platform and main/);
     assert.doesNotMatch(visibleOutput, /Running \/pr main\n\s*\n/);
+  });
+
+  test('starts and ends local state session best-effort', async () => {
+    const calls: any[] = [];
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '/repo' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 77,
+        getMessageCount: () => 0,
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        setLocalSessionId: () => {},
+      },
+      platformService: {
+        track: () => {},
+        close: async () => { calls.push(['platform-close']); },
+        getStatus: () => 'online',
+        getProject: () => ({ id: 'project-1' }),
+      },
+      localSessionStore: {
+        startSession: async (input: any) => {
+          calls.push(['start', input]);
+          return { id: 'local-session-1' };
+        },
+        endSession: async (id: string, summary: any) => {
+          calls.push(['end', id, summary]);
+        },
+      },
+    });
+
+    await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    await service.shutdown();
+
+    assert.deepEqual(calls, [
+      ['start', {
+        projectRoot: '/repo',
+        platformProjectId: 'project-1',
+        model: 'openai/gpt-4.1-mini',
+      }],
+      ['platform-close'],
+      ['end', 'local-session-1', { totalTokens: 77 }],
+    ]);
+  });
+
+  test('warns once and keeps running when local state session start fails', async () => {
+    const service = buildReplService({
+      localSessionStore: {
+        startSession: async () => {
+          throw new Error('state unavailable');
+        },
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).startLocalStateSession({ projectPath: '/repo' });
+      await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    });
+
+    assert.match(output, /Local state disabled/i);
+    assert.equal((output.match(/Local state disabled/gi) ?? []).length, 1);
+  });
+
+  test('ends local state session even when platform close fails', async () => {
+    const calls: string[] = [];
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '/repo' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 77,
+        getMessageCount: () => 0,
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        setLocalSessionId: () => {},
+      },
+      platformService: {
+        track: () => {},
+        close: async () => {
+          calls.push('platform-close');
+          throw new Error('platform close failed');
+        },
+        getStatus: () => 'online',
+        getProject: () => ({ id: 'project-1' }),
+      },
+      localSessionStore: {
+        startSession: async () => ({ id: 'local-session-1' }),
+        endSession: async () => {
+          calls.push('local-end');
+        },
+      },
+    });
+
+    await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    await assert.rejects(() => service.shutdown(), /platform close failed/);
+
+    assert.deepEqual(calls, ['platform-close', 'local-end']);
   });
 
   test('agent-triggered Cast command renders a permission panel with command context', async () => {
@@ -359,6 +471,41 @@ describe('ReplService', () => {
 
     assert.deepStrictEqual(recordedArgs, [['--project', 'project-1']]);
     assert.equal(initializeCalls, 1);
+  });
+
+  test('routes /benchmark to benchmark commands with the active smart input', async () => {
+    const calls: any[] = [];
+    const smartInputStub = { showPrompt: () => {} };
+    const service = buildReplService({
+      benchmarkCommands: {
+        setAgentExecutor: () => {},
+        cmdBenchmark: async (args: string[], input: unknown) => {
+          calls.push([args, input]);
+        },
+      },
+    });
+    (service as any).smartInput = smartInputStub;
+
+    await (service as any).handleCommand('/benchmark list');
+
+    assert.deepEqual(calls, [[['list'], smartInputStub]]);
+  });
+
+  test('routes /benchmark commands to BenchmarkCommandsService with active smart input', async () => {
+    const calls: Array<{ args: string[]; input: unknown }> = [];
+    const smartInputStub = { showPrompt: () => {} };
+    const service = buildReplService({
+      benchmarkCommands: {
+        handleBenchmarkCommand: async (args: string[], input: unknown) => {
+          calls.push({ args, input });
+        },
+      },
+    });
+    (service as any).smartInput = smartInputStub;
+
+    await (service as any).handleCommand('/benchmark run def-1');
+
+    assert.deepEqual(calls, [{ args: ['run', 'def-1'], input: smartInputStub }]);
   });
 
   test('tracks slash commands without command arguments', async () => {

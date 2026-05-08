@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import {
   PlatformConfig,
   PlatformEvent,
+  PlatformBenchmarkArtifactPayload,
+  PlatformBenchmarkDefinitionPayload,
+  PlatformBenchmarkDefinitionResponse,
+  PlatformBenchmarkResultPayload,
+  PlatformBenchmarkRunPayload,
   PlatformMemoryRetrieval,
   PlatformMemoryUsageResponse,
   PlatformProjectPayload,
@@ -98,6 +103,85 @@ export class PlatformClientService {
       config,
       apiKey,
       `/v1/projects/${encodeURIComponent(config.projectId || '')}/memory/usage`,
+      this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  createBenchmarkDefinition(
+    config: PlatformConfig,
+    apiKey: string,
+    body: PlatformBenchmarkDefinitionPayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformBenchmarkDefinitionResponse> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/benchmarks`,
+      this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  updateBenchmarkDefinition(
+    config: PlatformConfig,
+    apiKey: string,
+    benchmarkId: string,
+    body: PlatformBenchmarkDefinitionPayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformBenchmarkDefinitionResponse> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/benchmarks/${encodeURIComponent(benchmarkId)}`,
+      this.jsonInit('PUT', body),
+      timeoutMs,
+    );
+  }
+
+  createBenchmarkRun(
+    config: PlatformConfig,
+    apiKey: string,
+    benchmarkId: string,
+    body: PlatformBenchmarkRunPayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformBenchmarkRunPayload> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/benchmarks/${encodeURIComponent(benchmarkId)}/runs`,
+      this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  appendBenchmarkResult(
+    config: PlatformConfig,
+    apiKey: string,
+    runId: string,
+    body: PlatformBenchmarkResultPayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformBenchmarkResultPayload> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/benchmark-runs/${encodeURIComponent(runId)}/results`,
+      this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  appendBenchmarkArtifact(
+    config: PlatformConfig,
+    apiKey: string,
+    runId: string,
+    body: PlatformBenchmarkArtifactPayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformBenchmarkArtifactPayload> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/benchmark-runs/${encodeURIComponent(runId)}/artifacts`,
       this.jsonInit('POST', body),
       timeoutMs,
     );

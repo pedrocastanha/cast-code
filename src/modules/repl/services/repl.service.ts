@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
@@ -37,6 +37,8 @@ import {
 } from '../../permissions/types/permission.types';
 import { Colors, Icons } from '../utils/theme';
 import { PlatformService } from '../../platform/services/platform.service';
+import { LocalSessionStoreService } from '../../state/services/local-session-store.service';
+import { BenchmarkCommandsService } from '../../benchmark/commands/benchmark-commands.service';
 import { CommandUiService } from './command-ui.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
@@ -51,6 +53,8 @@ export class ReplService {
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
   private spinnerFrameIndex = 0;
   private spinnerLabel = '';
+  private localSessionId: string | null = null;
+  private localStateWarningShown = false;
 
   constructor(
     private readonly deepAgent: DeepAgentService,
@@ -79,11 +83,18 @@ export class ReplService {
     private readonly filesystemTools: FilesystemToolsService,
     private readonly platformService: PlatformService,
     private readonly platformCommands: PlatformCommandsService,
+    @Optional()
+    private readonly benchmarkCommands?: BenchmarkCommandsService,
     private readonly discoveryTools?: DiscoveryToolsService,
-  ) { }
+    @Optional()
+    private readonly localSessionStore?: LocalSessionStoreService,
+  ) {
+    this.benchmarkCommands?.setAgentExecutor?.(this.deepAgent as any);
+  }
 
   async start(): Promise<void> {
     const initResult = await this.deepAgent.initialize();
+    await this.startLocalStateSession(initResult);
     const agentCount = this.agentRegistry.resolveAllAgents().length;
 
     this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
@@ -310,6 +321,7 @@ export class ReplService {
       agents: 'List or manage Cast agents',
       skills: 'List or manage Cast skills',
       tools: 'List available tools',
+      benchmark: 'Run local Benchmark Lab commands',
     };
     return descriptions[cmd] || 'Run an existing Cast slash command';
   }
@@ -400,6 +412,7 @@ export class ReplService {
       { text: '/stats', display: '/stats', description: 'Show session usage stats' },
       { text: '/replay', display: '/replay', description: 'Save or view session replays' },
       { text: '/vault', display: '/vault', description: 'Manage code snippet vault' },
+      { text: '/benchmark', display: '/benchmark', description: 'Local Benchmark Lab' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -725,6 +738,17 @@ export class ReplService {
       break;
     case 'vault':
       this.vaultCommandsService.cmdVault(args.join(' '));
+      break;
+    case 'benchmark':
+      const benchmarkCommands = this.benchmarkCommands;
+      const runBenchmarkCommand = benchmarkCommands?.cmdBenchmark
+        ? benchmarkCommands.cmdBenchmark.bind(benchmarkCommands)
+        : (benchmarkCommands as any)?.handleBenchmarkCommand?.bind(benchmarkCommands);
+      if (!runBenchmarkCommand) {
+        process.stdout.write(this.ui.error('Benchmark Lab is not available in this runtime.'));
+        break;
+      }
+      await runBenchmarkCommand(args, this.smartInput!);
       break;
 
     default:
@@ -1203,6 +1227,62 @@ export class ReplService {
 
   async shutdown(): Promise<void> {
     this.stop();
-    await this.platformService.close();
+    try {
+      await this.platformService.close();
+    } finally {
+      await this.endLocalStateSession();
+    }
+  }
+
+  private async startLocalStateSession(initResult: { projectPath?: string | null }): Promise<void> {
+    if (!this.localSessionStore || this.localSessionId) {
+      return;
+    }
+
+    try {
+      const session = await this.localSessionStore.startSession({
+        projectRoot: initResult.projectPath || process.cwd(),
+        platformProjectId: this.getPlatformProjectId(),
+        model: this.getModelDisplayName(),
+      });
+      this.localSessionId = session.id;
+      this.deepAgent.setLocalSessionId(session.id);
+    } catch (error) {
+      this.warnLocalStateDisabled(error);
+    }
+  }
+
+  private async endLocalStateSession(): Promise<void> {
+    if (!this.localSessionStore || !this.localSessionId) {
+      return;
+    }
+
+    const sessionId = this.localSessionId;
+    this.localSessionId = null;
+    this.deepAgent.setLocalSessionId(null);
+    try {
+      await this.localSessionStore.endSession(sessionId, {
+        totalTokens: this.deepAgent.getTokenCount(),
+      });
+    } catch (error) {
+      this.warnLocalStateDisabled(error);
+    }
+  }
+
+  private getPlatformProjectId(): string | undefined {
+    try {
+      return (this.platformService as any).getProject?.()?.id;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private warnLocalStateDisabled(error: unknown): void {
+    if (this.localStateWarningShown) {
+      return;
+    }
+    this.localStateWarningShown = true;
+    const message = error instanceof Error ? error.message : String(error);
+    process.stdout.write(`  ${Colors.warning}! Local state disabled: ${message}${Colors.reset}\r\n`);
   }
 }

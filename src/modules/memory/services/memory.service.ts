@@ -9,6 +9,13 @@ export class MemoryService {
   private memoryDir: string = '';
   private initialized = false;
   private cachedMemoryContent: string = '';
+  private readonly blockedWritePatterns = [
+    /ignore previous instructions/i,
+    /reveal system prompt/i,
+    /exfiltrate/i,
+    /send secrets/i,
+    /dump environment variables/i,
+  ];
 
   async initialize(projectPath: string): Promise<void> {
     const hash = crypto
@@ -27,16 +34,16 @@ export class MemoryService {
 
     await fs.mkdir(this.memoryDir, { recursive: true });
 
-    const memoryFile = path.join(this.memoryDir, 'MEMORY.md');
-    try {
-      await fs.access(memoryFile);
-    } catch {
-      await fs.writeFile(
-        memoryFile,
+    await this.withMemoryLock(async () => {
+      await this.ensureMemoryFile(
+        'MEMORY.md',
         '# Project Memory\n\nThis file is loaded into the system prompt each session.\nSave important learnings, patterns, and insights here.\n',
-        'utf-8',
       );
-    }
+      await this.ensureMemoryFile(
+        'USER.md',
+        '# User Memory\n\nThis file stores local user preferences and durable notes.\n',
+      );
+    });
 
     this.initialized = true;
   }
@@ -73,7 +80,11 @@ export class MemoryService {
     if (!resolved) return 'Invalid memory filename.';
     const { safeName, filePath } = resolved;
 
-    await fs.writeFile(filePath, content, 'utf-8');
+    if (this.hasBlockedMemoryPattern(content)) {
+      return 'Memory write blocked: unsafe content matched prompt-injection or exfiltration patterns.';
+    }
+
+    await this.withMemoryLock(() => this.safeWriteFile(filePath, content));
     return `Memory saved: ${safeName}`;
   }
 
@@ -165,5 +176,53 @@ export class MemoryService {
       return null;
     }
     return { safeName, filePath };
+  }
+
+  private async ensureMemoryFile(filename: string, defaultContent: string): Promise<void> {
+    const filePath = path.join(this.memoryDir, filename);
+    try {
+      await fs.access(filePath);
+    } catch {
+      await this.safeWriteFile(filePath, defaultContent);
+    }
+  }
+
+  private hasBlockedMemoryPattern(content: string): boolean {
+    return this.blockedWritePatterns.some((pattern) => pattern.test(content));
+  }
+
+  private async safeWriteFile(filePath: string, content: string): Promise<void> {
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(tempPath, content, 'utf-8');
+    await fs.rename(tempPath, filePath);
+  }
+
+  private async withMemoryLock<T>(operation: () => Promise<T>): Promise<T> {
+    const lockPath = path.join(this.memoryDir, '.memory.lock');
+    let handle: fs.FileHandle | null = null;
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        handle = await fs.open(lockPath, 'wx');
+        await handle.writeFile(`${process.pid}\n`, 'utf-8');
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    if (!handle) {
+      throw new Error('Timed out acquiring memory lock');
+    }
+
+    try {
+      return await operation();
+    } finally {
+      await handle.close();
+      await fs.unlink(lockPath).catch(() => {});
+    }
   }
 }

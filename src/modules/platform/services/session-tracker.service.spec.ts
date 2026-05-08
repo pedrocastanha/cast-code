@@ -101,6 +101,68 @@ describe('SessionTrackerService', () => {
     });
   });
 
+  test('does not pass raw message content through tracked platform events', async () => {
+    const posted: any[] = [];
+    const client = {
+      openSession: async () => ({ sessionId: 'session-1' }),
+      postEvents: async (_config: unknown, _apiKey: unknown, _sessionId: unknown, events: unknown[]) => {
+        posted.push(...events);
+      },
+      closeSession: async () => {},
+    };
+    const cache = {
+      appendPendingEvents: async () => {},
+      readPendingEvents: async () => [],
+      clearPendingEvents: async () => {},
+    };
+    const tracker = new SessionTrackerService(client as any, cache as any);
+
+    await tracker.start(config, 'secret-key', 'project-1');
+    tracker.track('agent.invoked', {
+      role: 'coder',
+      model: 'gpt-4.1-mini',
+      prompt: 'raw user prompt',
+      output: 'raw assistant output',
+      messages: [{ role: 'user', content: 'secret transcript' }],
+    });
+    await tracker.flush();
+    tracker.stopTimer();
+
+    assert.deepEqual(posted[1].payload, {
+      role: 'coder',
+      model: 'gpt-4.1-mini',
+    });
+    assert.doesNotMatch(JSON.stringify(posted), /raw user prompt|raw assistant output|secret transcript/);
+  });
+
+  test('pending event cache does not store prompt or output content', async () => {
+    const pending: unknown[] = [];
+    const client = {
+      openSession: async () => {
+        throw new Error('session endpoint down');
+      },
+      postEvents: async () => {},
+      closeSession: async () => {},
+    };
+    const cache = {
+      appendPendingEvents: async (_root: string, events: unknown[]) => pending.push(...events),
+      readPendingEvents: async () => [],
+      clearPendingEvents: async () => {},
+    };
+    const tracker = new SessionTrackerService(client as any, cache as any);
+
+    await tracker.start(config, 'secret-key', 'project-1');
+    tracker.track('tokens.consumed', {
+      input: 10,
+      output: 5,
+      prompt: 'raw prompt',
+      completion: 'raw output',
+    });
+
+    assert.doesNotMatch(JSON.stringify(pending), /raw prompt|raw output/);
+    assert.deepEqual((pending[1] as any).payload, { input: 10, output: 5 });
+  });
+
   test('failed flush appends events to pending queue', async () => {
     const pending: unknown[] = [];
     const client = {

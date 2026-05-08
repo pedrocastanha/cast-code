@@ -44,6 +44,10 @@ export interface PlatformProjectPayload {
   features: PlatformFeatures;
   skills: RemoteSkillPayload[];
   agents: RemoteAgentPayload[];
+  benchmarks?: {
+    enabled: boolean;
+    definitions: PlatformBenchmarkDefinitionPayload[];
+  };
   settings?: {
     ragEnabled?: boolean;
     rag?: {
@@ -86,6 +90,63 @@ export interface PlatformMemoryUsageResponse {
   workspaceId?: string;
   retrievalId?: string;
   accepted: number;
+}
+
+export interface PlatformBenchmarkCasePayload {
+  id?: string;
+  input: Record<string, unknown>;
+  expected?: Record<string, unknown>;
+  rubric?: Record<string, unknown>;
+  tags?: string[];
+}
+
+export interface PlatformBenchmarkDefinitionPayload {
+  id?: string;
+  name: string;
+  targetType: string;
+  targetRef: string;
+  environmentId?: string;
+  config: Record<string, unknown>;
+  cases?: PlatformBenchmarkCasePayload[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PlatformBenchmarkDefinitionResponse {
+  definition: PlatformBenchmarkDefinitionPayload & { id: string };
+  cases: Array<PlatformBenchmarkCasePayload & { id: string }>;
+}
+
+export interface PlatformBenchmarkRunPayload {
+  id?: string;
+  benchmarkId: string;
+  status: string;
+  runConfig?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+  startedAt?: string;
+  endedAt?: string;
+  createdAt?: string;
+}
+
+export interface PlatformBenchmarkResultPayload {
+  id?: string;
+  caseId: string;
+  status: string;
+  scores?: Record<string, unknown>;
+  outputPreview?: string;
+  latencyMs?: number;
+  cost?: number;
+  error?: string;
+  createdAt?: string;
+}
+
+export interface PlatformBenchmarkArtifactPayload {
+  id?: string;
+  kind: string;
+  name: string;
+  path: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
 }
 
 export type PlatformStatus = 'disabled' | 'online' | 'offline' | 'error';

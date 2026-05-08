@@ -160,4 +160,50 @@ describe('PlatformClientService', () => {
       global.fetch = originalFetch;
     }
   });
+
+  test('benchmark sync methods use project benchmark routes and sanitized bodies', async () => {
+    const originalFetch = global.fetch;
+    const calls: Array<{ url: string; body: unknown }> = [];
+    try {
+      global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        });
+        return new Response(String(init?.body || '{}'), { status: 200 });
+      }) as typeof fetch;
+
+      const service = new PlatformClientService();
+      await service.createBenchmarkDefinition(config, 'secret-key', {
+        name: 'Benchmark',
+        targetType: 'api_endpoint',
+        targetRef: 'POST /chat',
+        config: { target: { type: 'api_endpoint' } },
+      });
+      await service.createBenchmarkRun(config, 'secret-key', 'bench-1', {
+        id: 'run-1',
+        benchmarkId: 'bench-1',
+        status: 'completed',
+      });
+      await service.appendBenchmarkResult(config, 'secret-key', 'run-1', {
+        id: 'result-1',
+        caseId: 'case-1',
+        status: 'passed',
+        outputPreview: 'ok',
+      });
+      await service.appendBenchmarkArtifact(config, 'secret-key', 'run-1', {
+        kind: 'report',
+        name: 'report.md',
+        path: '.cast/benchmarks/run-1/report.md',
+      });
+
+      assert.equal(calls[0].url, 'https://api.cast.test/v1/projects/project-1/benchmarks');
+      assert.equal(calls[1].url, 'https://api.cast.test/v1/projects/project-1/benchmarks/bench-1/runs');
+      assert.equal(calls[2].url, 'https://api.cast.test/v1/projects/project-1/benchmark-runs/run-1/results');
+      assert.equal(calls[3].url, 'https://api.cast.test/v1/projects/project-1/benchmark-runs/run-1/artifacts');
+      assert.doesNotMatch(JSON.stringify(calls), /secret-key/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });

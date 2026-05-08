@@ -44,6 +44,7 @@ const buildService = (overrides: Record<string, any> = {}) => {
       track: () => {},
       bootstrap: async () => {},
     },
+    localSessionStore: undefined,
     ...overrides,
   };
 
@@ -66,10 +67,90 @@ const buildService = (overrides: Record<string, any> = {}) => {
     deps.promptLoader as any,
     deps.promptClassifier as any,
     deps.platformService as any,
+    deps.localSessionStore as any,
   );
 };
 
 describe('DeepAgentService compact chat route', () => {
+  test('records local messages and tool calls without blocking the main stream', async () => {
+    const recorded: any[] = [];
+    const service = buildService({
+      localSessionStore: {
+        recordMessage: async (input: any) => {
+          recorded.push(['message', input]);
+          return { id: `message-${recorded.length}`, createdAt: new Date().toISOString(), ...input };
+        },
+        recordToolCall: async (input: any) => {
+          recorded.push(['tool', input]);
+          return { id: `tool-${recorded.length}`, createdAt: new Date().toISOString(), ...input };
+        },
+      },
+    });
+    (service as any).setLocalSessionId('local-session-1');
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield { event: 'on_tool_start', name: 'shell', run_id: 'tool-1', data: { input: { command: 'echo ok' } } };
+        yield { event: 'on_tool_end', name: 'shell', run_id: 'tool-1', data: { output: 'done' } };
+        yield { event: 'on_chat_model_stream', data: { chunk: { content: 'All done.' } } };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    assert.match(chunks.join(''), /All done/);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(recorded.map(([kind]) => kind), ['message', 'tool', 'message']);
+    assert.equal(recorded[0][1].role, 'user');
+    assert.equal(recorded[0][1].sessionId, 'local-session-1');
+    assert.equal(recorded[1][1].toolName, 'shell');
+    assert.equal(recorded[1][1].status, 'ok');
+    assert.equal(recorded[2][1].role, 'assistant');
+  });
+
+  test('keeps streaming when local tool input cannot be serialized', async () => {
+    const recorded: any[] = [];
+    const circular: any = { command: 'echo ok' };
+    circular.self = circular;
+    const service = buildService({
+      localSessionStore: {
+        recordMessage: async (input: any) => {
+          recorded.push(['message', input]);
+          return { id: `message-${recorded.length}`, createdAt: new Date().toISOString(), ...input };
+        },
+        recordToolCall: async (input: any) => {
+          recorded.push(['tool', input]);
+          return { id: `tool-${recorded.length}`, createdAt: new Date().toISOString(), ...input };
+        },
+      },
+    });
+    (service as any).setLocalSessionId('local-session-1');
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield { event: 'on_tool_start', name: 'shell', run_id: 'tool-1', data: { input: circular } };
+        yield { event: 'on_tool_end', name: 'shell', run_id: 'tool-1', data: { output: 'done' } };
+        yield { event: 'on_chat_model_stream', data: { chunk: { content: 'All done.' } } };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    assert.match(chunks.join(''), /All done/);
+    await new Promise((resolve) => setImmediate(resolve));
+    const toolCall = recorded.find(([kind]) => kind === 'tool');
+    assert.equal(toolCall[1].toolName, 'shell');
+    assert.match(toolCall[1].inputRedacted, /unserializable/i);
+  });
+
   test('extracts cached input tokens from provider usage metadata', () => {
     const service = buildService();
 

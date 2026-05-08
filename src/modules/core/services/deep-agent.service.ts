@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { execSync } from 'child_process';
@@ -32,6 +32,7 @@ import { FileWatcherService, FILE_CHANGE_EVENT } from '../../watcher/services/fi
 import { PromptLoaderService } from './prompt-loader.service';
 import { PromptClassifierService, PromptLayer } from './prompt-classifier.service';
 import { PlatformService } from '../../platform/services/platform.service';
+import { LocalSessionStoreService } from '../../state/services/local-session-store.service';
 import { ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT } from '../../../common/constants';
 
 const SUMMARIZE_THRESHOLD = 40;
@@ -89,6 +90,7 @@ export class DeepAgentService {
   private pendingContextRefresh = false;
   private projectRoot: string = process.cwd();
   private cachedProjectStructure: string = '';
+  private localSessionId: string | null = null;
 
   constructor(
     private readonly multiLlmService: MultiLlmService,
@@ -109,6 +111,8 @@ export class DeepAgentService {
     private readonly promptLoader: PromptLoaderService,
     private readonly promptClassifier: PromptClassifierService,
     private readonly platformService: PlatformService,
+    @Optional()
+    private readonly localSessionStore?: LocalSessionStoreService,
   ) {
     this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
       this.pendingContextRefresh = true;
@@ -121,6 +125,10 @@ export class DeepAgentService {
         this.cachedSystemPrompt = '';
       }
     });
+  }
+
+  setLocalSessionId(sessionId: string | null): void {
+    this.localSessionId = sessionId;
   }
 
   async initialize(): Promise<ProjectInitResult> {
@@ -732,6 +740,7 @@ export class DeepAgentService {
     if (fullResponse) {
       this.messages.push(new AIMessage(fullResponse));
       this.replayService.recordEntry({ role: 'assistant', content: fullResponse });
+      this.recordLocalMessage('assistant', fullResponse);
     }
 
     if (!hasExactUsage) {
@@ -1531,6 +1540,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     const hasMentions = message.includes('@');
+    this.recordLocalMessage('user', message);
     if (this.shouldUseCompactChat(message, hasMentions)) {
       yield* this.streamCompactChat(message);
       return;
@@ -1603,6 +1613,9 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     let interactionCachedInputTokens = 0;
     let leanResponseBuffer = '';
     const pendingToolInputs: { name: string; input: any }[] = [];
+    const activeLocalToolCalls = new Map<string, { name: string; input: unknown; startedAt: number }>();
+    let localToolSequence = 0;
+    let lastLocalToolKey = '';
 
     try {
       for await (const event of stream) {
@@ -1660,6 +1673,12 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               pendingToolInputs.splice(idx, 1);
             }
           }
+          lastLocalToolKey = String(event.run_id ?? `${event.name}:${++localToolSequence}`);
+          activeLocalToolCalls.set(lastLocalToolKey, {
+            name: event.name,
+            input: toolInput,
+            startedAt: Date.now(),
+          });
           yield this.formatToolStart(event.name, toolInput);
         }
 
@@ -1679,10 +1698,38 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             this.lastToolOutputs.push({ tool: lastToolName, output });
             yield this.formatToolEnd(lastToolName, output);
           }
+          const localToolKey = String(event.run_id ?? lastLocalToolKey);
+          const localTool = activeLocalToolCalls.get(localToolKey) ?? {
+            name: event.name || lastToolName,
+            input: undefined,
+            startedAt: Date.now(),
+          };
+          activeLocalToolCalls.delete(localToolKey);
+          this.recordLocalToolCall({
+            toolName: localTool.name || lastToolName || 'tool',
+            inputRedacted: this.serializeForLocalState(localTool.input),
+            outputPreview: output,
+            status: 'ok',
+            latencyMs: Math.max(0, Date.now() - localTool.startedAt),
+          });
         }
 
         if (event.event === 'on_tool_error') {
           const error = event.data?.error;
+          const localToolKey = String(event.run_id ?? lastLocalToolKey);
+          const localTool = activeLocalToolCalls.get(localToolKey) ?? {
+            name: event.name || lastToolName,
+            input: undefined,
+            startedAt: Date.now(),
+          };
+          activeLocalToolCalls.delete(localToolKey);
+          this.recordLocalToolCall({
+            toolName: localTool.name || lastToolName || 'tool',
+            inputRedacted: this.serializeForLocalState(localTool.input),
+            outputPreview: error?.message || 'Unknown error',
+            status: 'error',
+            latencyMs: Math.max(0, Date.now() - localTool.startedAt),
+          });
           yield `\n\x1b[31m  \u2717 Error: ${error?.message || 'Unknown error'}\x1b[0m\n`;
         }
       }
@@ -1704,6 +1751,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     if (fullResponse) {
       this.messages.push(new AIMessage(fullResponse));
       this.replayService.recordEntry({ role: 'assistant', content: fullResponse });
+      this.recordLocalMessage('assistant', fullResponse);
     }
 
     this.tokenCount += interactionInputTokens + interactionOutputTokens;
@@ -1714,6 +1762,67 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     if (interactionInputTokens > 0 || interactionOutputTokens > 0) {
       const modelName = (this.model as any)?.modelName || (this.model as any)?.model || 'unknown';
       this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens, interactionCachedInputTokens);
+    }
+  }
+
+  async runBenchmarkPrompt(prompt: string): Promise<{ output: string; tokens: number; cost: number }> {
+    const before = this.getSessionTokenUsage();
+    let output = '';
+    for await (const chunk of this.chat(prompt)) {
+      output += chunk;
+    }
+    const after = this.getSessionTokenUsage();
+
+    return {
+      output,
+      tokens: Math.max(0, (after.input + after.output) - (before.input + before.output)),
+      cost: 0,
+    };
+  }
+
+  private recordLocalMessage(role: 'user' | 'assistant' | 'system' | 'tool', content: string): void {
+    if (!this.localSessionStore || !this.localSessionId || !content) {
+      return;
+    }
+
+    void this.localSessionStore.recordMessage({
+      sessionId: this.localSessionId,
+      role,
+      redactedContent: content,
+    }).catch(() => undefined);
+  }
+
+  private recordLocalToolCall(input: {
+    toolName: string;
+    inputRedacted?: string;
+    outputPreview?: string;
+    status: 'ok' | 'error' | 'denied' | 'cancelled';
+    latencyMs?: number;
+  }): void {
+    if (!this.localSessionStore || !this.localSessionId) {
+      return;
+    }
+
+    void this.localSessionStore.recordToolCall({
+      sessionId: this.localSessionId,
+      toolName: input.toolName,
+      inputRedacted: input.inputRedacted,
+      outputPreview: input.outputPreview,
+      status: input.status,
+      latencyMs: input.latencyMs,
+    }).catch(() => undefined);
+  }
+
+  private serializeForLocalState(value: unknown): string | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    try {
+      const serialized = JSON.stringify(value);
+      return serialized === undefined ? String(value) : serialized;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return `[unserializable local state payload: ${reason}]`;
     }
   }
 
