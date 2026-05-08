@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HumanMessage, ToolMessage } from '@langchain/core/messages';
@@ -241,6 +241,104 @@ describe('DeepAgentService compact chat route', () => {
 });
 
 describe('DeepAgentService system prompt engineering workflow', () => {
+  test('base prompt advertises discovery without eager tool or sub-agent catalogs', () => {
+    const service = buildService({
+      promptLoader: {
+        getPrompt: () => [
+          '{{language_instruction}}',
+          'Use list_skills, read_skill, list_agents, list_commands, and cast_command when needed.',
+          'Tools available:',
+          '{{tool_names}}',
+          '{{subagents_section}}',
+        ].join('\n'),
+      },
+    });
+    const tools = [
+      { name: 'read_file', description: 'Read files' },
+      { name: 'very_expensive_tool_catalog_entry', description: 'UNIQUE_TOOL_DESCRIPTION_SHOULD_NOT_BE_PRELOADED' },
+      { name: 'cast_command', description: 'Run Cast commands' },
+    ];
+    const subagents = [
+      {
+        name: 'frontend-pro',
+        description: 'UNIQUE_SUBAGENT_DESCRIPTION_SHOULD_NOT_BE_PRELOADED',
+        systemPrompt: '- UNIQUE_SUBAGENT_GUIDELINE_SHOULD_NOT_BE_PRELOADED',
+      },
+    ];
+
+    const prompt = (service as any).buildBasePrompt(tools, subagents);
+
+    assert.match(prompt, /list_skills/);
+    assert.match(prompt, /read_skill/);
+    assert.match(prompt, /list_agents/);
+    assert.match(prompt, /list_commands/);
+    assert.match(prompt, /cast_command/);
+    assert.doesNotMatch(prompt, /very_expensive_tool_catalog_entry/);
+    assert.doesNotMatch(prompt, /UNIQUE_TOOL_DESCRIPTION_SHOULD_NOT_BE_PRELOADED/);
+    assert.doesNotMatch(prompt, /UNIQUE_SUBAGENT_DESCRIPTION_SHOULD_NOT_BE_PRELOADED/);
+    assert.doesNotMatch(prompt, /UNIQUE_SUBAGENT_GUIDELINE_SHOULD_NOT_BE_PRELOADED/);
+    assert(prompt.length < 3_800, `base prompt should stay compact, got ${prompt.length} chars`);
+  });
+
+  test('contextual prompt does not preload full project structure by effort', () => {
+    const service = buildService({
+      multiLlmService: {
+        getCurrentEffortProfile: () => EFFORT_PROFILES.max,
+      },
+    });
+    (service as any).cachedBasePrompt = 'Base prompt';
+    (service as any).cachedProjectStructure = [
+      'UNIQUE_PROJECT_STRUCTURE_LINE_SHOULD_NOT_BE_PRELOADED',
+      ...Array.from({ length: 300 }, (_, i) => `src/large/module-${i}.ts`),
+    ].join('\n');
+
+    const prompt = (service as any).buildContextualPrompt('implemente a feature', false);
+
+    assert.doesNotMatch(prompt, /UNIQUE_PROJECT_STRUCTURE_LINE_SHOULD_NOT_BE_PRELOADED/);
+    assert.doesNotMatch(prompt, /src\/large\/module-299\.ts/);
+    assert.match(prompt, /Use ls\/glob\/grep/i);
+    assert(prompt.length < 1_800, `contextual prompt should stay compact, got ${prompt.length} chars`);
+  });
+
+  test('default base prompt relies on agent discovery instead of hard-coded agent names', () => {
+    const basePrompt = readFileSync(join(process.cwd(), 'src/prompts/defaults/base.md'), 'utf8');
+
+    assert.match(basePrompt, /list_agents/);
+    assert.doesNotMatch(basePrompt, /`(?:backend|coder|frontend|architect|tester|reviewer|devops)`/);
+    assert.doesNotMatch(basePrompt, /task\(subagent_type: "(?:backend|coder|frontend|architect|tester|reviewer|devops)"/);
+  });
+
+  test('context tool set keeps MCP tools lazy until MCP context is active', () => {
+    const service = buildService();
+    (service as any).cachedExtraTools = [{ name: 'shell' }, { name: 'list_agents' }];
+    (service as any).cachedMcpDiscoveryTools = [{ name: 'mcp_list_tools' }];
+    (service as any).cachedMcpTools = [{ name: 'figma_get_file' }];
+
+    assert.deepEqual(
+      (service as any).selectContextTools([]).map((tool: any) => tool.name),
+      ['shell', 'list_agents', 'mcp_list_tools'],
+    );
+    assert.deepEqual(
+      (service as any).selectContextTools(['mcp']).map((tool: any) => tool.name),
+      ['shell', 'list_agents', 'mcp_list_tools', 'figma_get_file'],
+    );
+  });
+
+  test('context sub-agents stay lazy except for planning or delegation turns', () => {
+    const service = buildService();
+    (service as any).cachedSubagents = [{ name: 'reviewer' }, { name: 'frontend' }];
+
+    assert.deepEqual((service as any).selectContextSubagents('fala comigo', []), []);
+    assert.deepEqual(
+      (service as any).selectContextSubagents('planeje a refatoracao do modulo', ['planning']).map((agent: any) => agent.name),
+      ['reviewer', 'frontend'],
+    );
+    assert.deepEqual(
+      (service as any).selectContextSubagents('delega isso para um agent', []).map((agent: any) => agent.name),
+      ['reviewer', 'frontend'],
+    );
+  });
+
   test('requires adaptive clarification and test-first implementation for code changes', () => {
     const service = buildService();
 

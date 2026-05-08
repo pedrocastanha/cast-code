@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { stripAnsi } from '../../../ui/cast-design/cli-renderer';
 import { SmartInput, type SmartInputOptions } from './smart-input';
 
 const buildInput = (overrides: Partial<SmartInputOptions> = {}) => new SmartInput({
@@ -165,6 +166,47 @@ describe('SmartInput choice menu', () => {
       (input as any).handleData('n');
 
       assert.equal(await selected, 'n');
+    } finally {
+      input.destroy();
+      process.stdin.pause();
+      process.stdout.write = originalWrite;
+      if (originalStdinTty) Object.defineProperty(process.stdin, 'isTTY', originalStdinTty);
+      if (originalStdoutTty) Object.defineProperty(process.stdout, 'isTTY', originalStdoutTty);
+      if (originalCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = originalCi;
+      }
+    }
+  });
+
+  test('renders selected choice without an extra blank line after confirmation', async () => {
+    const input = buildInput();
+    const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const originalWrite = process.stdout.write;
+    const originalCi = process.env.CI;
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    delete process.env.CI;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const selected = input.askChoice('Create plan?', [
+        { key: 'y', label: 'yes' },
+        { key: 'n', label: 'no' },
+      ]);
+
+      (input as any).handleData('y');
+
+      assert.equal(await selected, 'y');
+      const confirmation = stripAnsi(writes.find((write) => write.includes('✓')) || '');
+      assert.equal(confirmation, '\r\n  ✓ yes\r\n');
     } finally {
       input.destroy();
       process.stdin.pause();

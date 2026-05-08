@@ -219,12 +219,14 @@ describe('ReplService', () => {
       question: async () => '',
     };
 
-    const { result } = await captureStdoutAsync<string>(() =>
+    const { result, output } = await captureStdoutAsync<string>(() =>
       (service as any).handleAgentCastCommand('/pr main'),
     );
+    const visibleOutput = stripAnsi(output).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     assert.match(result, /Cast command finished: \/pr main/);
     assert.match(result, /No commits found between feat\/cast-platform and main/);
+    assert.doesNotMatch(visibleOutput, /Running \/pr main\n\s*\n/);
   });
 
   test('agent-triggered Cast command renders a permission panel with command context', async () => {
@@ -249,6 +251,7 @@ describe('ReplService', () => {
     assert.match(visibleOutput, /Cast command\s+\/up/);
     assert.match(visibleOutput, /Action\s+Commit and push current changes/);
     assert.match(visibleOutput, /Approval\s+required/);
+    assert.doesNotMatch(visibleOutput.replace(/\r\n/g, '\n'), /Approval[^\n]*\n\s*\n/);
     assert.deepEqual(choicePrompts, ['Run this Cast command?']);
   });
 

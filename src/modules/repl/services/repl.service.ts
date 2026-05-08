@@ -267,7 +267,7 @@ export class ReplService {
       process.stdout.write('\r\n');
       process.stdout.write(`  ${Colors.cyan}${Icons.circle}${Colors.reset} ${Colors.bold}Cast command${Colors.reset}  ${Colors.cyan}${normalized}${Colors.reset}\r\n`);
       process.stdout.write(`    ${Colors.subtle}Action${Colors.reset}    ${this.describeCastCommand(normalized)}\r\n`);
-      process.stdout.write(`    ${Colors.subtle}Approval${Colors.reset}  ${Colors.warning}required${Colors.reset} ${Colors.subtle}(y/n or arrows)${Colors.reset}\r\n\r\n`);
+      process.stdout.write(`    ${Colors.subtle}Approval${Colors.reset}  ${Colors.warning}required${Colors.reset} ${Colors.subtle}(y/n or arrows)${Colors.reset}\r\n`);
 
       const choice = await this.smartInput.askChoice('Run this Cast command?', [
         { key: 'y', label: 'Yes', description: 'run command' },
@@ -275,11 +275,11 @@ export class ReplService {
       ]);
 
       if (choice !== 'y') {
-        process.stdout.write(this.ui.warning(`Cast command denied: ${normalized}`));
+        process.stdout.write(`  ${Colors.warning}! Cast command denied: ${normalized}${Colors.reset}\r\n`);
         return `Cast command denied by user: ${normalized}`;
       }
 
-      process.stdout.write(`  ${Colors.cyan}Running${Colors.reset} ${Colors.cyan}${normalized}${Colors.reset}\r\n\r\n`);
+      process.stdout.write(`  ${Colors.cyan}Running${Colors.reset} ${Colors.cyan}${normalized}${Colors.reset}\r\n`);
       const output = await this.captureVisibleOutput(() => this.handleCommand(normalized));
       return [
         `Cast command finished: ${normalized}`,
@@ -317,16 +317,35 @@ export class ReplService {
   private async captureVisibleOutput(action: () => Promise<void>): Promise<string> {
     const previousWrite = process.stdout.write;
     let captured = '';
+    let started = false;
 
     process.stdout.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean => {
+      const callback = typeof encoding === 'function' ? encoding : cb;
+      const writeEncoding = typeof encoding === 'string' ? encoding : undefined;
+      let visibleChunk = '';
+
       if (typeof chunk === 'string') {
-        captured += chunk;
+        visibleChunk = chunk;
       } else if (Buffer.isBuffer(chunk)) {
-        captured += chunk.toString();
+        visibleChunk = chunk.toString();
       } else if (chunk instanceof Uint8Array) {
-        captured += Buffer.from(chunk).toString();
+        visibleChunk = Buffer.from(chunk).toString();
       }
-      return previousWrite.call(process.stdout, chunk as any, encoding as any, cb as any);
+
+      if (!started) {
+        visibleChunk = visibleChunk.replace(/^[\r\n]+/, '');
+        started = visibleChunk.length > 0;
+      }
+
+      if (!visibleChunk) {
+        callback?.();
+        return true;
+      }
+
+      captured += visibleChunk;
+      return writeEncoding
+        ? previousWrite.call(process.stdout, visibleChunk, writeEncoding, callback as any)
+        : previousWrite.call(process.stdout, visibleChunk, callback as any);
     }) as typeof process.stdout.write;
 
     try {

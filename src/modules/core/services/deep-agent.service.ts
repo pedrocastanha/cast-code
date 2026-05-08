@@ -30,7 +30,7 @@ import { ReplayService } from '../../replay/services/replay.service';
 import { I18nService } from '../../i18n/services/i18n.service';
 import { FileWatcherService, FILE_CHANGE_EVENT } from '../../watcher/services/file-watcher.service';
 import { PromptLoaderService } from './prompt-loader.service';
-import { PromptClassifierService } from './prompt-classifier.service';
+import { PromptClassifierService, PromptLayer } from './prompt-classifier.service';
 import { PlatformService } from '../../platform/services/platform.service';
 import { ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT } from '../../../common/constants';
 
@@ -84,6 +84,8 @@ export class DeepAgentService {
   private cachedMcpTools: any[] = [];
   private cachedMcpDiscoveryTools: any[] = [];
   private cachedSubagents: any[] = [];
+  private cachedAgentToolKey = '';
+  private cachedAgentSubagentKey = '';
   private pendingContextRefresh = false;
   private projectRoot: string = process.cwd();
   private cachedProjectStructure: string = '';
@@ -184,12 +186,16 @@ export class DeepAgentService {
     this.cachedMcpTools = mcpTools;
     this.cachedMcpDiscoveryTools = mcpDiscoveryTools;
     this.cachedSubagents = subagents;
+    const initialTools = this.selectContextTools([]);
+    const initialSubagents = this.selectContextSubagents('', []);
+    this.cachedAgentToolKey = this.getToolKey(initialTools);
+    this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
 
     this.agent = createDeepAgent({
       model: this.model,
       systemPrompt,
-      tools: [...extraTools, ...mcpTools, ...mcpDiscoveryTools],
-      subagents,
+      tools: initialTools,
+      subagents: initialSubagents,
       backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
     });
 
@@ -207,11 +213,15 @@ export class DeepAgentService {
     this.cachedSystemPrompt = this.cachedBasePrompt;
     this.cachedLeanSystemPrompt = '';
     this.leanAgent = null;
+    const initialTools = this.selectContextTools([]);
+    const initialSubagents = this.selectContextSubagents('', []);
+    this.cachedAgentToolKey = this.getToolKey(initialTools);
+    this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
     this.agent = createDeepAgent({
       model: this.model,
       systemPrompt: this.cachedSystemPrompt,
-      tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
-      subagents: this.cachedSubagents,
+      tools: initialTools,
+      subagents: initialSubagents,
       backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
     });
   }
@@ -219,6 +229,37 @@ export class DeepAgentService {
   private selectLeanTools(tools: any[]): any[] {
     const allowed = new Set(['read_file', 'write_file', 'edit_file', 'shell']);
     return tools.filter((tool: any) => allowed.has(tool.name));
+  }
+
+  private selectContextTools(layers: PromptLayer[]): any[] {
+    const selected = [...this.cachedExtraTools, ...this.cachedMcpDiscoveryTools];
+    if (layers.includes('mcp')) {
+      selected.push(...this.cachedMcpTools);
+    }
+
+    const seen = new Set<string>();
+    return selected.filter((tool: any) => {
+      if (!tool?.name || seen.has(tool.name)) return false;
+      seen.add(tool.name);
+      return true;
+    });
+  }
+
+  private selectContextSubagents(message: string, layers: PromptLayer[]): any[] {
+    if (this.cachedSubagents.length === 0) return [];
+    if (layers.includes('planning')) return this.cachedSubagents;
+    if (/\b(sub-?agent|agent|deleg|paralel|parallel|review|revis|frontend|backend|arquitet|architect|tester|testes?|devops|ui|ux)\b/i.test(message)) {
+      return this.cachedSubagents;
+    }
+    return [];
+  }
+
+  private getToolKey(tools: any[]): string {
+    return tools.map((tool: any) => tool.name).sort().join('|');
+  }
+
+  private getSubagentKey(subagents: any[]): string {
+    return subagents.map((agent: any) => agent.name).sort().join('|');
   }
 
   private getGitStatus(): string {
@@ -252,16 +293,22 @@ export class DeepAgentService {
   }
 
   private buildBasePrompt(tools: any[], subagents: any[]): string {
-    const toolNames = tools.map((t: any) => t.name).join(', ');
     const langInstruction = this.i18nService.getAgentLanguageInstruction();
 
     let base = this.promptLoader.getPrompt('base');
-    base = base.replace('{{tool_names}}', toolNames);
+    base = base.replace('{{tool_names}}', this.buildToolCapabilitySummary(tools));
     base = base.replace('{{language_instruction}}', langInstruction);
 
     if (subagents.length > 0) {
-      const agentList = subagents.map((sa: any) => `- **${sa.name}**: ${sa.description}`).join('\n');
-      base = base.replace('{{subagents_section}}', `## Sub-Agents\nYou have ${subagents.length} sub-agents:\n${agentList}`);
+      base = base.replace(
+        '{{subagents_section}}',
+        [
+          '## Sub-Agents',
+          `${subagents.length} specialized sub-agents are available.`,
+          'Use `list_agents` to inspect names, roles, and dispatch guidance before delegating.',
+          'Delegate with the `task` tool only after choosing the right focused sub-agent.',
+        ].join('\n'),
+      );
     } else {
       base = base.replace('{{subagents_section}}', '');
     }
@@ -277,13 +324,54 @@ export class DeepAgentService {
     return base;
   }
 
-  private buildContextualPrompt(message: string, hasMentions: boolean): string {
-    const layers = this.promptClassifier.classify(message, {
+  private buildToolCapabilitySummary(tools: any[]): string {
+    const names = new Set(tools.map((t: any) => t.name));
+    const lines: string[] = [];
+
+    if (['read_file', 'write_file', 'edit_file'].some((name) => names.has(name))) {
+      lines.push('- Files: read, write, and edit project files with relative paths.');
+    }
+    if (['glob', 'grep', 'ls'].some((name) => names.has(name))) {
+      lines.push('- Search: inspect the project tree with ls/glob/grep before reading files.');
+    }
+    if (names.has('shell')) {
+      lines.push('- Commands: run project commands through shell with permission checks.');
+    }
+    if (['task_create', 'task_update', 'task_list'].some((name) => names.has(name))) {
+      lines.push('- Tasks: track multi-step work on the Cast task board.');
+    }
+    if (['memory_read', 'memory_write', 'memory_search', 'rag_search'].some((name) => names.has(name))) {
+      lines.push('- Memory/RAG: retrieve or save project knowledge when needed.');
+    }
+    if (['list_skills', 'read_skill'].some((name) => names.has(name))) {
+      lines.push('- Skills: call list_skills, then read_skill(name), before specialized work.');
+    }
+    if (names.has('list_agents')) {
+      lines.push('- Agents: call list_agents before choosing a sub-agent to delegate with task.');
+    }
+    if (['list_commands', 'cast_command'].some((name) => names.has(name))) {
+      lines.push('- Cast commands: use list_commands and cast_command for slash commands; never run slash commands through shell.');
+    }
+    if (['mcp_list_servers', 'mcp_list_tools'].some((name) => names.has(name))) {
+      lines.push('- MCP: discover connected external-service tools with mcp_list_servers and mcp_list_tools.');
+    }
+
+    return lines.length > 0
+      ? lines.join('\n')
+      : '- Tools are available through the model tool interface. Use discovery tools when unsure.';
+  }
+
+  private getPromptLayers(message: string, hasMentions: boolean): PromptLayer[] {
+    return this.promptClassifier.classify(message, {
       hasMcpConnected: this.cachedMcpTools.length > 0,
       hasProjectContext: this.projectContext.hasContext(),
       hasMemory: this.memoryService.isInitialized(),
       mentionsInMessage: hasMentions,
     });
+  }
+
+  private buildContextualPrompt(message: string, hasMentions: boolean, promptLayers?: PromptLayer[]): string {
+    const layers = promptLayers ?? this.getPromptLayers(message, hasMentions);
 
     const parts = [this.cachedBasePrompt];
 
@@ -310,12 +398,12 @@ export class DeepAgentService {
       'All paths are resolved relative to the working directory above.',
     );
 
-    const effort = this.multiLlmService.getCurrentEffortProfile();
-    if (this.cachedProjectStructure && effort.includeProjectStructure !== 'minimal') {
-      const structure = effort.includeProjectStructure === 'standard' && this.cachedProjectStructure.length > 5000
-        ? `${this.cachedProjectStructure.slice(0, 5000)}\n... (structure truncated by ${effort.label} effort)`
-        : this.cachedProjectStructure;
-      parts.push(`## Project Structure\n\`\`\`\n${structure}\n\`\`\`\n\nUse this as your reference for existing files. Only re-read a file if its content is unknown or it may have changed.`);
+    if (this.cachedProjectStructure) {
+      parts.push(
+        '## Project Structure',
+        'Project structure is not preloaded to keep input small.',
+        'Use ls/glob/grep to inspect only the relevant paths before reading files.',
+      );
     }
 
     if (this.projectContext.hasContext()) {
@@ -1466,14 +1554,25 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       }
       activeAgent = this.leanAgent;
     } else {
-      const contextualPrompt = this.buildContextualPrompt(message, hasMentions);
-      if (contextualPrompt !== this.cachedSystemPrompt) {
+      const layers = this.getPromptLayers(message, hasMentions);
+      const contextualPrompt = this.buildContextualPrompt(message, hasMentions, layers);
+      const activeTools = this.selectContextTools(layers);
+      const activeSubagents = this.selectContextSubagents(message, layers);
+      const toolKey = this.getToolKey(activeTools);
+      const subagentKey = this.getSubagentKey(activeSubagents);
+      if (
+        contextualPrompt !== this.cachedSystemPrompt
+        || toolKey !== this.cachedAgentToolKey
+        || subagentKey !== this.cachedAgentSubagentKey
+      ) {
         this.cachedSystemPrompt = contextualPrompt;
+        this.cachedAgentToolKey = toolKey;
+        this.cachedAgentSubagentKey = subagentKey;
         this.agent = createDeepAgent({
           model: this.model ?? undefined,
           systemPrompt: contextualPrompt,
-          tools: [...this.cachedExtraTools, ...this.cachedMcpTools, ...this.cachedMcpDiscoveryTools],
-          subagents: this.cachedSubagents,
+          tools: activeTools,
+          subagents: activeSubagents,
           backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
         });
       }

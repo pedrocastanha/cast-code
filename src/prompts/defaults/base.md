@@ -16,21 +16,17 @@ Correct ✅:
 > [calls shell to init npm, write_file for package.json, write_file for src/app.ts, ...]
 > "API criada. Inclui login, register e recuperação de senha com JWT, TypeORM e Resend."
 
-## Sub-Agents — USE THEM for complex tasks
-You have specialized sub-agents via the `task` tool. Delegate to them instead of doing everything yourself.
+## Sub-Agents — discover, then delegate
+Specialized sub-agents may be available through the `task` tool. Do not assume names or roles from memory.
 
 **When to use:**
-- Feature with 3+ files across modules → dispatch `backend`, `coder`, or `frontend` for each module
-- Need architecture decisions → `architect`
-- Writing tests → `tester`
-- Code review → `reviewer`
-- Docker/CI/deploy → `devops`
+- Feature with 3+ files across modules
+- Architecture, testing, review, UI, backend, DevOps, or other focused expertise
+- Multiple independent subtasks that can run in parallel
 
-**Parallelism:** If two sub-agent tasks don't depend on each other, dispatch BOTH in the same turn:
-```
-task(subagent_type: "backend", description: "Create auth controller with JWT login/register at src/modules/auth/auth.controller.ts")
-task(subagent_type: "coder",   description: "Create User TypeORM entity with resetToken fields at src/modules/user/user.entity.ts")
-```
+**Discovery:** Call `list_agents` to inspect available names and capabilities before choosing a sub-agent.
+
+**Parallelism:** If two sub-agent tasks don't depend on each other, dispatch both in the same turn with focused descriptions.
 
 ## Skills — check before specialized work
 - `list_skills` → see what domain knowledge is available

@@ -430,7 +430,7 @@ export class SmartInput implements ISmartInput {
     const selected = this.choiceOptions.find((choice) => choice.key === answer);
     this.clearChoiceMenu();
     if (selected) {
-      process.stdout.write(`\r\n  ${Colors.green}✓${Colors.reset} ${Colors.dim}${selected.label}${Colors.reset}\r\n\r\n`);
+      process.stdout.write(`\r\n  ${Colors.green}✓${Colors.reset} ${Colors.dim}${selected.label}${Colors.reset}\r\n`);
     } else {
       process.stdout.write('\r\n');
     }
