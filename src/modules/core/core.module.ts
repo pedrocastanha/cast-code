@@ -19,6 +19,7 @@ import { WatcherModule } from '../watcher/watcher.module';
 import { PlatformModule } from '../platform/platform.module';
 import { StateModule } from '../state/state.module';
 import { BenchmarkModule } from '../benchmark/benchmark.module';
+import { EnvironmentModule } from '../environments/environment.module';
 
 @Module({
   imports: [
@@ -38,8 +39,9 @@ import { BenchmarkModule } from '../benchmark/benchmark.module';
     PlatformModule,
     StateModule,
     BenchmarkModule,
+    EnvironmentModule,
   ],
   providers: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService],
-  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule, StateModule, BenchmarkModule],
+  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule, StateModule, BenchmarkModule, EnvironmentModule],
 })
 export class CoreModule {}

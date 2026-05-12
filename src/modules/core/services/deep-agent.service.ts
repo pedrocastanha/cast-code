@@ -33,6 +33,7 @@ import { PromptLoaderService } from './prompt-loader.service';
 import { PromptClassifierService, PromptLayer } from './prompt-classifier.service';
 import { PlatformService } from '../../platform/services/platform.service';
 import { LocalSessionStoreService } from '../../state/services/local-session-store.service';
+import { EnvironmentResolverService } from '../../environments/services/environment-resolver.service';
 import { ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT } from '../../../common/constants';
 
 const SUMMARIZE_THRESHOLD = 40;
@@ -64,6 +65,7 @@ const COMPACT_CHAT_PATTERNS = [
   /^(o que (vc|voce|você) (pode fazer|faz)|como (vc|voce|você) (pode )?(me )?ajuda(r)?|pra que (vc|voce|você) serve)\??$/i,
   /^(what can you do|what do you do|how can you help|what are you able to do)\??$/i,
 ];
+const MAX_GIT_STATUS_PROMPT_LINES = 20;
 
 @Injectable()
 export class DeepAgentService {
@@ -90,6 +92,7 @@ export class DeepAgentService {
   private pendingContextRefresh = false;
   private projectRoot: string = process.cwd();
   private cachedProjectStructure: string = '';
+  private cachedEnvironmentPrompt: string = '';
   private localSessionId: string | null = null;
 
   constructor(
@@ -113,6 +116,8 @@ export class DeepAgentService {
     private readonly platformService: PlatformService,
     @Optional()
     private readonly localSessionStore?: LocalSessionStoreService,
+    @Optional()
+    private readonly environmentResolver?: EnvironmentResolverService,
   ) {
     this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
       this.pendingContextRefresh = true;
@@ -149,6 +154,7 @@ export class DeepAgentService {
       }
 
       await this.platformService.bootstrap(this.projectRoot);
+      await this.mcpRegistry.connectAll();
 
       const agentsOverridePath = this.projectLoader.getAgentsOverridePath(projectPath);
       const legacyAgentsOverridePath = this.projectLoader.getLegacyAgentsOverridePath(projectPath);
@@ -162,6 +168,8 @@ export class DeepAgentService {
 
       await this.memoryService.initialize(projectPath);
     }
+
+    await this.refreshEnvironmentPrompt();
 
     this.model = this.multiLlmService.createStreamingModel('default');
     this.statsService.setUsageListener((event) => {
@@ -217,6 +225,7 @@ export class DeepAgentService {
 
   async reinitializeModel(): Promise<void> {
     this.model = this.multiLlmService.createStreamingModel('default');
+    await this.refreshEnvironmentPrompt();
     this.cachedBasePrompt = this.buildBasePrompt(this.cachedExtraTools, this.cachedSubagents);
     this.cachedSystemPrompt = this.cachedBasePrompt;
     this.cachedLeanSystemPrompt = '';
@@ -232,6 +241,39 @@ export class DeepAgentService {
       subagents: initialSubagents,
       backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
     });
+  }
+
+  async refreshEnvironmentContext(): Promise<void> {
+    await this.refreshEnvironmentPrompt();
+
+    const allTools = this.toolsRegistry.getAllTools();
+    const mcpTools = this.mcpRegistry.getAllMcpTools();
+    this.cachedExtraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
+    this.cachedLeanTools = this.selectLeanTools(allTools);
+    this.cachedMcpTools = mcpTools;
+    this.cachedMcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
+    this.cachedBasePrompt = this.buildBasePrompt(allTools, this.cachedSubagents);
+    this.cachedSystemPrompt = this.cachedBasePrompt;
+    this.cachedLeanSystemPrompt = '';
+    this.leanAgent = null;
+
+    const initialTools = this.selectContextTools([]);
+    const initialSubagents = this.selectContextSubagents('', []);
+    this.cachedAgentToolKey = this.getToolKey(initialTools);
+    this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
+    this.model = this.model ?? this.multiLlmService.createStreamingModel('default');
+    this.agent = createDeepAgent({
+      model: this.model,
+      systemPrompt: this.cachedSystemPrompt,
+      tools: initialTools,
+      subagents: initialSubagents,
+      backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
+    });
+  }
+
+  async getActiveEnvironmentId(): Promise<string | null> {
+    const active = await this.environmentResolver?.getActive(this.projectRoot);
+    return active?.id ?? null;
   }
 
   private selectLeanTools(tools: any[]): any[] {
@@ -287,7 +329,12 @@ export class DeepAgentService {
 
       let result = `Branch: ${branch}`;
       if (status) {
-        result += `\nChanges:\n${status}`;
+        const lines = status.split('\n').filter(Boolean);
+        const visible = lines.slice(0, MAX_GIT_STATUS_PROMPT_LINES);
+        result += `\nChanges (${lines.length} files):\n${visible.join('\n')}`;
+        if (lines.length > visible.length) {
+          result += `\n... ${lines.length - visible.length} more changed files omitted`;
+        }
       } else {
         result += '\nStatus: clean';
       }
@@ -327,6 +374,10 @@ export class DeepAgentService {
     const ragInstruction = this.platformService.getRagInstruction();
     if (ragInstruction) {
       base += `\n\n## Platform Memory/RAG\n${ragInstruction}\n\nUse \`rag_search\` to retrieve indexed platform context before answering questions that depend on project documentation, decisions, runbooks, or knowledge not present in the local files.`;
+    }
+
+    if (this.cachedEnvironmentPrompt) {
+      base += `\n\n${this.cachedEnvironmentPrompt}`;
     }
 
     return base;
@@ -475,7 +526,24 @@ export class DeepAgentService {
       parts.push('', '# Project Context', this.projectContext.getContextPrompt());
     }
 
+    if (this.cachedEnvironmentPrompt) {
+      parts.push('', this.cachedEnvironmentPrompt);
+    }
+
     return parts.join('\n');
+  }
+
+  private async refreshEnvironmentPrompt(): Promise<void> {
+    if (!this.environmentResolver?.buildActiveEnvironmentPrompt) {
+      this.cachedEnvironmentPrompt = '';
+      return;
+    }
+
+    try {
+      this.cachedEnvironmentPrompt = await this.environmentResolver.buildActiveEnvironmentPrompt(this.projectRoot);
+    } catch {
+      this.cachedEnvironmentPrompt = '';
+    }
   }
 
   private getLeanPackageHints(): string {
