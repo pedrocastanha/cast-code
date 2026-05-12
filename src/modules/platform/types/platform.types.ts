@@ -1,6 +1,13 @@
+import type {
+  SkillRisk,
+  SkillScannerFinding,
+  SkillSource,
+  SkillTrust,
+} from '../../skills/types';
+
 export interface CastProjectManifest {
   version?: number;
-  project?: { name?: string };
+  project?: { name?: string; environment?: string };
   platform?: {
     projectId?: string;
     apiKeyEnv?: string;
@@ -29,6 +36,15 @@ export interface RemoteSkillPayload {
   name: string;
   type?: 'skill' | 'agent';
   content: string;
+  isActive?: boolean | null;
+  trust?: SkillTrust | null;
+  risk?: SkillRisk | null;
+  source?: SkillSource | null;
+  sourceRepo?: string | null;
+  sourcePath?: string | null;
+  tags?: string[] | null;
+  environments?: string[] | null;
+  scannerFindings?: SkillScannerFinding[] | null;
   updatedAt?: string;
 }
 
@@ -39,14 +55,49 @@ export interface RemoteAgentPayload {
   updatedAt?: string;
 }
 
+export interface PlatformMcpPayload {
+  serverId: string;
+  name?: string;
+  category?: string;
+  risk?: string;
+  environments?: string[];
+  capabilities?: {
+    tools?: boolean;
+    resources?: boolean;
+    prompts?: boolean;
+  };
+  auth?: string;
+  isEnabled?: boolean;
+  approvalPolicy?: string;
+  mutationPolicy?: string;
+  effectiveMutationPolicy?: string;
+  environment?: string | null;
+  setupState?: string;
+  readiness?: {
+    state?: string;
+    reasons?: string[];
+    guidance?: string[];
+  };
+  config?: {
+    publicConfig?: Record<string, unknown> | null;
+    envVarNames?: string[];
+    commandRef?: string;
+  };
+  updatedAt?: string;
+}
+
 export interface PlatformProjectPayload {
   project: { id: string; name: string; slug?: string; description?: string | null };
   features: PlatformFeatures;
   skills: RemoteSkillPayload[];
   agents: RemoteAgentPayload[];
+  mcp?: PlatformMcpPayload[];
   benchmarks?: {
     enabled: boolean;
     definitions: PlatformBenchmarkDefinitionPayload[];
+  };
+  schedules?: {
+    definitions: PlatformSchedulePayload[];
   };
   settings?: {
     ragEnabled?: boolean;
@@ -84,6 +135,30 @@ export interface PlatformMemoryRetrieval {
   queryPreview?: string;
   latencyMs?: number;
   results: PlatformMemoryRetrievalResult[];
+}
+
+export interface PlatformMemoryOverview {
+  stats?: {
+    sources?: number;
+    readySources?: number;
+    units?: number;
+    edges?: number;
+    retrievalMode?: string;
+  };
+  sources: Array<{
+    id?: string;
+    title?: string;
+    description?: string | null;
+    status?: string;
+    unitCount?: number;
+    sourceType?: string;
+  }>;
+  units?: Array<{
+    id?: string;
+    title?: string;
+    content?: string;
+    tokenCount?: number | null;
+  }>;
 }
 
 export interface PlatformMemoryUsageResponse {
@@ -147,6 +222,46 @@ export interface PlatformBenchmarkArtifactPayload {
   path: string;
   metadata?: Record<string, unknown>;
   createdAt?: string;
+}
+
+export interface PlatformSchedulePayload {
+  id?: string;
+  name: string;
+  cronExpression: string;
+  target: {
+    type: string;
+    ref: string;
+    config?: Record<string, unknown>;
+  };
+  environmentId?: string;
+  budget?: {
+    maxUsd?: number;
+    maxTokens?: number;
+    maxRuns?: number;
+    maxRuntimeSeconds?: number;
+  };
+  approvalPolicy?: {
+    mode: 'read-only' | 'balanced' | 'explicit';
+    allowShell?: boolean;
+    allowExternalMutation?: boolean;
+    requireManualApproval?: boolean;
+  };
+  status?: string;
+  nextRunAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PlatformScheduleRunPayload {
+  id?: string;
+  status: 'queued' | 'running' | 'successful' | 'failed' | 'canceled';
+  runConfig?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+  logs?: string[];
+  outputPreview?: string | null;
+  error?: Record<string, unknown> | string | null;
+  startedAt?: string;
+  endedAt?: string;
 }
 
 export type PlatformStatus = 'disabled' | 'online' | 'offline' | 'error';

@@ -25,7 +25,7 @@ export class CastLinkService {
       };
     }
 
-    const candidate = this.configService.buildConfig(projectRoot, options);
+    const candidate = await this.configService.buildConfig(projectRoot, options);
     if (!candidate.enabled) {
       return {
         ok: false,

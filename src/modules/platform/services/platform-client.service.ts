@@ -7,7 +7,10 @@ import {
   PlatformBenchmarkDefinitionResponse,
   PlatformBenchmarkResultPayload,
   PlatformBenchmarkRunPayload,
+  PlatformSchedulePayload,
+  PlatformScheduleRunPayload,
   PlatformMemoryRetrieval,
+  PlatformMemoryOverview,
   PlatformMemoryUsageResponse,
   PlatformProjectPayload,
 } from '../types';
@@ -89,6 +92,20 @@ export class PlatformClientService {
       apiKey,
       `/v1/projects/${encodeURIComponent(config.projectId || '')}/memory/retrieve`,
       this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  memoryOverview(
+    config: PlatformConfig,
+    apiKey: string,
+    timeoutMs = 5000,
+  ): Promise<PlatformMemoryOverview> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/memory/overview`,
+      { method: 'GET' },
       timeoutMs,
     );
   }
@@ -182,6 +199,53 @@ export class PlatformClientService {
       config,
       apiKey,
       `/v1/projects/${encodeURIComponent(config.projectId || '')}/benchmark-runs/${encodeURIComponent(runId)}/artifacts`,
+      this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  createSchedule(
+    config: PlatformConfig,
+    apiKey: string,
+    body: PlatformSchedulePayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformSchedulePayload> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/schedules`,
+      this.jsonInit('POST', body),
+      timeoutMs,
+    );
+  }
+
+  updateSchedule(
+    config: PlatformConfig,
+    apiKey: string,
+    scheduleId: string,
+    body: PlatformSchedulePayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformSchedulePayload> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/schedules/${encodeURIComponent(scheduleId)}`,
+      this.jsonInit('PATCH', body),
+      timeoutMs,
+    );
+  }
+
+  createScheduleRun(
+    config: PlatformConfig,
+    apiKey: string,
+    scheduleId: string,
+    body: PlatformScheduleRunPayload,
+    timeoutMs = 5000,
+  ): Promise<PlatformScheduleRunPayload> {
+    return this.request(
+      config,
+      apiKey,
+      `/v1/projects/${encodeURIComponent(config.projectId || '')}/schedules/${encodeURIComponent(scheduleId)}/runs`,
       this.jsonInit('POST', body),
       timeoutMs,
     );

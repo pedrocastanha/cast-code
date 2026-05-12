@@ -132,6 +132,30 @@ describe('PlatformClientService', () => {
     }
   });
 
+  test('memoryOverview reads the project memory overview endpoint', async () => {
+    const originalFetch = global.fetch;
+    let url = '';
+    try {
+      global.fetch = (async (input: string | URL | Request) => {
+        url = String(input);
+        return new Response(JSON.stringify({
+          stats: { sources: 1, readySources: 1, units: 3, edges: 0, retrievalMode: 'vector' },
+          sources: [{ title: 'Brand guide', status: 'ready', unitCount: 3 }],
+          units: [],
+          graph: { nodes: [], edges: [] },
+        }), { status: 200 });
+      }) as typeof fetch;
+
+      const service = new PlatformClientService();
+      const result = await service.memoryOverview(config, 'secret-key');
+
+      assert.equal(url, 'https://api.cast.test/v1/projects/project-1/memory/overview');
+      assert.equal(result.sources[0].title, 'Brand guide');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   test('markMemoryUsed posts retrieval usage without exposing api keys in body', async () => {
     const originalFetch = global.fetch;
     let url = '';
@@ -201,6 +225,53 @@ describe('PlatformClientService', () => {
       assert.equal(calls[1].url, 'https://api.cast.test/v1/projects/project-1/benchmarks/bench-1/runs');
       assert.equal(calls[2].url, 'https://api.cast.test/v1/projects/project-1/benchmark-runs/run-1/results');
       assert.equal(calls[3].url, 'https://api.cast.test/v1/projects/project-1/benchmark-runs/run-1/artifacts');
+      assert.doesNotMatch(JSON.stringify(calls), /secret-key/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('schedule sync methods use project schedule routes and backend payload shape', async () => {
+    const originalFetch = global.fetch;
+    const calls: Array<{ url: string; method?: string; body: unknown }> = [];
+    try {
+      global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          method: init?.method,
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        });
+        return new Response(JSON.stringify({ id: 'schedule-1' }), { status: 200 });
+      }) as typeof fetch;
+
+      const service = new PlatformClientService();
+      await service.createSchedule(config, 'secret-key', {
+        name: 'Nightly test health',
+        cronExpression: '0 2 * * *',
+        target: { type: 'benchmark', ref: 'bench-1', config: { definitionId: 'bench-1' } },
+        budget: { maxUsd: 1, maxTokens: 1000, maxRuns: 1, maxRuntimeSeconds: 60 },
+        approvalPolicy: { mode: 'read-only', allowShell: false, allowExternalMutation: false },
+      });
+      await service.updateSchedule(config, 'secret-key', 'schedule-1', {
+        name: 'Nightly test health',
+        cronExpression: '0 2 * * *',
+        target: { type: 'benchmark', ref: 'bench-1', config: { definitionId: 'bench-1' } },
+        status: 'paused',
+      });
+      await service.createScheduleRun(config, 'secret-key', 'schedule-1', {
+        status: 'successful',
+        summary: { ok: true },
+        runConfig: { localRunId: 'local-run-1' },
+      });
+
+      assert.equal(calls[0].url, 'https://api.cast.test/v1/projects/project-1/schedules');
+      assert.equal(calls[0].method, 'POST');
+      assert.equal((calls[0].body as any).target.type, 'benchmark');
+      assert.equal(calls[1].url, 'https://api.cast.test/v1/projects/project-1/schedules/schedule-1');
+      assert.equal(calls[1].method, 'PATCH');
+      assert.equal(calls[2].url, 'https://api.cast.test/v1/projects/project-1/schedules/schedule-1/runs');
+      assert.equal(calls[2].method, 'POST');
+      assert.equal((calls[2].body as any).status, 'successful');
       assert.doesNotMatch(JSON.stringify(calls), /secret-key/);
     } finally {
       global.fetch = originalFetch;

@@ -1,6 +1,7 @@
 import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import * as os from 'node:os';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
+import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { PlatformCacheService } from './platform-cache.service';
 import { PlatformClientService } from './platform-client.service';
@@ -12,6 +13,7 @@ import {
   PlatformConfig,
   PlatformEventType,
   PlatformFeatures,
+  PlatformMemoryOverview,
   PlatformMemoryRetrieval,
   PlatformMemoryUsageResponse,
   PlatformProjectPayload,
@@ -38,6 +40,8 @@ export class PlatformService {
     private readonly skillRegistry: SkillRegistryService,
     @Inject(forwardRef(() => AgentRegistryService))
     private readonly agentRegistry: AgentRegistryService,
+    @Inject(forwardRef(() => McpRegistryService))
+    private readonly mcpRegistry: McpRegistryService,
     private readonly tracker: SessionTrackerService,
   ) {}
 
@@ -137,6 +141,13 @@ export class PlatformService {
     });
   }
 
+  async memoryOverview(): Promise<PlatformMemoryOverview> {
+    if (!this.config || !this.apiKey || !this.isRagEnabled()) {
+      throw new Error('Platform RAG is not enabled for this project.');
+    }
+    return this.client.memoryOverview(this.config, this.apiKey);
+  }
+
   async markMemoryUsed(retrievalId: string, unitIds: string[]): Promise<PlatformMemoryUsageResponse> {
     if (!this.config || !this.apiKey || !this.isRagEnabled()) {
       throw new Error('Platform RAG is not enabled for this project.');
@@ -171,8 +182,10 @@ export class PlatformService {
 
     const skills = this.adapter.adaptSkills(payload.skills || []);
     const agents = this.adapter.adaptAgents(payload.agents || []);
+    const mcpConfigs = this.adapter.adaptMcpConfigs(payload.mcp || []);
     const overriddenSkills = this.skillRegistry.loadRemoteSkills(skills);
     const overriddenAgents = this.agentRegistry.loadRemoteAgents(agents);
+    this.mcpRegistry.loadConfigs(mcpConfigs);
 
     for (const name of overriddenSkills) {
       process.stdout.write(`[platform] skill "${name}" overridden by remote platform version\r\n`);
