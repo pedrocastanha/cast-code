@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { colorize, Icons } from '../../utils/theme';
 import { CommandUiService } from '../command-ui.service';
 import { AgentRegistryService } from '../../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../../skills/services/skill-registry.service';
+import { SkillsImportCommandsService } from '../../../skills-import/commands/skills-import-commands.service';
 import { ISmartInput } from '../smart-input';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class AgentCommandsService {
   constructor(
     private readonly agentRegistry: AgentRegistryService,
     private readonly skillRegistry: SkillRegistryService,
+    @Optional() private readonly skillsImportCommands?: SkillsImportCommandsService,
   ) {}
 
   async cmdAgents(args: string[], smartInput: ISmartInput): Promise<void> {
@@ -94,6 +96,16 @@ export class AgentCommandsService {
 
     if (sub === 'create') {
       await this.createSkillWizard(smartInput);
+      return;
+    }
+
+    if (sub === 'import-hermes') {
+      if (!this.skillsImportCommands) {
+        w(this.ui.error('Skills import commands are not available in this build.'));
+        return;
+      }
+      const result = await this.skillsImportCommands.handle(args);
+      w(result.ok ? this.ui.success(result.message) : this.ui.error(result.message));
       return;
     }
 

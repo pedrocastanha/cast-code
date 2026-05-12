@@ -30,6 +30,10 @@ import { ReplayModule } from '../replay/replay.module';
 import { VaultModule } from '../vault/vault.module';
 import { PlatformModule } from '../platform/platform.module';
 import { BenchmarkModule } from '../benchmark/benchmark.module';
+import { EnvironmentModule } from '../environments/environment.module';
+import { SkillsImportModule } from '../skills-import/skills-import.module';
+import { SchedulerModule } from '../scheduler/scheduler.module';
+import { SandboxModule } from '../sandbox/sandbox.module';
 
 @Module({
   imports: [
@@ -51,6 +55,10 @@ import { BenchmarkModule } from '../benchmark/benchmark.module';
     VaultModule,
     PlatformModule,
     BenchmarkModule,
+    EnvironmentModule,
+    SkillsImportModule,
+    SchedulerModule,
+    SandboxModule,
   ],
   providers: [
     ReplService,

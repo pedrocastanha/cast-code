@@ -80,6 +80,7 @@ export class ReplCommandsService {
           ['/init', 'analyze project and generate context'],
           ['/project', 'project context commands'],
           ['/project-deep', 'deep analysis and agent brief'],
+          ['/env', 'domain environment packs'],
           ['/model', 'show or change models'],
           ['/config', 'show/edit configuration'],
           ['/link', 'link this directory to Cast Platform'],

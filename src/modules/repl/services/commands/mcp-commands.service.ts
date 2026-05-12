@@ -11,7 +11,7 @@ import {
   confirmWithEsc,
   CancelledPromptError,
 } from '../../utils/prompts-with-esc';
-import { getTemplatesByCategory, getTemplate, McpCategory } from '../../../mcp/catalog/mcp-templates';
+import { getAllTemplates, getTemplatesByCategory, getTemplate, McpCategory } from '../../../mcp/catalog/mcp-templates';
 import { ISmartInput } from '../smart-input';
 
 @Injectable()
@@ -42,6 +42,9 @@ export class McpCommandsService {
     smartInput.pause();
     try {
       switch (sub) {
+      case 'catalog':
+        await this.listCatalog(args.slice(1));
+        break;
       case 'list':
         await this.listServers();
         break;
@@ -100,11 +103,12 @@ export class McpCommandsService {
 
       const action = await this.withEsc(() => smartInput.askChoice('What would you like to do?', [
         { key: '1', label: 'View servers', description: 'List configured MCPs' },
-        { key: '2', label: 'View tools', description: 'All available tools' },
-        { key: '3', label: 'Connect servers', description: 'Connect/reconnect configured MCPs' },
-        { key: '4', label: 'Add server', description: 'Configure new MCP' },
-        { key: '5', label: 'Remove server', description: 'Remove MCP' },
-        { key: '6', label: 'What is MCP?', description: 'Learn about the protocol' },
+        { key: '2', label: 'View catalog', description: 'Browse governed MCP templates' },
+        { key: '3', label: 'View tools', description: 'All available tools' },
+        { key: '4', label: 'Connect servers', description: 'Connect/reconnect configured MCPs' },
+        { key: '5', label: 'Add server', description: 'Configure new MCP' },
+        { key: '6', label: 'Remove server', description: 'Remove MCP' },
+        { key: '7', label: 'What is MCP?', description: 'Learn about the protocol' },
         { key: 'q', label: 'Back', description: 'Exit MCP Hub' },
       ]));
 
@@ -119,20 +123,23 @@ export class McpCommandsService {
         await this.listServers();
         break;
       case '2':
-        await this.listTools();
+        await this.listCatalog([]);
         break;
       case '3':
-        await this.connectServers(smartInput as any);
+        await this.listTools();
         break;
       case '4':
+        await this.connectServers(smartInput as any);
+        break;
+      case '5':
         await this.addMcpWizard(smartInput);
         pause = false;
         break;
-      case '5':
+      case '6':
         await this.removeMcpWizard(smartInput);
         pause = false;
         break;
-      case '6':
+      case '7':
         this.printWhatIsMcp();
         break;
       case 'q':
@@ -267,12 +274,59 @@ export class McpCommandsService {
     }));
   }
 
+  private async listCatalog(args: string[]): Promise<void> {
+    const w = (s: string) => process.stdout.write(s);
+    const requestedFilter = args[0]?.replace(/^category=/, '') as McpCategory | undefined;
+    const configured = new Set(this.mcpRegistry.getUnscopedServerNames());
+    const summaries = new Map(this.mcpRegistry.getServerSummaries().map((summary) => [summary.name, summary]));
+    const templates = getAllTemplates()
+      .filter((template) => !requestedFilter || template.category === requestedFilter)
+      .sort((a, b) => a.category.localeCompare(b.category) || a.id.localeCompare(b.id));
+    const categories = Array.from(new Set(getAllTemplates().map((template) => template.category))).sort();
+
+    if (templates.length === 0) {
+      w(this.ui.warning(`No MCP catalog entries found for "${requestedFilter}".`));
+      return;
+    }
+
+    const lines = templates.flatMap((template) => {
+      const summary = summaries.get(template.id);
+      const status = summary?.status === 'connected'
+        ? colorize('connected', 'success')
+        : summary
+          ? colorize(summary.status, 'warning')
+          : colorize('not connected', 'muted');
+      const configState = configured.has(template.id) ? colorize('configured', 'success') : colorize('not configured', 'muted');
+      const capabilities = Object.entries(template.capabilities)
+        .filter(([, enabled]) => enabled)
+        .map(([capability]) => capability)
+        .join('/');
+      const tags = template.environments.map((env) => `#${env}`).join(' ');
+
+      return [
+        `${colorize(template.id, 'cyan')}  ${template.name}  ${template.category}  ${configState}  ${status}`,
+        `  risk: ${template.risk}  auth: ${template.auth}  mutation: ${template.mutationPolicy}`,
+        `  capabilities: ${capabilities || 'none'}  environments: ${tags}`,
+      ];
+    });
+
+    w(this.ui.panel({
+      title: 'MCP Catalog',
+      subtitle: requestedFilter ? `filter: ${requestedFilter}` : `${templates.length} connectors`,
+      sections: [
+        { title: 'Filters', lines: [`Categories: ${categories.join(', ')}`, 'Usage: /mcp catalog <category>'] },
+        { title: 'Connectors', lines },
+      ],
+    }));
+  }
+
   private async listTools(): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
     const summaries = this.mcpRegistry.getServerSummaries();
     const totalTools = summaries.reduce((sum, s) => sum + s.toolCount, 0);
+    const totalQuarantined = summaries.reduce((sum, s) => sum + (s.quarantinedTools?.length ?? 0), 0);
 
-    if (totalTools === 0) {
+    if (totalTools === 0 && totalQuarantined === 0) {
       w(this.ui.panel({
         title: 'MCP Tools',
         subtitle: '0 available',
@@ -283,23 +337,26 @@ export class McpCommandsService {
 
     const sections: Array<{ title: string; lines: string[] }> = [];
     for (const server of summaries) {
-      if (server.toolCount === 0) continue;
+      if (server.toolCount === 0 && (server.quarantinedTools?.length ?? 0) === 0) continue;
 
       sections.push({
         title: `${server.name} (${server.transport}, ${server.status})`,
-        lines: server.toolDescriptions.map((td) => {
+        lines: [
+          ...server.toolDescriptions.map((td) => {
           const shortName = td.name.replace(`${server.name}_`, '');
           const desc = td.description.length > 70 
             ? td.description.slice(0, 67) + '...' 
             : td.description;
           return `${colorize(shortName, 'cyan')}  ${colorize(desc, 'muted')}`;
-        }),
+          }),
+          ...(server.quarantinedTools ?? []).map((item) => colorize(`warning: ${item.name} ${item.warning}`, 'warning')),
+        ],
       });
     }
 
     w(this.ui.panel({
       title: 'MCP Tools',
-      subtitle: `${totalTools} available`,
+      subtitle: `${totalTools} available${totalQuarantined ? `, ${totalQuarantined} quarantined` : ''}`,
       sections,
     }));
   }
@@ -325,6 +382,7 @@ export class McpCommandsService {
         { name: 'Design (Figma)', value: 'design' as McpCategory },
         { name: 'Data (PostgreSQL, MongoDB, Redis, Supabase)', value: 'data' as McpCategory },
         { name: 'Search (Brave, Exa, Perplexity, Context7)', value: 'search' as McpCategory },
+        { name: 'Marketing (Meta Ads)', value: 'marketing' as McpCategory },
         { name: 'Cloud (Vercel, Cloudflare, AWS S3)', value: 'cloud' as McpCategory },
         { name: 'Productivity (Slack, Notion, Google Drive, Maps)', value: 'productivity' as McpCategory },
         { name: 'Payments (Stripe, Twilio)', value: 'payments' as McpCategory },
@@ -665,6 +723,7 @@ export class McpCommandsService {
           title: 'Commands',
           lines: [
             `${colorize('/mcp', 'cyan')}          ${colorize('interactive menu', 'muted')}`,
+            `${colorize('/mcp catalog', 'cyan')}  ${colorize('browse governed connectors', 'muted')}`,
             `${colorize('/mcp list', 'cyan')}     ${colorize('view servers', 'muted')}`,
             `${colorize('/mcp tools', 'cyan')}    ${colorize('view tools', 'muted')}`,
             `${colorize('/mcp add', 'cyan')}      ${colorize('add server', 'muted')}`,

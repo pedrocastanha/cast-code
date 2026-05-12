@@ -39,6 +39,9 @@ import { Colors, Icons } from '../utils/theme';
 import { PlatformService } from '../../platform/services/platform.service';
 import { LocalSessionStoreService } from '../../state/services/local-session-store.service';
 import { BenchmarkCommandsService } from '../../benchmark/commands/benchmark-commands.service';
+import { EnvironmentCommandsService } from '../../environments/commands/environment-commands.service';
+import { ScheduleCommandsService } from '../../scheduler/commands/schedule-commands.service';
+import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.service';
 import { CommandUiService } from './command-ui.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
@@ -88,8 +91,16 @@ export class ReplService {
     private readonly discoveryTools?: DiscoveryToolsService,
     @Optional()
     private readonly localSessionStore?: LocalSessionStoreService,
+    @Optional()
+    private readonly environmentCommands?: EnvironmentCommandsService,
+    @Optional()
+    private readonly scheduleCommands?: ScheduleCommandsService,
+    @Optional()
+    private readonly sandboxCommands?: SandboxCommandsService,
   ) {
     this.benchmarkCommands?.setAgentExecutor?.(this.deepAgent as any);
+    this.environmentCommands?.setAgentRefresh?.(this.deepAgent as any);
+    this.scheduleCommands?.setAgentExecutor?.(this.deepAgent as any);
   }
 
   async start(): Promise<void> {
@@ -322,6 +333,9 @@ export class ReplService {
       skills: 'List or manage Cast skills',
       tools: 'List available tools',
       benchmark: 'Run local Benchmark Lab commands',
+      env: 'List, activate, or inspect Cast environments',
+      schedule: 'Manage local scheduled benchmark and environment jobs',
+      sandbox: 'Manage sandbox checkpoints and rollbacks',
     };
     return descriptions[cmd] || 'Run an existing Cast slash command';
   }
@@ -413,6 +427,9 @@ export class ReplService {
       { text: '/replay', display: '/replay', description: 'Save or view session replays' },
       { text: '/vault', display: '/vault', description: 'Manage code snippet vault' },
       { text: '/benchmark', display: '/benchmark', description: 'Local Benchmark Lab' },
+      { text: '/env', display: '/env', description: 'Cast environments' },
+      { text: '/schedule', display: '/schedule', description: 'Local schedulers' },
+      { text: '/sandbox', display: '/sandbox', description: 'Sandbox checkpoints' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -749,6 +766,27 @@ export class ReplService {
         break;
       }
       await runBenchmarkCommand(args, this.smartInput!);
+      break;
+    case 'env':
+      if (!this.environmentCommands?.cmdEnv) {
+        process.stdout.write(this.ui.error('Cast environments are not available in this runtime.'));
+        break;
+      }
+      await this.environmentCommands.cmdEnv(args);
+      break;
+    case 'schedule':
+      if (!this.scheduleCommands?.cmdSchedule) {
+        process.stdout.write(this.ui.error('Schedule automation is not available in this runtime.'));
+        break;
+      }
+      await this.scheduleCommands.cmdSchedule(args, this.smartInput!);
+      break;
+    case 'sandbox':
+      if (!this.sandboxCommands?.cmdSandbox) {
+        process.stdout.write(this.ui.error('Sandbox checkpoints are not available in this runtime.'));
+        break;
+      }
+      await this.sandboxCommands.cmdSandbox(args);
       break;
 
     default:

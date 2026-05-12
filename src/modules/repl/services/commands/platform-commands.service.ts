@@ -55,7 +55,7 @@ export class PlatformCommandsService {
           ],
         },
       ],
-      footer: 'This writes .cast/cast.yaml in the current directory. The API key value is never stored.',
+      footer: 'This writes .cast/cast.yaml in the current directory. Use /config set-platform for a global key.',
     }));
 
     const result = await this.linkService.link(projectRoot, options);
@@ -91,7 +91,7 @@ export class PlatformCommandsService {
           ],
         },
       ],
-      footer: 'Leave API URL and key env blank to keep the defaults.',
+      footer: 'Leave API URL and key env blank to use project/global defaults.',
     }));
 
     const projectId = (await smartInput.question('Project ID:')).trim();
@@ -102,12 +102,25 @@ export class PlatformCommandsService {
 
     const apiUrlAnswer = (await smartInput.question(`Platform API URL (${current.apiUrl}):`)).trim();
     const apiKeyEnvAnswer = (await smartInput.question(`API key env (${current.apiKeyEnv}):`)).trim();
+    const apiKeyEnv = this.resolveInteractiveApiKeyEnv(apiKeyEnvAnswer);
 
     return {
       projectId,
       apiUrl: apiUrlAnswer || undefined,
-      apiKeyEnv: apiKeyEnvAnswer || undefined,
+      apiKeyEnv,
     };
+  }
+
+  private resolveInteractiveApiKeyEnv(answer: string): string | undefined {
+    if (!answer) {
+      return undefined;
+    }
+    if (this.looksLikeApiKey(answer)) {
+      process.env.CAST_API_KEY = answer;
+      process.stdout.write(this.ui.warning('API key value received for this session. It will not be stored; the link will use CAST_API_KEY.'));
+      return 'CAST_API_KEY';
+    }
+    return answer;
   }
 
   private parseArgs(args: string[]): ParsedLinkArgs {
@@ -166,7 +179,7 @@ export class PlatformCommandsService {
           ],
         },
       ],
-      footer: 'Key values are read from the environment and are never printed or stored in .cast/cast.yaml.',
+      footer: 'Key values are read from the environment or global /config and are never printed or stored in .cast/cast.yaml.',
     }));
   }
 
@@ -181,10 +194,15 @@ export class PlatformCommandsService {
             `${colorize('/link --project <id>', 'cyan')} ${colorize('link current directory to a Cast project', 'muted')}`,
             `${colorize('/link --project <id> --api-url <url>', 'cyan')} ${colorize('override the platform API URL', 'muted')}`,
             `${colorize('/link status', 'cyan')} ${colorize('show current directory link status', 'muted')}`,
+            `${colorize('/config set-platform', 'cyan')} ${colorize('save a global Cast Platform key and API URL', 'muted')}`,
           ],
         },
       ],
       footer: 'Use the same project id in multiple directories when they belong to the same platform project.',
     }));
+  }
+
+  private looksLikeApiKey(value: string): boolean {
+    return /^(csk|sk|sk-ant|sk-proj|sk-or|AIza)[_-]/i.test(value);
   }
 }
