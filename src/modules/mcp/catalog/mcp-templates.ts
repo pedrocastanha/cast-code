@@ -1,12 +1,26 @@
 import { McpConfig } from '../types';
 
-export type McpCategory = 'dev' | 'design' | 'data' | 'search' | 'cloud' | 'productivity' | 'payments' | 'browser' | 'filesystem';
+export type McpCategory = 'dev' | 'design' | 'data' | 'search' | 'marketing' | 'cloud' | 'productivity' | 'payments' | 'browser' | 'filesystem';
+export type McpRisk = 'low' | 'medium' | 'high';
+export type McpAuth = 'none' | 'env' | 'oauth';
+export type McpMutationPolicy = 'read-only' | 'approval-required' | 'blocked-by-default';
+export interface McpTemplateCapabilities {
+  tools: boolean;
+  resources: boolean;
+  prompts: boolean;
+}
 
 export interface McpTemplate {
   id: string;
   name: string;
   description: string;
   category: McpCategory;
+  risk: McpRisk;
+  environments: string[];
+  capabilities: McpTemplateCapabilities;
+  auth: McpAuth;
+  mutationPolicy: McpMutationPolicy;
+  readiness?: string;
   config: McpConfig;
   credentials: {
     name: string;
@@ -17,13 +31,76 @@ export interface McpTemplate {
   }[];
 }
 
-export const MCP_TEMPLATES: Record<string, McpTemplate> = {
+type LegacyMcpRisk = 'read' | 'write' | 'external' | 'account' | 'spend';
+type RawMcpTemplate = Omit<McpTemplate, 'risk' | 'environments' | 'capabilities' | 'auth' | 'mutationPolicy'> & {
+  risk?: McpRisk | LegacyMcpRisk;
+  environments?: string[];
+  capabilities?: Partial<McpTemplateCapabilities>;
+  auth?: McpAuth;
+  mutationPolicy?: McpMutationPolicy;
+};
+
+function normalizeRisk(risk: RawMcpTemplate['risk']): McpRisk {
+  switch (risk) {
+  case 'low':
+  case 'medium':
+  case 'high':
+    return risk;
+  case 'read':
+    return 'low';
+  case 'account':
+  case 'spend':
+    return 'high';
+  case 'write':
+  case 'external':
+  default:
+    return 'medium';
+  }
+}
+
+function defaultMutationPolicy(risk: McpRisk, legacyRisk: RawMcpTemplate['risk']): McpMutationPolicy {
+  if (legacyRisk === 'read' || risk === 'low') return 'read-only';
+  if (risk === 'high') return 'blocked-by-default';
+  return 'approval-required';
+}
+
+function defaultAuth(template: RawMcpTemplate): McpAuth {
+  if (template.credentials.some((cred) => cred.required && !cred.isArg)) return 'env';
+  if (template.config.type === 'http' && template.config.endpoint && !template.config.endpoint.includes('127.0.0.1')) return 'oauth';
+  return 'none';
+}
+
+function normalizeTemplate(template: RawMcpTemplate): McpTemplate {
+  const risk = normalizeRisk(template.risk);
+  return {
+    ...template,
+    risk,
+    environments: template.environments?.length ? template.environments : ['engineering'],
+    capabilities: {
+      tools: template.capabilities?.tools ?? true,
+      resources: template.capabilities?.resources ?? false,
+      prompts: template.capabilities?.prompts ?? false,
+    },
+    auth: template.auth ?? defaultAuth(template),
+    mutationPolicy: template.mutationPolicy ?? defaultMutationPolicy(risk, template.risk),
+  };
+}
+
+function normalizeTemplates(templates: Record<string, RawMcpTemplate>): Record<string, McpTemplate> {
+  return Object.fromEntries(
+    Object.entries(templates).map(([id, template]) => [id, normalizeTemplate(template)]),
+  );
+}
+
+const RAW_MCP_TEMPLATES: Record<string, RawMcpTemplate> = {
   // ===== DEV TOOLS =====
   github: {
     id: 'github',
     name: 'GitHub',
     description: 'Acesse repos, issues, PRs',
     category: 'dev',
+    environments: ['engineering'],
+    risk: 'write',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -45,6 +122,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Linear',
     description: 'Gerencie issues e projetos',
     category: 'dev',
+    environments: ['engineering'],
+    risk: 'write',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -66,6 +145,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Jira',
     description: 'Gerencie issues e sprints',
     category: 'dev',
+    environments: ['engineering'],
+    risk: 'write',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -99,6 +180,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Sentry',
     description: 'Monitore erros e performance',
     category: 'dev',
+    environments: ['engineering'],
+    risk: 'external',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -122,6 +205,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Docker',
     description: 'Gerencie containers e images',
     category: 'dev',
+    environments: ['engineering'],
+    risk: 'write',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -137,6 +222,12 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Figma Desktop',
     description: 'Acesse designs via app desktop local (sem OAuth)',
     category: 'design',
+    environments: ['design'],
+    risk: 'low',
+    capabilities: { tools: true, resources: true, prompts: true },
+    auth: 'none',
+    mutationPolicy: 'approval-required',
+    readiness: 'Requires Figma Desktop with Dev Mode and the local MCP server enabled at http://127.0.0.1:3845/mcp. Write-to-canvas actions require approval.',
     config: {
       type: 'http',
       endpoint: 'http://127.0.0.1:3845/mcp',
@@ -149,6 +240,12 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Figma Remote (OAuth)',
     description: 'Servidor remoto Figma — requer cliente pré-aprovado',
     category: 'design',
+    environments: ['design'],
+    risk: 'medium',
+    capabilities: { tools: true, resources: true, prompts: true },
+    auth: 'oauth',
+    mutationPolicy: 'approval-required',
+    readiness: 'Requires Figma OAuth client approval or an approved remote MCP proxy. Write-to-canvas actions require approval.',
     config: {
       type: 'http',
       endpoint: 'https://mcp.figma.com/mcp',
@@ -254,6 +351,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Brave Search',
     description: 'Busca na web',
     category: 'search',
+    environments: ['marketing'],
+    risk: 'external',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -275,6 +374,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Exa Search',
     description: 'Busca semântica na web',
     category: 'search',
+    environments: ['marketing'],
+    risk: 'external',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -296,6 +397,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Perplexity',
     description: 'Busca com IA',
     category: 'search',
+    environments: ['marketing'],
+    risk: 'external',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -312,11 +415,46 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     ],
   },
 
+  'meta-ads': {
+    id: 'meta-ads',
+    name: 'Meta Ads',
+    description: 'Analise e gerencie campanhas Meta Ads via Marketing API',
+    category: 'marketing',
+    environments: ['marketing'],
+    risk: 'high',
+    capabilities: { tools: true, resources: false, prompts: false },
+    auth: 'env',
+    mutationPolicy: 'blocked-by-default',
+    readiness: 'Configure Meta credentials through environment-backed MCP config. Read-only list/get/insights tools are allowed; create/update/publish/delete/archive actions are blocked by default.',
+    config: {
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'meta-ads-mcp'],
+      env: {},
+    },
+    credentials: [
+      {
+        name: 'Meta Access Token',
+        envVar: 'META_ACCESS_TOKEN',
+        placeholder: 'EAAB...',
+        required: true,
+      },
+      {
+        name: 'Meta App Secret',
+        envVar: 'META_APP_SECRET',
+        placeholder: 'optional',
+        required: false,
+      },
+    ],
+  },
+
   context7: {
     id: 'context7',
     name: 'Context7',
     description: 'Busca em documentações técnicas',
     category: 'search',
+    environments: ['engineering'],
+    risk: 'read',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -392,6 +530,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Slack',
     description: 'Envie mensagens e gerencie canais',
     category: 'productivity',
+    environments: ['marketing'],
+    risk: 'external',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -419,6 +559,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     name: 'Notion',
     description: 'Gerencie páginas e databases',
     category: 'productivity',
+    environments: ['marketing'],
+    risk: 'write',
     config: {
       type: 'stdio',
       command: 'npx',
@@ -552,6 +694,8 @@ export const MCP_TEMPLATES: Record<string, McpTemplate> = {
     ],
   },
 };
+
+export const MCP_TEMPLATES: Record<string, McpTemplate> = normalizeTemplates(RAW_MCP_TEMPLATES);
 
 export function getTemplatesByCategory(category: McpCategory): McpTemplate[] {
   return Object.values(MCP_TEMPLATES).filter(t => t.category === category);

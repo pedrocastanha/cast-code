@@ -4,19 +4,35 @@ import { z } from 'zod';
 import { StructuredTool } from '@langchain/core/tools';
 import { McpClientService } from './mcp-client.service';
 import { McpConfig, McpServerSummary } from '../types';
+import { getTemplate } from '../catalog/mcp-templates';
+import { McpRiskScannerService } from './mcp-risk-scanner.service';
+import { McpApprovalPolicyService } from './mcp-approval-policy.service';
+import { McpCapabilityService } from './mcp-capability.service';
 
 @Injectable()
 export class McpRegistryService implements OnModuleDestroy {
   private configs: Map<string, McpConfig> = new Map();
+  private activeEnvironmentId: string | null = null;
+  private activeEnvironmentServers: Set<string> | null = null;
 
-  constructor(private readonly mcpClient: McpClientService) {}
+  constructor(
+    private readonly mcpClient: McpClientService,
+    private readonly riskScanner: McpRiskScannerService,
+    private readonly approvalPolicy: McpApprovalPolicyService,
+    private readonly capabilityService: McpCapabilityService,
+  ) {}
 
   onModuleDestroy() {
     this.mcpClient.disconnectAll();
   }
 
   registerMcp(name: string, config: McpConfig) {
+    const previous = this.configs.get(name);
     this.configs.set(name, config);
+
+    if (previous && !this.isSameConfig(previous, config) && this.mcpClient.getStatus(name) === 'connected') {
+      this.mcpClient.disconnect(name);
+    }
   }
 
   getConfig(name: string): McpConfig | undefined {
@@ -48,13 +64,30 @@ export class McpRegistryService implements OnModuleDestroy {
   }
 
   getMcpTools(name: string): StructuredTool[] {
+    if (!this.isServerInActiveScope(name)) {
+      return [];
+    }
     const mcpTools = this.mcpClient.getTools(name);
+    const capabilities = typeof (this.mcpClient as any).getCapabilities === 'function'
+      ? this.mcpClient.getCapabilities(name)
+      : { tools: true, resources: false, prompts: false };
+    const utilityTools = this.capabilityService.getUtilityTools(name, capabilities);
 
-    return mcpTools.map((mcpTool) => {
+    const registeredTools = mcpTools.flatMap((mcpTool) => {
+      const scan = this.riskScanner.scanDescription(`${name}_${mcpTool.name}`, mcpTool.description);
+      if (scan.suspicious) {
+        return [];
+      }
+
       const schema = this.convertSchemaToZod(mcpTool.inputSchema);
 
-      return tool(
+      return [tool(
         async (input) => {
+          const policy = this.approvalPolicy.evaluateTool(name, mcpTool.name);
+          if (!policy.allowed) {
+            return `Blocked by MCP policy (${policy.mode}): ${policy.reason ?? mcpTool.name}`;
+          }
+
           try {
             const result = await this.mcpClient.callTool(name, mcpTool.name, input);
             return JSON.stringify(result, null, 2);
@@ -67,14 +100,19 @@ export class McpRegistryService implements OnModuleDestroy {
           description: mcpTool.description,
           schema,
         },
-      );
+      )];
     });
+
+    return [...registeredTools, ...utilityTools];
   }
 
   getAllMcpTools(): StructuredTool[] {
     const allTools: StructuredTool[] = [];
 
     for (const name of this.configs.keys()) {
+      if (!this.isServerInActiveScope(name)) {
+        continue;
+      }
       allTools.push(...this.getMcpTools(name));
     }
 
@@ -82,34 +120,18 @@ export class McpRegistryService implements OnModuleDestroy {
   }
 
   private convertSchemaToZod(schema: Record<string, unknown>): z.ZodObject<any> {
-    const properties = (schema.properties || {}) as Record<string, any>;
-    const required = (schema.required || []) as string[];
+    if (!schema || typeof schema !== 'object' || !this.isRecord(schema.properties)) {
+      return z.object({}).passthrough();
+    }
+
+    const properties = schema.properties as Record<string, any>;
+    const required = Array.isArray(schema.required) ? schema.required as string[] : [];
     const zodShape: Record<string, z.ZodTypeAny> = {};
 
     for (const [key, prop] of Object.entries(properties)) {
-      let zodType: z.ZodTypeAny;
+      let zodType = this.convertPropertyToZod(prop);
 
-      switch (prop.type) {
-      case 'string':
-        zodType = z.string();
-        break;
-      case 'number':
-        zodType = z.number();
-        break;
-      case 'boolean':
-        zodType = z.boolean();
-        break;
-      case 'array':
-        zodType = z.array(z.any());
-        break;
-      case 'object':
-        zodType = z.record(z.any());
-        break;
-      default:
-        zodType = z.any();
-      }
-
-      if (prop.description) {
+      if (this.isRecord(prop) && typeof prop.description === 'string') {
         zodType = zodType.describe(prop.description);
       }
 
@@ -123,23 +145,121 @@ export class McpRegistryService implements OnModuleDestroy {
     return z.object(zodShape);
   }
 
+  private convertPropertyToZod(prop: any): z.ZodTypeAny {
+    if (!this.isRecord(prop)) {
+      return z.any();
+    }
+
+    if (Array.isArray(prop.anyOf)) {
+      const nonNull = prop.anyOf.filter((candidate: any) => candidate?.type !== 'null');
+      const hasNull = nonNull.length !== prop.anyOf.length;
+      const base = nonNull.length === 0
+        ? z.any()
+        : nonNull.length === 1
+        ? this.convertPropertyToZod(nonNull[0])
+        : z.union(nonNull.map((candidate: any) => this.convertPropertyToZod(candidate)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+      return hasNull ? base.nullable() : base;
+    }
+
+    const type = Array.isArray(prop.type) ? prop.type.find((item: string) => item !== 'null') : prop.type;
+    const nullable = Array.isArray(prop.type) && prop.type.includes('null');
+    let zodType: z.ZodTypeAny;
+
+    switch (type) {
+    case 'string':
+      zodType = z.string();
+      break;
+    case 'number':
+    case 'integer':
+      zodType = z.number();
+      break;
+    case 'boolean':
+      zodType = z.boolean();
+      break;
+    case 'array':
+      zodType = z.array(z.any());
+      break;
+    case 'object':
+      zodType = z.record(z.any());
+      break;
+    default:
+      zodType = z.any();
+    }
+
+    return nullable ? zodType.nullable() : zodType;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private isSameConfig(left: McpConfig, right: McpConfig): boolean {
+    return left.type === right.type
+      && left.endpoint === right.endpoint
+      && left.command === right.command
+      && this.isSameStringArray(left.args, right.args)
+      && this.isSameStringRecord(left.env, right.env);
+  }
+
+  private isSameStringArray(left: string[] | undefined, right: string[] | undefined): boolean {
+    const leftValues = left ?? [];
+    const rightValues = right ?? [];
+    return leftValues.length === rightValues.length && leftValues.every((value, index) => value === rightValues[index]);
+  }
+
+  private isSameStringRecord(left: Record<string, string> | undefined, right: Record<string, string> | undefined): boolean {
+    const leftEntries = Object.entries(left ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    const rightEntries = Object.entries(right ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    return leftEntries.length === rightEntries.length
+      && leftEntries.every(([key, value], index) => key === rightEntries[index][0] && value === rightEntries[index][1]);
+  }
+
   getServerSummaries(): McpServerSummary[] {
+    return this.getServerSummariesForScope(true);
+  }
+
+  getUnscopedServerNames(): string[] {
+    return Array.from(this.configs.keys());
+  }
+
+  private getServerSummariesForScope(useActiveScope: boolean): McpServerSummary[] {
     const summaries: McpServerSummary[] = [];
 
     for (const [name, config] of this.configs) {
+      if (useActiveScope && !this.isServerInActiveScope(name)) {
+        continue;
+      }
       const status = this.mcpClient.getStatus(name);
       const tools = this.mcpClient.getTools(name);
+      const template = getTemplate(name);
+      const quarantinedTools = tools
+        .map((mcpTool) => {
+          const scan = this.riskScanner.scanDescription(`${name}_${mcpTool.name}`, mcpTool.description);
+          return scan.suspicious
+            ? { name: `${name}_${mcpTool.name}`, warning: scan.warning ?? 'Tool quarantined.', reasons: scan.reasons }
+            : null;
+        })
+        .filter((item): item is { name: string; warning: string; reasons: string[] } => item !== null);
+      const safeTools = tools.filter((mcpTool) => !this.riskScanner.scanDescription(`${name}_${mcpTool.name}`, mcpTool.description).suspicious);
 
       summaries.push({
         name,
         transport: config.type,
         status,
-        toolCount: tools.length,
-        toolNames: tools.map(t => `${name}_${t.name}`),
-        toolDescriptions: tools.map(t => ({
+        toolCount: safeTools.length,
+        toolNames: safeTools.map(t => `${name}_${t.name}`),
+        toolDescriptions: safeTools.map(t => ({
           name: `${name}_${t.name}`,
           description: t.description,
         })),
+        environments: template?.environments,
+        risk: template?.risk,
+        auth: template?.auth,
+        mutationPolicy: template?.mutationPolicy,
+        capabilities: typeof (this.mcpClient as any).getCapabilities === 'function'
+          ? this.mcpClient.getCapabilities(name)
+          : { tools: true, resources: false, prompts: false },
+        quarantinedTools,
       });
     }
 
@@ -224,5 +344,24 @@ export class McpRegistryService implements OnModuleDestroy {
     return summaries
       .filter(s => s.status === 'connected')
       .map(s => s.name);
+  }
+
+  setActiveEnvironmentScope(environmentId: string, serverNames: string[]): void {
+    this.activeEnvironmentId = environmentId;
+    this.activeEnvironmentServers = new Set(serverNames);
+  }
+
+  clearActiveEnvironmentScope(): void {
+    this.activeEnvironmentId = null;
+    this.activeEnvironmentServers = null;
+  }
+
+  private isServerInActiveScope(name: string): boolean {
+    if (!this.activeEnvironmentId || !this.activeEnvironmentServers) {
+      return true;
+    }
+    const template = getTemplate(name);
+    return this.activeEnvironmentServers.has(name)
+      || Boolean(template?.environments?.includes(this.activeEnvironmentId));
   }
 }
