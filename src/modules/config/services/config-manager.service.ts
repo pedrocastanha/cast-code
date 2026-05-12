@@ -13,6 +13,7 @@ import {
   DEFAULT_EFFORT,
   EffortLevel,
   OllamaConfig,
+  PlatformGlobalConfig,
   providerRequiresBaseUrl,
   normalizeEffortLevel,
 } from '../types/config.types';
@@ -159,6 +160,16 @@ export class ConfigManagerService {
     await this.saveConfig();
   }
 
+  async setPlatformConfig(platform: PlatformGlobalConfig): Promise<void> {
+    const apiKey = platform.apiKey?.trim();
+    const apiUrl = platform.apiUrl?.trim();
+    this.config.platform = {
+      ...(apiKey ? { apiKey } : {}),
+      ...(apiUrl ? { apiUrl } : {}),
+    };
+    await this.saveConfig();
+  }
+
   getConfigPath(): string {
     return CONFIG_FILE;
   }
@@ -173,7 +184,19 @@ export class ConfigManagerService {
       },
       effort: normalizeEffortLevel(parsed.effort) || DEFAULT_EFFORT,
       remote: parsed.remote,
+      platform: normalizePlatformConfig(parsed.platform),
       language: parsed.language,
     };
   }
+}
+
+function normalizePlatformConfig(platform: PlatformGlobalConfig | undefined): PlatformGlobalConfig | undefined {
+  if (!platform) return undefined;
+  const apiKey = typeof platform.apiKey === 'string' ? platform.apiKey.trim() : '';
+  const apiUrl = typeof platform.apiUrl === 'string' ? platform.apiUrl.trim() : '';
+  if (!apiKey && !apiUrl) return undefined;
+  return {
+    ...(apiKey ? { apiKey } : {}),
+    ...(apiUrl ? { apiUrl } : {}),
+  };
 }

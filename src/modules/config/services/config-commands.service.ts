@@ -38,7 +38,7 @@ export class ConfigCommandsService {
 
   async handleConfigCommand(args: string[], smartInput?: ISmartInput): Promise<void> {
     const subcommand = args[0];
-    const useInquirerFlow = ['init', 'setup', 'add-provider', 'set-model', 'set-api-key', 'remove-provider'].includes(subcommand || '');
+    const useInquirerFlow = ['init', 'setup', 'add-provider', 'set-model', 'set-api-key', 'set-platform', 'remove-provider'].includes(subcommand || '');
 
     if (useInquirerFlow) {
       smartInput?.pause();
@@ -65,6 +65,10 @@ export class ConfigCommandsService {
 
       case 'set-api-key':
         await this.withEscHandler(() => this.setApiKeyInteractive());
+        break;
+
+      case 'set-platform':
+        await this.withEscHandler(() => this.setPlatformInteractive());
         break;
 
       case 'remove-provider':
@@ -125,6 +129,7 @@ export class ConfigCommandsService {
         { key: '6', label: 'Change API key', description: 'Update provider credential' },
         { key: '7', label: 'Configure Remote UI', description: 'Enable/Disable or change password' },
         { key: '8', label: 'View config file path', description: 'Location of config.yaml' },
+        { key: 'p', label: 'Configure Cast Platform', description: 'Global platform key and API URL' },
         { key: 'l', label: 'Change language', description: 'Switch UI language' },
         { key: 't', label: 'Edit prompt template', description: 'Customize AI system prompts' },
         { key: '9', label: 'Exit', description: 'Return to chat' },
@@ -162,6 +167,9 @@ export class ConfigCommandsService {
           title: 'Config Path',
           sections: [{ lines: [colorize(this.configManager.getConfigPath(), 'cyan')] }],
         }));
+        break;
+      case 'p':
+        await this.runInquirerFlow(smartInput, () => this.setPlatformInteractive());
         break;
       case 'l':
         await this.runInquirerFlow(smartInput, () => this.changeLanguageInteractive());
@@ -226,6 +234,23 @@ export class ConfigCommandsService {
       sections: [
         { title: 'Providers', lines: providerLines },
         { title: 'Models', lines: modelLines.length ? modelLines : [colorize('No models configured.', 'muted')] },
+        {
+          title: 'Cast Platform',
+          rows: [
+            {
+              label: 'API URL',
+              value: config.platform?.apiUrl
+                ? colorize(config.platform.apiUrl, 'cyan')
+                : colorize('default', 'muted'),
+            },
+            {
+              label: 'Global key',
+              value: config.platform?.apiKey
+                ? colorize(`configured (${redactSecret(config.platform.apiKey)})`, 'success')
+                : colorize('not configured', 'muted'),
+            },
+          ],
+        },
         {
           title: 'Remote UI',
           rows: [
@@ -575,6 +600,48 @@ export class ConfigCommandsService {
     this.success(`API key for ${PROVIDER_METADATA[provider].name} updated.`);
   }
 
+  private async setPlatformInteractive(): Promise<void> {
+    await this.configManager.loadConfig();
+    const config = this.configManager.getConfig();
+    const current = config.platform || {};
+
+    this.header('Cast Platform', 'Configure the global platform key and default API URL. Press ESC to cancel.');
+
+    const apiUrlRaw = await inputWithEsc({
+      message: 'Platform API URL:',
+      default: current.apiUrl || 'http://localhost:3022',
+      validate: (value) => validatePlatformApiUrl(value.trim()),
+    });
+    if (apiUrlRaw === null) {
+      this.warning('Cancelled.');
+      return;
+    }
+
+    const hasExistingKey = Boolean(current.apiKey?.trim());
+    const apiKeyRaw = await inputWithEsc({
+      message: `Platform API key${hasExistingKey ? ' (leave blank to keep current)' : ''}:`,
+      validate: (value) => {
+        const clean = value.trim();
+        if (hasExistingKey && clean.length === 0) return true;
+        if (clean.length <= 5) return 'API key is too short';
+        if (/[\s%]/.test(clean)) return 'API key contains invalid characters (spaces or %)';
+        return true;
+      },
+    });
+    if (apiKeyRaw === null) {
+      this.warning('Cancelled.');
+      return;
+    }
+
+    const apiKey = apiKeyRaw.trim() || current.apiKey;
+    await this.configManager.setPlatformConfig({
+      apiUrl: apiUrlRaw.trim(),
+      ...(apiKey ? { apiKey } : {}),
+    });
+
+    this.success('Cast Platform global configuration updated.');
+  }
+
   private async setRemoteInteractive(): Promise<void> {
     await this.configManager.loadConfig();
     const config = this.configManager.getConfig();
@@ -769,5 +836,24 @@ export class ConfigCommandsService {
 
   private error(message: string): void {
     process.stdout.write(this.ui.error(message));
+  }
+}
+
+function redactSecret(value: string): string {
+  const clean = value.trim();
+  if (clean.length <= 8) return 'configured';
+  return `${clean.slice(0, 4)}...${clean.slice(-4)}`;
+}
+
+function validatePlatformApiUrl(value: string): true | string {
+  try {
+    const parsed = new URL(value);
+    const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocal)) {
+      return 'Platform API URL must use HTTPS unless it points to localhost.';
+    }
+    return true;
+  } catch {
+    return 'Platform API URL is invalid.';
   }
 }

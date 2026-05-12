@@ -83,6 +83,11 @@ export interface RemoteConfig {
   ngrokAuthToken?: string;
 }
 
+export interface PlatformGlobalConfig {
+  apiKey?: string;
+  apiUrl?: string;
+}
+
 export interface CastConfig {
   version: number;
   language?: 'en' | 'pt';
@@ -90,6 +95,7 @@ export interface CastConfig {
   models: ModelsConfig;
   effort?: EffortLevel;
   remote?: RemoteConfig;
+  platform?: PlatformGlobalConfig;
 }
 
 export interface ProviderMetadata {
