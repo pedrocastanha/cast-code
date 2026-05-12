@@ -63,6 +63,8 @@ describe('StateDbService', () => {
         '0001_local_state_core',
         '0002_local_state_fts',
         '0003_benchmark_core',
+        '0004_environment_activation',
+        '0005_scheduler_core',
       ]);
 
       await service.close();
