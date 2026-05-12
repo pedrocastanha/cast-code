@@ -17,6 +17,7 @@ import type { BenchmarkDefinition } from '../types/benchmark.types';
 const withRunner = async (
   targetService: BenchmarkTargetService,
   run: (input: { runner: BenchmarkRunnerService; store: BenchmarkStoreService; projectRoot: string }) => Promise<void>,
+  sandbox?: ConstructorParameters<typeof BenchmarkRunnerService>[5],
 ) => {
   const projectRoot = await mkdtemp(join(tmpdir(), 'cast-benchmark-runner-'));
   const previousDb = process.env.CAST_STATE_DB_PATH;
@@ -30,6 +31,7 @@ const withRunner = async (
     new BenchmarkGraderService(undefined as any, cost),
     cost,
     targetService,
+    sandbox,
   );
 
   try {
@@ -120,6 +122,86 @@ describe('BenchmarkRunnerService', () => {
       assert.equal((await store.getDefinition(run.definitionId))?.name, 'Runner smoke');
       assert.equal(run.definitionSnapshot?.id, run.definitionId);
     });
+  });
+
+  test('runs benchmark execution through the configured sandbox', async () => {
+    let sandboxOptions: any;
+    const sandbox = {
+      run: async (options: any, operation: () => Promise<any>) => {
+        sandboxOptions = options;
+        const value = await operation();
+        return {
+          value,
+          context: {
+            mode: options.config?.mode ?? 'snapshot',
+            requestedMode: options.config?.mode ?? 'snapshot',
+            runId: options.runId,
+            projectRoot: options.projectRoot,
+            root: options.projectRoot,
+            artifactDir: options.artifactDir,
+            commandLog: [],
+          },
+          artifacts: [],
+        };
+      },
+    };
+
+    await withRunner(
+      new BenchmarkTargetService(undefined as any),
+      async ({ runner, projectRoot }) => {
+        const run = await runner.runDefinition({
+          ...definition(projectRoot),
+          sandbox: { mode: 'git-worktree', rollbackOnFailure: true },
+        });
+
+        assert.equal(run.status, 'completed');
+        assert.equal(sandboxOptions.runId, run.id);
+        assert.equal(sandboxOptions.projectRoot, projectRoot);
+        assert.equal(sandboxOptions.config.mode, 'git-worktree');
+        assert.match(sandboxOptions.artifactDir, /\.cast\/benchmarks\/.+/);
+      },
+      sandbox as any,
+    );
+  });
+
+  test('falls back host-scoped agent workflow benchmarks to snapshot sandbox', async () => {
+    let sandboxOptions: any;
+    const sandbox = {
+      run: async (options: any, operation: () => Promise<any>) => {
+        sandboxOptions = options;
+        const value = await operation();
+        return {
+          value,
+          context: {
+            mode: options.config?.mode ?? 'snapshot',
+            requestedMode: options.requestedMode ?? options.config?.mode ?? 'snapshot',
+            runId: options.runId,
+            projectRoot: options.projectRoot,
+            root: options.projectRoot,
+            artifactDir: options.artifactDir,
+            commandLog: [],
+          },
+          artifacts: [],
+        };
+      },
+    };
+
+    await withRunner(
+      new BenchmarkTargetService(undefined as any),
+      async ({ runner, projectRoot }) => {
+        const run = await runner.runDefinition({
+          ...definition(projectRoot),
+          target: { type: 'agent_workflow', config: { prompt: '{{input}}' } },
+          sandbox: { mode: 'git-worktree', rollbackOnFailure: true },
+        });
+
+        assert.equal(run.status, 'completed');
+        assert.equal(sandboxOptions.config.mode, 'snapshot');
+        assert.equal(sandboxOptions.requestedMode, 'git-worktree');
+        assert.match(sandboxOptions.fallbackReason, /agent_workflow/);
+      },
+      sandbox as any,
+    );
   });
 
   test('enforces llm_judge call budget across the whole run', async () => {

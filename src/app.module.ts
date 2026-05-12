@@ -16,6 +16,10 @@ import { VaultModule } from './modules/vault/vault.module';
 import { DiffModule } from './modules/diff/diff.module';
 import { WatcherModule } from './modules/watcher/watcher.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { EnvironmentModule } from './modules/environments/environment.module';
+import { SkillsImportModule } from './modules/skills-import/skills-import.module';
+import { SchedulerModule } from './modules/scheduler/scheduler.module';
+import { SandboxModule } from './modules/sandbox/sandbox.module';
 
 @Module({
   imports: [
@@ -36,6 +40,10 @@ import { PlatformModule } from './modules/platform/platform.module';
     DiffModule,
     WatcherModule,
     PlatformModule,
+    EnvironmentModule,
+    SkillsImportModule,
+    SchedulerModule,
+    SandboxModule,
   ],
 })
 export class AppModule {}

@@ -35,7 +35,7 @@ describe('BenchmarkTargetService', () => {
       });
     });
 
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     try {
       const port = (server.address() as AddressInfo).port;
       const service = new BenchmarkTargetService(undefined as any);
@@ -88,6 +88,43 @@ describe('BenchmarkTargetService', () => {
         benchmarkCase: { id: 'case-1', input: 'question' },
       }),
       /Target type rag_answer requires the RAG benchmark adapter from the platform\/memory integration phase\./,
+    );
+  });
+
+  test('executes environment_task through registered agent executor with environment context', async () => {
+    const service = new BenchmarkTargetService(undefined as any);
+    service.setAgentExecutor({
+      getActiveEnvironmentId: async () => 'marketing',
+      runBenchmarkPrompt: async (prompt: string) => ({
+        output: prompt,
+        tokens: 7,
+        cost: 0,
+      }),
+    });
+
+    const result = await service.execute({
+      target: { type: 'environment_task', config: { environmentId: 'marketing', task: 'campaign_brief' } },
+      benchmarkCase: { id: 'case-1', input: 'launch campaign' },
+    });
+
+    assert.match(result.output, /marketing/);
+    assert.match(result.output, /campaign_brief/);
+    assert.match(result.output, /launch campaign/);
+  });
+
+  test('rejects environment_task when active environment does not match target config', async () => {
+    const service = new BenchmarkTargetService(undefined as any);
+    service.setAgentExecutor({
+      getActiveEnvironmentId: async () => 'engineering',
+      runBenchmarkPrompt: async (prompt: string) => ({ output: prompt }),
+    });
+
+    await assert.rejects(
+      () => service.execute({
+        target: { type: 'environment_task', config: { environmentId: 'marketing', task: 'campaign_brief' } },
+        benchmarkCase: { id: 'case-1', input: 'launch campaign' },
+      }),
+      /requires Cast environment "marketing", but active environment is "engineering"/,
     );
   });
 });

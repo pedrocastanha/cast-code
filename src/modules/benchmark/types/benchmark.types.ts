@@ -1,3 +1,5 @@
+import type { SandboxRunConfig } from '../../sandbox/types';
+
 export type BenchmarkTargetType =
   | 'model_prompt'
   | 'agent_workflow'
@@ -139,6 +141,7 @@ export interface BenchmarkDefinition {
   models?: ModelRunConfig[];
   tags?: string[];
   environmentId?: string;
+  sandbox?: SandboxRunConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -227,4 +230,5 @@ export interface TargetExecutionResult {
 
 export interface BenchmarkAgentExecutor {
   runBenchmarkPrompt(prompt: string): Promise<TargetExecutionResult>;
+  getActiveEnvironmentId?(): Promise<string | null>;
 }

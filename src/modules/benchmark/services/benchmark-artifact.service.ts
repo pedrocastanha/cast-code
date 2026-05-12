@@ -10,7 +10,7 @@ export class BenchmarkArtifactService {
 
   async prepareRun(run: BenchmarkRun, definition: BenchmarkDefinition): Promise<{ artifactDir: string; reportPath: string }> {
     const artifactDir = this.getArtifactDir(run.projectRoot, run.id);
-    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.mkdir(artifactDir, { recursive: true, mode: 0o700 });
 
     await fs.writeFile(
       path.join(artifactDir, 'config.json'),
@@ -19,14 +19,14 @@ export class BenchmarkArtifactService {
         benchmark: definition,
         startedAt: run.startedAt,
       }),
-      'utf-8',
+      { encoding: 'utf-8', mode: 0o600 },
     );
     await fs.writeFile(
       path.join(artifactDir, 'cases.jsonl'),
       definition.cases.map((benchmarkCase) => this.redactJsonLine(benchmarkCase)).join('\n') + '\n',
-      'utf-8',
+      { encoding: 'utf-8', mode: 0o600 },
     );
-    await fs.writeFile(path.join(artifactDir, 'results.jsonl'), '', 'utf-8');
+    await fs.writeFile(path.join(artifactDir, 'results.jsonl'), '', { encoding: 'utf-8', mode: 0o600 });
 
     return {
       artifactDir,
@@ -36,11 +36,11 @@ export class BenchmarkArtifactService {
 
   async appendResult(projectRoot: string, runId: string, result: BenchmarkResult): Promise<void> {
     const artifactDir = this.getArtifactDir(projectRoot, runId);
-    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.mkdir(artifactDir, { recursive: true, mode: 0o700 });
     await fs.appendFile(
       path.join(artifactDir, 'results.jsonl'),
       this.redactJsonLine(result) + '\n',
-      'utf-8',
+      { encoding: 'utf-8', mode: 0o600 },
     );
   }
 
@@ -51,7 +51,7 @@ export class BenchmarkArtifactService {
     results: BenchmarkResult[],
   ): Promise<string> {
     const artifactDir = this.getArtifactDir(projectRoot, run.id);
-    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.mkdir(artifactDir, { recursive: true, mode: 0o700 });
     const reportPath = path.join(artifactDir, 'report.md');
     const summary = run.summary;
     const failed = results.filter((result) => result.status !== 'passed');
@@ -93,7 +93,7 @@ export class BenchmarkArtifactService {
       '',
     ];
 
-    await fs.writeFile(reportPath, this.redaction.redact(lines.join('\n')), 'utf-8');
+    await fs.writeFile(reportPath, this.redaction.redact(lines.join('\n')), { encoding: 'utf-8', mode: 0o600 });
     return reportPath;
   }
 

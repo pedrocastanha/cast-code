@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -14,12 +15,14 @@ const definition = (projectRoot: string): BenchmarkDefinition => ({
   id: 'bench-1',
   projectRoot,
   name: 'API benchmark',
-  target: { type: 'api_endpoint', config: { method: 'POST', url: 'http://localhost:3000/chat' } },
-  cases: [{ id: 'case-1', input: 'hello', expected: 'world' }],
+  target: { type: 'api_endpoint', config: { method: 'POST', url: 'http://user:pass@localhost:3000/chat?api_key=secret' } },
+  cases: [{ id: 'case-1', input: 'hello raw input kept local', expected: 'world raw expected kept local' }],
   graders: [{ id: 'contains-world', type: 'string_check', config: { value: 'world' } }],
   createdAt: '2026-05-08T00:00:00.000Z',
   updatedAt: '2026-05-08T00:00:00.000Z',
 });
+
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 const run = (projectRoot: string): BenchmarkRun => ({
   id: 'run-1',
@@ -42,7 +45,7 @@ const run = (projectRoot: string): BenchmarkRun => ({
   },
 });
 
-test('syncCompletedRun posts definition, run, result previews, and artifact metadata', async () => {
+test('syncCompletedRun posts definition, run, result hashes, and artifact metadata', async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), 'cast-benchmark-platform-sync-'));
   const previousKey = process.env.CAST_API_KEY;
   process.env.CAST_API_KEY = 'secret-key';
@@ -56,6 +59,9 @@ test('syncCompletedRun posts definition, run, result previews, and artifact meta
   ].join('\n'));
 
   const def = definition(projectRoot);
+  await mkdir(join(projectRoot, '.cast', 'benchmarks', 'run-1'), { recursive: true });
+  await writeFile(join(projectRoot, '.cast', 'benchmarks', 'run-1', 'sandbox-diff.patch'), '+sandbox change\n');
+  await writeFile(join(projectRoot, '.cast', 'benchmarks', 'run-1', 'sandbox-command.log'), 'snapshot checkpoint run-1\n');
   const result: BenchmarkResult = {
     id: 'result-1',
     runId: 'run-1',
@@ -82,7 +88,11 @@ test('syncCompletedRun posts definition, run, result previews, and artifact meta
       posted.push({ kind: 'definition', body });
       return {
         definition: { ...body, id: '22222222-2222-4222-8222-222222222222' },
-        cases: [{ id: '44444444-4444-4444-8444-444444444444', input: { value: 'hello' } }],
+        cases: [{
+          id: '44444444-4444-4444-8444-444444444444',
+          input: { contentHash: hash('hello raw input kept local') },
+          rubric: { localCaseId: 'case-1' },
+        }],
       };
     },
     createBenchmarkRun: async (_config: unknown, _apiKey: string, _benchmarkId: string, body: any) => {
@@ -105,16 +115,38 @@ test('syncCompletedRun posts definition, run, result previews, and artifact meta
 
     assert.equal(sync.status, 'synced');
     assert.equal(sync.webUrl, 'http://localhost:3003/projects/project-1/benchmarks/33333333-3333-4333-8333-333333333333');
-    assert.deepEqual(posted.map((item) => item.kind), ['definition', 'run', 'result', 'artifact', 'artifact', 'artifact', 'artifact']);
+    assert.deepEqual(posted.map((item) => item.kind), ['definition', 'run', 'result', 'artifact', 'artifact', 'artifact', 'artifact', 'artifact', 'artifact']);
     assert.equal(posted.find((item) => item.kind === 'result')?.body.output, undefined);
     assert.equal(posted.find((item) => item.kind === 'result')?.body.input, undefined);
     assert.equal(posted.find((item) => item.kind === 'result')?.body.caseId, '44444444-4444-4444-8444-444444444444');
-    assert(String(posted.find((item) => item.kind === 'result')?.body.outputPreview).length <= 500);
+    assert.equal(posted.find((item) => item.kind === 'result')?.body.outputPreview, undefined);
+    const postedDefinition = posted.find((item) => item.kind === 'definition')?.body;
+    assert.equal(postedDefinition.config.localDefinitionId, 'bench-1');
+    assert.equal(postedDefinition.targetRef, 'http://localhost:3000/chat?api_key=%5BREDACTED%5D');
+    assert.equal(postedDefinition.config.target.url, 'http://localhost:3000/chat?api_key=%5BREDACTED%5D');
+    assert.equal(postedDefinition.config.privacy.rawCaseContent, false);
+    assert.equal(postedDefinition.config.privacy.rawTargetConfig, false);
+    assert.equal(postedDefinition.cases[0].input.contentHash, hash('hello raw input kept local'));
+    assert.equal(postedDefinition.cases[0].input.storedLocally, true);
+    assert.equal(postedDefinition.cases[0].expected.contentHash, hash('world raw expected kept local'));
+    assert.equal(postedDefinition.cases[0].expected.storedLocally, true);
+    const postedDefinitionJson = JSON.stringify(postedDefinition);
+    assert.doesNotMatch(postedDefinitionJson, /hello raw input kept local/);
+    assert.doesNotMatch(postedDefinitionJson, /world raw expected kept local/);
+    assert.doesNotMatch(postedDefinitionJson, /user:pass/);
+    assert.doesNotMatch(postedDefinitionJson, /api_key=secret/);
+    const postedResult = posted.find((item) => item.kind === 'result')?.body;
+    assert.equal(postedResult.scores.outputHash, hash('world'.repeat(200)));
+    assert.equal(postedResult.scores.outputStoredLocally, true);
+    assert.equal(postedResult.scores.items[0].reason, undefined);
+    assert.equal(postedResult.scores.items[0].reasonHash, hash('ok'));
     const postedRun = posted.find((item) => item.kind === 'run')?.body;
     assert.equal(postedRun.runConfig.artifactDir, '.cast/benchmarks/run-1');
     assert.equal(String(postedRun.runConfig.artifactDir).includes(projectRoot), false);
     const artifactPaths = posted.filter((item) => item.kind === 'artifact').map((item) => String(item.body.path));
     assert.equal(artifactPaths.includes('.cast/benchmarks/run-1/report.md'), true);
+    assert.equal(artifactPaths.includes('.cast/benchmarks/run-1/sandbox-diff.patch'), true);
+    assert.equal(posted.some((item) => item.kind === 'artifact' && item.body.kind === 'sandbox-command-log'), true);
     assert.equal(artifactPaths.some((artifactPath) => artifactPath.includes(projectRoot)), false);
   } finally {
     if (previousKey === undefined) delete process.env.CAST_API_KEY;
@@ -139,8 +171,8 @@ test('syncCompletedRun maps remote cases by localCaseId when backend response or
   const def: BenchmarkDefinition = {
     ...definition(projectRoot),
     cases: [
-      { id: 'case-a', input: 'first', expected: 'ok' },
-      { id: 'case-b', input: 'second', expected: 'ok' },
+      { id: 'case-a', input: 'first raw input', expected: 'ok' },
+      { id: 'case-b', input: 'second raw input', expected: 'ok' },
     ],
   };
   const result: BenchmarkResult = {
@@ -168,8 +200,8 @@ test('syncCompletedRun maps remote cases by localCaseId when backend response or
     createBenchmarkDefinition: async (_config: unknown, _apiKey: string, body: any) => ({
       definition: { ...body, id: '22222222-2222-4222-8222-222222222222' },
       cases: [
-        { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', input: { value: 'second' }, rubric: { localCaseId: 'case-b' } },
-        { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', input: { value: 'first' }, rubric: { localCaseId: 'case-a' } },
+        { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', input: { contentHash: hash('second raw input') }, rubric: { localCaseId: 'case-b' } },
+        { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', input: { contentHash: hash('first raw input') }, rubric: { localCaseId: 'case-a' } },
       ],
     }),
     createBenchmarkRun: async (_config: unknown, _apiKey: string, _benchmarkId: string, body: any) => ({
@@ -225,6 +257,137 @@ test('getWebRunUrl returns null for linked projects without a remote run mapping
   }
 });
 
+test('syncCompletedRun uses benchmark lab web URL override for platform links', async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'cast-benchmark-platform-web-url-'));
+  const previousKey = process.env.CAST_API_KEY;
+  const previousWebUrl = process.env.CAST_BENCHMARK_LAB_WEB_URL;
+  process.env.CAST_API_KEY = 'secret-key';
+  process.env.CAST_BENCHMARK_LAB_WEB_URL = 'http://localhost:3033/';
+  await mkdir(join(projectRoot, '.cast'), { recursive: true });
+  await writeFile(join(projectRoot, '.cast', 'cast.yaml'), [
+    'version: 1',
+    'platform:',
+    '  projectId: project-1',
+    '  apiUrl: http://localhost:3022',
+    '  apiKeyEnv: CAST_API_KEY',
+  ].join('\n'));
+
+  const client = {
+    createBenchmarkDefinition: async (_config: unknown, _apiKey: string, body: any) => ({
+      definition: { ...body, id: '22222222-2222-4222-8222-222222222222' },
+      cases: [{ id: '44444444-4444-4444-8444-444444444444', rubric: { localCaseId: 'case-1' } }],
+    }),
+    createBenchmarkRun: async (_config: unknown, _apiKey: string, _benchmarkId: string, body: any) => ({
+      ...body,
+      id: '33333333-3333-4333-8333-333333333333',
+    }),
+    appendBenchmarkResult: async (_config: unknown, _apiKey: string, _runId: string, body: unknown) => body,
+    appendBenchmarkArtifact: async (_config: unknown, _apiKey: string, _runId: string, body: unknown) => body,
+  } as unknown as PlatformClientService;
+  const store = {
+    listResults: async () => [{
+      id: 'result-1',
+      runId: 'run-1',
+      caseId: 'case-1',
+      status: 'passed',
+      input: 'hello',
+      output: 'world',
+      expected: 'world',
+      scores: [],
+      score: 1,
+      cost: 0,
+      tokens: 1,
+      latencyMs: 5,
+      startedAt: '2026-05-08T00:00:00.000Z',
+      completedAt: '2026-05-08T00:00:01.000Z',
+    }],
+  } as unknown as BenchmarkStoreService;
+
+  try {
+    const service = new BenchmarkPlatformSyncService(new PlatformConfigService(), client, store);
+    const sync = await service.syncCompletedRun(definition(projectRoot), { ...run(projectRoot), artifactDir: undefined });
+
+    assert.equal(sync.status, 'synced');
+    assert.equal(sync.webUrl, 'http://localhost:3033/projects/project-1/benchmarks/33333333-3333-4333-8333-333333333333');
+  } finally {
+    if (previousKey === undefined) delete process.env.CAST_API_KEY;
+    else process.env.CAST_API_KEY = previousKey;
+    if (previousWebUrl === undefined) delete process.env.CAST_BENCHMARK_LAB_WEB_URL;
+    else process.env.CAST_BENCHMARK_LAB_WEB_URL = previousWebUrl;
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('syncCompletedRun falls back to local result artifacts before marking platform sync complete', async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'cast-benchmark-platform-result-artifact-'));
+  const previousKey = process.env.CAST_API_KEY;
+  process.env.CAST_API_KEY = 'secret-key';
+  await mkdir(join(projectRoot, '.cast'), { recursive: true });
+  await writeFile(join(projectRoot, '.cast', 'cast.yaml'), [
+    'version: 1',
+    'platform:',
+    '  projectId: project-1',
+    '  apiUrl: http://localhost:3022',
+    '  apiKeyEnv: CAST_API_KEY',
+  ].join('\n'));
+
+  const artifactDir = join(projectRoot, '.cast', 'benchmarks', 'run-1');
+  await mkdir(artifactDir, { recursive: true });
+  await writeFile(join(artifactDir, 'results.jsonl'), `${JSON.stringify({
+    id: 'result-1',
+    runId: 'run-1',
+    caseId: 'case-1',
+    status: 'passed',
+    input: 'hello raw input kept local',
+    output: 'world',
+    expected: 'world',
+    scores: [],
+    score: 1,
+    cost: 0,
+    tokens: 1,
+    latencyMs: 5,
+    startedAt: '2026-05-08T00:00:00.000Z',
+    completedAt: '2026-05-08T00:00:01.000Z',
+  })}\n`);
+
+  let postedResult: any;
+  const client = {
+    createBenchmarkDefinition: async (_config: unknown, _apiKey: string, body: any) => ({
+      definition: { ...body, id: '22222222-2222-4222-8222-222222222222' },
+      cases: [{ id: '44444444-4444-4444-8444-444444444444', rubric: { localCaseId: 'case-1' } }],
+    }),
+    createBenchmarkRun: async (_config: unknown, _apiKey: string, _benchmarkId: string, body: any) => ({
+      ...body,
+      id: '33333333-3333-4333-8333-333333333333',
+    }),
+    appendBenchmarkResult: async (_config: unknown, _apiKey: string, _runId: string, body: unknown) => {
+      postedResult = body;
+      return body;
+    },
+    appendBenchmarkArtifact: async (_config: unknown, _apiKey: string, _runId: string, body: unknown) => body,
+  } as unknown as PlatformClientService;
+  const store = {
+    listResults: async () => [],
+  } as unknown as BenchmarkStoreService;
+
+  try {
+    const service = new BenchmarkPlatformSyncService(new PlatformConfigService(), client, store);
+    const sync = await service.syncCompletedRun(definition(projectRoot), {
+      ...run(projectRoot),
+      artifactDir,
+      definitionSnapshot: definition(projectRoot),
+    });
+
+    assert.equal(sync.status, 'synced');
+    assert.equal(postedResult.caseId, '44444444-4444-4444-8444-444444444444');
+    assert.equal(postedResult.scores.outputHash, hash('world'));
+  } finally {
+    if (previousKey === undefined) delete process.env.CAST_API_KEY;
+    else process.env.CAST_API_KEY = previousKey;
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test('sync queues failures without failing local benchmark flow', async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), 'cast-benchmark-platform-sync-fail-'));
   const previousKey = process.env.CAST_API_KEY;
@@ -255,6 +418,8 @@ test('sync queues failures without failing local benchmark flow', async () => {
     assert.equal(result.status, 'queued');
     assert.equal(pending.length, 1);
     assert.equal(pending[0].definition.name, 'API benchmark');
+    assert.doesNotMatch(JSON.stringify(pending[0].definition), /hello raw input kept local/);
+    assert.doesNotMatch(JSON.stringify(pending[0].definition), /world raw expected kept local/);
   } finally {
     if (previousKey === undefined) delete process.env.CAST_API_KEY;
     else process.env.CAST_API_KEY = previousKey;

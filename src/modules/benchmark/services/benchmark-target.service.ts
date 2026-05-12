@@ -11,7 +11,6 @@ import {
 const DISABLED_TARGET_MESSAGES: Partial<Record<BenchmarkTargetType, string>> = {
   rag_answer: 'Target type rag_answer requires the RAG benchmark adapter from the platform/memory integration phase.',
   mcp_tool: 'Target type mcp_tool requires the MCP benchmark adapter from the connector phase.',
-  environment_task: 'Target type environment_task requires the environment benchmark adapter from the domain-pack phase.',
   scheduler_job: 'Target type scheduler_job requires the scheduler benchmark adapter from the automation phase.',
 };
 
@@ -36,9 +35,10 @@ export class BenchmarkTargetService {
       return this.executeApiEndpoint(input);
     case 'agent_workflow':
       return this.executeAgentWorkflow(input);
+    case 'environment_task':
+      return this.executeEnvironmentTask(input);
     case 'rag_answer':
     case 'mcp_tool':
-    case 'environment_task':
     case 'scheduler_job':
       throw new Error(DISABLED_TARGET_MESSAGES[input.target.type]);
     default:
@@ -130,6 +130,32 @@ export class BenchmarkTargetService {
     }
 
     const prompt = this.renderTemplate(String(input.target.config.prompt ?? '{{input}}'), input.benchmarkCase.input);
+    return this.agentExecutor.runBenchmarkPrompt(prompt);
+  }
+
+  private async executeEnvironmentTask(input: TargetExecutionInput): Promise<TargetExecutionResult> {
+    if (!this.agentExecutor) {
+      throw new Error('Target type environment_task requires the active DeepAgent benchmark executor.');
+    }
+
+    const environmentId = String(input.target.config.environmentId ?? 'active');
+    if (environmentId !== 'active' && this.agentExecutor.getActiveEnvironmentId) {
+      const activeEnvironmentId = await this.agentExecutor.getActiveEnvironmentId();
+      if (activeEnvironmentId !== environmentId) {
+        throw new Error(`Target type environment_task requires Cast environment "${environmentId}", but active environment is "${activeEnvironmentId ?? 'none'}". Run /env use ${environmentId} before this benchmark.`);
+      }
+    }
+
+    const task = String(input.target.config.task ?? 'environment_task');
+    const promptTemplate = String(input.target.config.prompt ?? [
+      `Run this benchmark case using the active Cast environment "${environmentId}".`,
+      `Environment task: ${task}.`,
+      'Return a concise but complete answer that demonstrates the environment-specific workflow.',
+      '',
+      'Case:',
+      '{{input}}',
+    ].join('\n'));
+    const prompt = this.renderTemplate(promptTemplate, input.benchmarkCase.input);
     return this.agentExecutor.runBenchmarkPrompt(prompt);
   }
 

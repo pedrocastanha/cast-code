@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../../common/common.module';
 import { PlatformModule } from '../platform/platform.module';
+import { SandboxModule } from '../sandbox/sandbox.module';
 import { StateModule } from '../state/state.module';
 import { BenchmarkCommandsService } from './commands/benchmark-commands.service';
 import { BenchmarkArtifactService } from './services/benchmark-artifact.service';
@@ -18,7 +19,7 @@ import { BenchmarkStoreService } from './services/benchmark-store.service';
 import { BenchmarkTargetService } from './services/benchmark-target.service';
 
 @Module({
-  imports: [CommonModule, StateModule, PlatformModule],
+  imports: [CommonModule, StateModule, PlatformModule, SandboxModule],
   providers: [
     BenchmarkCommandsService,
     BenchmarkArtifactService,

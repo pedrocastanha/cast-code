@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import {
   BenchmarkDefinition,
@@ -11,6 +11,8 @@ import { BenchmarkCostService } from './benchmark-cost.service';
 import { BenchmarkGraderService } from './benchmark-grader.service';
 import { BenchmarkStoreService } from './benchmark-store.service';
 import { BenchmarkTargetService } from './benchmark-target.service';
+import { SandboxManagerService } from '../../sandbox/services/sandbox-manager.service';
+import type { SandboxRunOptions } from '../../sandbox/types';
 
 @Injectable()
 export class BenchmarkRunnerService {
@@ -20,6 +22,8 @@ export class BenchmarkRunnerService {
     private readonly graders: BenchmarkGraderService,
     private readonly costs: BenchmarkCostService,
     private readonly targets: BenchmarkTargetService,
+    @Optional()
+    private readonly sandbox?: SandboxManagerService,
   ) {}
 
   async runDefinition(definition: BenchmarkDefinition): Promise<BenchmarkRun> {
@@ -33,6 +37,20 @@ export class BenchmarkRunnerService {
     await this.store.setRunArtifactDir(run.id, prepared.artifactDir);
     run = { ...run, artifactDir: prepared.artifactDir };
 
+    if (this.sandbox) {
+      const result = await this.sandbox.run({
+        runId: run.id,
+        projectRoot: persistedDefinition.projectRoot,
+        artifactDir: prepared.artifactDir,
+        ...this.sandboxOptionsForDefinition(persistedDefinition),
+      }, () => this.executeRun(run, persistedDefinition));
+      return result.value;
+    }
+
+    return this.executeRun(run, persistedDefinition);
+  }
+
+  private async executeRun(run: BenchmarkRun, persistedDefinition: BenchmarkDefinition): Promise<BenchmarkRun> {
     const results: BenchmarkResult[] = [];
     let usedLlmJudgeCalls = 0;
     try {
@@ -150,5 +168,22 @@ export class BenchmarkRunnerService {
       return caseGraders;
     }
     return definitionGraders;
+  }
+
+  private sandboxOptionsForDefinition(definition: BenchmarkDefinition): Pick<SandboxRunOptions, 'config' | 'requestedMode' | 'fallbackReason'> {
+    const config = definition.sandbox;
+    const requestedMode = config?.mode;
+    if ((requestedMode === 'git-worktree' || requestedMode === 'docker') && this.targetUsesHostAgentRoot(definition.target.type)) {
+      return {
+        config: { ...config, mode: 'snapshot' },
+        requestedMode,
+        fallbackReason: `${requestedMode} sandbox is not used for ${definition.target.type} targets because the active agent tool root is host-scoped; using snapshot rollback instead.`,
+      };
+    }
+    return { config };
+  }
+
+  private targetUsesHostAgentRoot(targetType: BenchmarkDefinition['target']['type']): boolean {
+    return targetType === 'agent_workflow' || targetType === 'environment_task';
   }
 }

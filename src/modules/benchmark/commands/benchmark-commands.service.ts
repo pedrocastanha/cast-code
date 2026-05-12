@@ -64,7 +64,7 @@ export class BenchmarkCommandsService {
       await this.quick(smartInput);
       return;
     case 'run':
-      await this.run(args[1]);
+      await this.run(args[1], this.sandboxConfig(args));
       return;
     case 'open':
       await this.open(args[1]);
@@ -295,7 +295,7 @@ export class BenchmarkCommandsService {
     this.printRunCompleted(run);
   }
 
-  private async run(id?: string): Promise<void> {
+  private async run(id?: string, sandbox?: BenchmarkDefinition['sandbox']): Promise<void> {
     if (!id) {
       process.stdout.write('Usage: /benchmark run {definitionId}\n');
       return;
@@ -307,7 +307,10 @@ export class BenchmarkCommandsService {
       return;
     }
 
-    const validated = this.definitions.validateDefinition(definition);
+    const validated = this.definitions.validateDefinition({
+      ...definition,
+      sandbox: sandbox ?? definition.sandbox,
+    });
     await this.syncDefinition(validated);
     const run = await this.runner.runDefinition(validated);
     await this.syncRun(validated, run);
@@ -367,6 +370,7 @@ export class BenchmarkCommandsService {
       '- /benchmark quick',
       '- /benchmark list',
       '- /benchmark run {definitionId}',
+      '- /benchmark run {definitionId} --sandbox snapshot|git-worktree|docker|none',
       '- /benchmark open {runId}',
       '- /benchmark export {runId} --format markdown',
       '- /benchmark @path/to/router.ts POST /route --base-url http://localhost:3000',
@@ -385,6 +389,23 @@ export class BenchmarkCommandsService {
   private getFormat(args: string[]): string {
     const index = args.indexOf('--format');
     return index >= 0 ? args[index + 1] ?? 'markdown' : 'markdown';
+  }
+
+  private sandboxConfig(args: string[]): BenchmarkDefinition['sandbox'] | undefined {
+    const mode = this.flag(args, '--sandbox');
+    if (mode === 'none' || mode === 'snapshot' || mode === 'git-worktree' || mode === 'docker') {
+      return {
+        mode,
+        rollbackOnFailure: this.flag(args, '--rollback-on-failure') === 'true',
+        allowNetwork: this.flag(args, '--allow-network') === 'true',
+      };
+    }
+    return undefined;
+  }
+
+  private flag(args: string[], name: string): string | undefined {
+    const index = args.indexOf(name);
+    return index >= 0 ? args[index + 1] : undefined;
   }
 
   private async syncDefinition(definition: BenchmarkDefinition): Promise<void> {
