@@ -103,4 +103,51 @@ describe('PlatformCommandsService', () => {
     assert.match(output, /RAG/i);
     assert.doesNotMatch(output, /secret-platform-key/);
   });
+
+  test('interactive link treats a pasted API key as session env instead of apiKeyEnv', async () => {
+    const previousKey = process.env.CAST_API_KEY;
+    let captured: { options: Record<string, string | undefined>; envKey?: string } | null = null;
+    const service = new PlatformCommandsService(
+      {
+        link: async (_root: string, options: Record<string, string | undefined>) => {
+          captured = { options, envKey: process.env.CAST_API_KEY };
+          return { ok: true, status: 'linked', message: 'Linked to "Demo" (0 skills, 0 agents).' };
+        },
+      } as any,
+      {
+        readConfig: async () => ({
+          enabled: false,
+          projectRoot: '/repo/app',
+          apiUrl: 'http://localhost:3022',
+          apiKeyEnv: 'CAST_API_KEY',
+        }),
+      } as any,
+      {} as any,
+    );
+    const smartInput = {
+      question: async (message: string) => {
+        if (message.startsWith('Project ID')) return 'project-1';
+        if (message.startsWith('Platform API URL')) return 'http://localhost:3022';
+        if (message.startsWith('API key env')) return 'csk_session_key';
+        return '';
+      },
+    };
+
+    try {
+      delete process.env.CAST_API_KEY;
+      const output = await captureStdout(async () => {
+        const linked = await service.cmdLink([], smartInput as any);
+        assert.equal(linked, true);
+      });
+
+      assert.ok(captured);
+      const result = captured as { options: Record<string, string | undefined>; envKey?: string };
+      assert.equal(result.options.apiKeyEnv, 'CAST_API_KEY');
+      assert.equal(result.envKey, 'csk_session_key');
+      assert.doesNotMatch(output, /csk_session_key/);
+    } finally {
+      if (previousKey === undefined) delete process.env.CAST_API_KEY;
+      else process.env.CAST_API_KEY = previousKey;
+    }
+  });
 });

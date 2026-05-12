@@ -63,6 +63,9 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     benchmarkCommands: { handleBenchmarkCommand: async () => {} },
     discoveryTools: { setCastCommandHandler: () => {} },
     localSessionStore: undefined,
+    environmentCommands: undefined,
+    scheduleCommands: undefined,
+    sandboxCommands: { cmdSandbox: async () => {} },
   };
 
   const deps = { ...defaults, ...overrides };
@@ -97,6 +100,9 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deps.benchmarkCommands as any,
     deps.discoveryTools as any,
     deps.localSessionStore as any,
+    deps.environmentCommands as any,
+    deps.scheduleCommands as any,
+    deps.sandboxCommands as any,
   );
 };
 
@@ -158,6 +164,32 @@ describe('ReplService', () => {
       ['/benchmark'],
       'only the /benchmark command starts with /bench',
     );
+  });
+
+  test('filters command suggestions and exposes the /sandbox option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/sand');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/sandbox'],
+      'only the /sandbox command starts with /sand',
+    );
+  });
+
+  test('routes the /sandbox command to SandboxCommandsService', async () => {
+    const recorded: string[][] = [];
+    const service = buildReplService({
+      sandboxCommands: {
+        cmdSandbox: async (args: string[]) => {
+          recorded.push(args);
+        },
+      },
+    });
+
+    await (service as any).handleCommand('/sandbox rollback run-1');
+
+    assert.deepStrictEqual(recorded, [['rollback', 'run-1']]);
   });
 
   // Verifies the /unit-test command routes to gitCommands.cmdUnitTest with the active smart input.
