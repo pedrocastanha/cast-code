@@ -24,12 +24,14 @@ export class StateDbService implements OnModuleDestroy {
     }
 
     const dbPath = this.getDbPath();
-    await fs.mkdir(path.dirname(dbPath), { recursive: true });
+    await fs.mkdir(path.dirname(dbPath), { recursive: true, mode: 0o700 });
     this.db = new Database(dbPath);
+    await this.chmodLocalDbFiles(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     this.migrations.apply(this.db);
+    await this.chmodLocalDbFiles(dbPath);
     return this.db;
   }
 
@@ -84,5 +86,13 @@ export class StateDbService implements OnModuleDestroy {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async chmodLocalDbFiles(dbPath: string): Promise<void> {
+    await Promise.all(
+      [dbPath, `${dbPath}-wal`, `${dbPath}-shm`].map((filePath) =>
+        fs.chmod(filePath, 0o600).catch(() => undefined),
+      ),
+    );
   }
 }

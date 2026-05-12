@@ -129,6 +129,63 @@ export class StateMigrationService {
         'create index if not exists idx_benchmark_results_run on benchmark_results(run_id, created_at)',
       ],
     },
+    {
+      name: '0004_environment_activation',
+      statements: [
+        `create table if not exists environment_activations (
+          project_root text primary key,
+          environment_id text not null,
+          manifest_source text not null check (manifest_source in ('builtin', 'project')),
+          activated_at text not null,
+          manifest_json text
+        )`,
+        'create index if not exists idx_environment_activations_environment on environment_activations(environment_id, activated_at)',
+      ],
+    },
+    {
+      name: '0005_scheduler_core',
+      statements: [
+        `create table if not exists local_schedules (
+          id text primary key,
+          project_root text not null,
+          name text not null,
+          description text,
+          cron_expression text not null,
+          timezone text,
+          status text not null check (status in ('active', 'paused')),
+          target_type text not null,
+          target_ref text,
+          target_json text not null,
+          environment_id text,
+          approval_policy text not null check (approval_policy in ('dry-run-only', 'approval-required', 'pre-approved')),
+          budget_json text,
+          max_runtime_ms integer not null,
+          next_run_at text,
+          last_run_at text,
+          schedule_json text not null,
+          created_at text not null,
+          updated_at text not null
+        )`,
+        `create table if not exists local_schedule_runs (
+          id text primary key,
+          schedule_id text not null,
+          project_root text not null,
+          status text not null check (status in ('queued', 'running', 'completed', 'failed', 'blocked', 'timeout')),
+          started_at text not null,
+          completed_at text,
+          due_at text,
+          target_type text not null,
+          summary_json text,
+          error text,
+          benchmark_run_id text,
+          metadata_json text,
+          run_json text not null,
+          foreign key (schedule_id) references local_schedules(id) on delete cascade
+        )`,
+        'create index if not exists idx_local_schedules_project_next on local_schedules(project_root, status, next_run_at)',
+        'create index if not exists idx_local_schedule_runs_schedule_started on local_schedule_runs(schedule_id, started_at)',
+      ],
+    },
   ];
 
   apply(db: Database.Database): void {
