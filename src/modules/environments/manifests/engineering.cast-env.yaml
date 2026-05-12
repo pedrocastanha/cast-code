@@ -1,0 +1,46 @@
+version: 1
+source: builtin
+id: engineering
+name: Engineering
+description: Code review, TDD, debugging, architecture changes, test runs, and delivery workflows.
+defaultAgent: software-engineer
+skills:
+  required:
+    - planning
+    - search
+    - file-operations
+    - git-operations
+    - testing-strategies
+    - code-review
+  optional:
+    - api-design
+    - database-operations
+    - frontend-bootstrap
+    - react-patterns
+mcp:
+  recommended:
+    - github
+    - linear
+    - sentry
+    - context7
+  required: []
+permissions:
+  defaultMode: balanced
+  requireApproval:
+    - git_push
+    - deploy
+    - production_write
+    - destructive_command
+rag:
+  recommendedSources:
+    - architecture-decisions
+    - runbooks
+    - api-contracts
+    - incident-history
+benchmarks:
+  smoke:
+    - engineering-code-review-smoke
+schedules:
+  suggested:
+    - nightly-test-health
+    - weekly-dependency-review

@@ -1,0 +1,36 @@
+version: 1
+source: builtin
+id: design
+name: Product Design
+description: Figma handoff, design systems, UI implementation, visual QA, and accessibility checks.
+defaultAgent: design-engineer
+skills:
+  required:
+    - frontend-bootstrap
+    - react-patterns
+    - design-system
+    - visual-qa
+  optional:
+    - file-operations
+    - testing-strategies
+mcp:
+  recommended:
+    - figma
+    - figma-remote
+  required: []
+permissions:
+  defaultMode: balanced
+  requireApproval:
+    - design_file_mutation
+    - publish_assets
+rag:
+  recommendedSources:
+    - design-system
+    - brand-assets
+    - accessibility-guidelines
+benchmarks:
+  smoke:
+    - design-implementation-smoke
+schedules:
+  suggested:
+    - weekly-visual-qa

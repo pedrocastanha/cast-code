@@ -1,0 +1,162 @@
+import { Injectable, Optional } from '@nestjs/common';
+import { ProjectLoaderService } from '../../project/services/project-loader.service';
+import { EnvironmentActivationService } from '../services/environment-activation.service';
+import { EnvironmentResolverService } from '../services/environment-resolver.service';
+import { EnvironmentReadinessReport, ResolvedCastEnvironmentManifest } from '../types';
+
+type DeepAgentRefresh = {
+  initialize?: () => Promise<unknown>;
+  reinitializeModel?: () => Promise<void>;
+  refreshEnvironmentContext?: () => Promise<void>;
+};
+
+@Injectable()
+export class EnvironmentCommandsService {
+  private agentRefresh: DeepAgentRefresh | null = null;
+
+  constructor(
+    private readonly resolver: EnvironmentResolverService,
+    private readonly activation: EnvironmentActivationService,
+    @Optional()
+    private readonly projectLoader?: ProjectLoaderService,
+  ) {}
+
+  setAgentRefresh(agentRefresh: DeepAgentRefresh): void {
+    this.agentRefresh = agentRefresh;
+  }
+
+  async cmdEnv(args: string[]): Promise<void> {
+    const subcommand = (args[0] ?? 'list').toLowerCase();
+    switch (subcommand) {
+    case 'list':
+      await this.list();
+      return;
+    case 'use':
+      await this.use(args[1]);
+      return;
+    case 'inspect':
+      await this.inspect(args[1]);
+      return;
+    case 'help':
+    default:
+      this.printHelp();
+    }
+  }
+
+  private async list(): Promise<void> {
+    const projectRoot = await this.getProjectRoot();
+    const environments = await this.resolver.list(projectRoot);
+    const active = await this.resolver.getActive(projectRoot);
+
+    if (environments.length === 0) {
+      process.stdout.write('No Cast environments found.\n');
+      return;
+    }
+
+    process.stdout.write('Cast environments:\n');
+    for (const environment of environments) {
+      const marker = active?.id === environment.id ? '*' : ' ';
+      const origin = environment.source === 'project' ? 'project' : 'built-in';
+      process.stdout.write(`${marker} ${environment.id.padEnd(12)} ${environment.name} (${origin})\n`);
+      process.stdout.write(`  ${environment.description}\n`);
+    }
+    process.stdout.write('\nUse /env use <id> to activate an environment.\n');
+  }
+
+  private async use(environmentId?: string): Promise<void> {
+    if (!environmentId) {
+      process.stdout.write('Usage: /env use <environment-id>\n');
+      return;
+    }
+
+    const projectRoot = await this.getProjectRoot();
+    const environment = await this.resolver.resolve(environmentId, projectRoot);
+    if (!environment) {
+      process.stdout.write(`Environment not found: ${environmentId}\n`);
+      return;
+    }
+
+    await this.activation.activate(projectRoot, environment);
+    const readiness = await this.resolver.inspect(projectRoot, environment.id);
+    await this.resolver.applyActiveScope(projectRoot);
+    await this.refreshAgentBestEffort();
+
+    process.stdout.write(`Active Cast environment: ${environment.id} (${environment.name})\n`);
+    if (readiness) {
+      this.printReadiness(readiness.readiness);
+    }
+  }
+
+  private async inspect(environmentId?: string): Promise<void> {
+    const projectRoot = await this.getProjectRoot();
+    const target = environmentId
+      ? await this.resolver.resolve(environmentId, projectRoot)
+      : await this.resolver.getActive(projectRoot);
+
+    if (!target) {
+      process.stdout.write(environmentId
+        ? `Environment not found: ${environmentId}\n`
+        : 'No active Cast environment. Run /env list or /env use <id>.\n');
+      return;
+    }
+
+    const inspection = await this.resolver.inspect(projectRoot, target.id);
+    if (!inspection) {
+      process.stdout.write(`Environment not found: ${target.id}\n`);
+      return;
+    }
+
+    this.printManifest(inspection.manifest);
+    this.printReadiness(inspection.readiness);
+  }
+
+  private printManifest(environment: ResolvedCastEnvironmentManifest): void {
+    process.stdout.write(`Environment: ${environment.id} (${environment.name})\n`);
+    process.stdout.write(`${environment.description}\n`);
+    process.stdout.write(`Source: ${environment.source}\n`);
+    process.stdout.write(`Default agent: ${environment.defaultAgent}\n`);
+    process.stdout.write(`Skills: ${[...environment.skills.required, ...environment.skills.optional].join(', ') || 'none'}\n`);
+    process.stdout.write(`MCPs: ${[...(environment.mcp.required ?? []), ...environment.mcp.recommended].join(', ') || 'none'}\n`);
+    process.stdout.write(`Permission mode: ${environment.permissions.defaultMode}\n`);
+    process.stdout.write(`Requires approval: ${environment.permissions.requireApproval.join(', ') || 'none'}\n`);
+    process.stdout.write(`RAG sources: ${environment.rag.recommendedSources.join(', ') || 'none'}\n`);
+    process.stdout.write(`Smoke benchmarks: ${environment.benchmarks.smoke.join(', ') || 'none'}\n`);
+    process.stdout.write(`Suggested schedules: ${environment.schedules.suggested.join(', ') || 'none'}\n`);
+  }
+
+  private printReadiness(readiness: EnvironmentReadinessReport): void {
+    process.stdout.write(`Readiness: ${readiness.status}\n`);
+    for (const check of readiness.checks) {
+      const marker = check.status === 'ready' ? 'ok' : check.status;
+      process.stdout.write(`- ${marker} ${check.kind}:${check.id} ${check.message}\n`);
+    }
+  }
+
+  private printHelp(): void {
+    process.stdout.write([
+      'Environment commands:',
+      '- /env list',
+      '- /env use <environment-id>',
+      '- /env inspect [environment-id]',
+    ].join('\n') + '\n');
+  }
+
+  private async refreshAgentBestEffort(): Promise<void> {
+    try {
+      if (this.agentRefresh?.refreshEnvironmentContext) {
+        await this.agentRefresh.refreshEnvironmentContext();
+      } else if (this.agentRefresh?.reinitializeModel) {
+        await this.agentRefresh.reinitializeModel();
+      } else {
+        await this.agentRefresh?.initialize?.();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stdout.write(`Environment activated, but agent refresh failed: ${message}\n`);
+    }
+  }
+
+  private async getProjectRoot(): Promise<string> {
+    return (await this.projectLoader?.detectProject()) ?? process.cwd();
+  }
+}
