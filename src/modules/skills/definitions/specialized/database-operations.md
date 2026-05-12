@@ -6,6 +6,8 @@ tools:
   - write_file
   - edit_file
   - shell
+environments:
+  - engineering
 ---
 
 # Database Operations — Domain Knowledge

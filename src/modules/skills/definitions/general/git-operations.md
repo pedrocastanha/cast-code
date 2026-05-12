@@ -3,6 +3,8 @@ name: git-operations
 description: Git version control operations
 tools:
   - shell
+environments:
+  - engineering
 ---
 
 # Git Operations — Domain Knowledge

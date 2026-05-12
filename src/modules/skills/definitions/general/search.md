@@ -4,6 +4,10 @@ description: Search for patterns and content in the codebase
 tools:
   - grep
   - glob
+environments:
+  - marketing
+  - design
+  - engineering
 ---
 
 # Search — Domain Knowledge

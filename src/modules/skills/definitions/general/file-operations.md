@@ -7,6 +7,10 @@ tools:
   - edit_file
   - glob
   - ls
+environments:
+  - marketing
+  - design
+  - engineering
 ---
 
 # File Operations — Domain Knowledge
