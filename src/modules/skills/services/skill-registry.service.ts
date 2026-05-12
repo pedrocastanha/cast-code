@@ -71,6 +71,10 @@ export class SkillRegistryService {
     return this.skillLoader.getAllSkills();
   }
 
+  getAllUnscopedSkills(): SkillDefinition[] {
+    return this.skillLoader.getAllUnscopedSkills();
+  }
+
   getSkillNames(): string[] {
     return this.skillLoader.getSkillNames();
   }

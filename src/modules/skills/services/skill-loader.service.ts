@@ -7,6 +7,8 @@ import * as path from 'path';
 export class SkillLoaderService implements OnModuleInit {
   private skills: Map<string, SkillDefinition> = new Map();
   private definitionsPath: string;
+  private activeEnvironmentId: string | null = null;
+  private activeEnvironmentSkills: Set<string> | null = null;
 
   constructor(private readonly markdownParser: MarkdownParserService) {
     this.definitionsPath = path.join(__dirname, '..', 'definitions');
@@ -31,6 +33,7 @@ export class SkillLoaderService implements OnModuleInit {
         name: shortName,
         description: frontmatter.description || '',
         tools: frontmatter.tools || [],
+        ...this.readGovernanceMetadata(frontmatter),
         guidelines: content,
       };
 
@@ -55,8 +58,9 @@ export class SkillLoaderService implements OnModuleInit {
         name: frontmatter.name || name,
         description: frontmatter.description || '',
         tools: frontmatter.tools || [],
+        ...this.readGovernanceMetadata(frontmatter),
         guidelines: content,
-        source: 'local',
+        source: frontmatter.source || 'local',
       });
     }
   }
@@ -70,7 +74,7 @@ export class SkillLoaderService implements OnModuleInit {
       }
       this.skills.set(skill.name, {
         ...skill,
-        source: 'remote',
+        source: skill.source || 'remote',
       });
     }
 
@@ -78,10 +82,24 @@ export class SkillLoaderService implements OnModuleInit {
   }
 
   getSkill(name: string): SkillDefinition | undefined {
-    return this.skills.get(name);
+    const skill = this.skills.get(name);
+    if (!skill || !this.isSkillInActiveScope(skill)) {
+      return undefined;
+    }
+    return skill;
   }
 
   getAllSkills(): SkillDefinition[] {
+    const unique = new Map<string, SkillDefinition>();
+    for (const skill of this.skills.values()) {
+      if (this.isSkillInActiveScope(skill)) {
+        unique.set(skill.name, skill);
+      }
+    }
+    return Array.from(unique.values());
+  }
+
+  getAllUnscopedSkills(): SkillDefinition[] {
     const unique = new Map<string, SkillDefinition>();
     for (const skill of this.skills.values()) {
       unique.set(skill.name, skill);
@@ -90,6 +108,51 @@ export class SkillLoaderService implements OnModuleInit {
   }
 
   getSkillNames(): string[] {
+    return Array.from(this.skills.entries())
+      .filter(([, skill]) => this.isSkillInActiveScope(skill))
+      .map(([name]) => name);
+  }
+
+  getUnscopedSkillNames(): string[] {
     return Array.from(this.skills.keys());
+  }
+
+  setActiveEnvironmentScope(environmentId: string, skillNames: string[]): void {
+    this.activeEnvironmentId = environmentId;
+    this.activeEnvironmentSkills = new Set(skillNames);
+  }
+
+  clearActiveEnvironmentScope(): void {
+    this.activeEnvironmentId = null;
+    this.activeEnvironmentSkills = null;
+  }
+
+  private isSkillInActiveScope(skill: SkillDefinition): boolean {
+    if (skill.isActive === false) {
+      return false;
+    }
+
+    if (!this.activeEnvironmentId || !this.activeEnvironmentSkills) {
+      return true;
+    }
+    return this.activeEnvironmentSkills.has(skill.name)
+      || Boolean(skill.environments?.includes(this.activeEnvironmentId));
+  }
+
+  private readGovernanceMetadata(frontmatter: SkillFrontmatter): Pick<
+    SkillDefinition,
+    'source' | 'sourceRepo' | 'sourcePath' | 'trust' | 'risk' | 'tags' | 'environments' | 'scannerFindings' | 'isActive'
+  > {
+    return {
+      source: frontmatter.source,
+      sourceRepo: frontmatter.sourceRepo,
+      sourcePath: frontmatter.sourcePath,
+      trust: frontmatter.trust,
+      risk: frontmatter.risk,
+      tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
+      environments: Array.isArray(frontmatter.environments) ? frontmatter.environments : [],
+      scannerFindings: Array.isArray(frontmatter.scannerFindings) ? frontmatter.scannerFindings : [],
+      isActive: typeof frontmatter.isActive === 'boolean' ? frontmatter.isActive : undefined,
+    };
   }
 }
