@@ -49,4 +49,24 @@ describe('MemoryToolsService rag_search', () => {
 
     assert.match(String(output), /not enabled/i);
   });
+
+  test('returns platform memory overview instead of throwing when query is empty', async () => {
+    const service = new MemoryToolsService({} as any, {
+      isRagEnabled: () => true,
+      memoryOverview: async () => ({
+        stats: { sources: 2, readySources: 1, units: 7, edges: 3, retrievalMode: 'hybrid' },
+        sources: [
+          { title: 'Brand guide', status: 'ready', unitCount: 4 },
+          { title: 'Campaign notes', status: 'processing', unitCount: 3 },
+        ],
+      }),
+    } as any);
+    const tool = service.getTools().find((item) => item.name === 'rag_search');
+
+    const output = await tool!.invoke({ query: '' });
+
+    assert.match(String(output), /Platform memory overview/i);
+    assert.match(String(output), /Brand guide/);
+    assert.match(String(output), /Campaign notes/);
+  });
 });
