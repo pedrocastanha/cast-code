@@ -1,0 +1,11 @@
+{
+  "fileKey": "fixture-cast-benchmark-lab",
+  "frame": "Pricing Page",
+  "tokens": {
+    "color.primary": "#2563eb",
+    "space.4": "16px",
+    "radius.card": "8px"
+  },
+  "states": ["desktop", "mobile", "hover", "focus"],
+  "requiredChecks": ["responsive", "accessibility", "visual qa"]
+}

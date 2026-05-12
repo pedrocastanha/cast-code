@@ -1,0 +1,36 @@
+{
+  "benchmark": {
+    "status": "completed",
+    "totalCases": 3,
+    "passRate": 1,
+    "requiredArtifacts": [
+      "config.json",
+      "cases.jsonl",
+      "results.jsonl",
+      "report.md",
+      "sandbox-summary.json",
+      "sandbox-command.log",
+      "sandbox-snapshot.json"
+    ],
+    "summaryFields": ["score", "totalCost", "totalTokens", "latencyP50Ms", "latencyP95Ms"]
+  },
+  "environments": {
+    "marketing": ["audience", "positioning", "channel", "metrics"],
+    "design": ["tokens", "responsive", "accessibility", "visual qa"]
+  },
+  "mcp": {
+    "requiredTemplates": ["figma", "figma-remote", "meta-ads"],
+    "blockedMutation": {
+      "server": "meta-ads",
+      "tool": "create_campaign"
+    }
+  },
+  "privacy": {
+    "mustNotAppearInGeneratedState": [
+      "sk-test-benchmarklabsecret123",
+      "benchmark-lab-secret-token",
+      "postgres://user:pass@example.com/db"
+    ]
+  }
+}
+

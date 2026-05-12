@@ -1,0 +1,67 @@
+{
+  "id": "benchmark-lab-fixture-api",
+  "name": "Benchmark Lab Fixture API",
+  "description": "End-to-end fixture for explicit endpoint benchmarking, artifact generation, scoring, and platform sync readiness.",
+  "target": {
+    "type": "api_endpoint",
+    "config": {
+      "method": "POST",
+      "url": "{{baseUrl}}/api/chat",
+      "body": {
+        "message": "{{input}}",
+        "model": "benchmark-lab-smoke-model"
+      },
+      "timeoutMs": 5000
+    }
+  },
+  "cases": [
+    {
+      "id": "campaign-brief",
+      "input": "Build a private launch campaign plan for Cast Benchmark Lab.",
+      "expected": "campaign plan"
+    },
+    {
+      "id": "design-qa",
+      "input": "Plan a Figma-to-React verification workflow for a pricing page.",
+      "expected": "design qa"
+    },
+    {
+      "id": "scheduler-run",
+      "input": "Prepare a recurring benchmark scheduler report for model changes.",
+      "expected": "scheduler run"
+    }
+  ],
+  "graders": [
+    {
+      "id": "expected-marker",
+      "type": "string_check",
+      "config": {
+        "mode": "contains",
+        "caseSensitive": false
+      }
+    },
+    {
+      "id": "quality-marker",
+      "type": "regex",
+      "config": {
+        "pattern": "benchmark-quality",
+        "flags": "i"
+      }
+    }
+  ],
+  "budget": {
+    "maxCases": 5,
+    "maxCostUsd": 1,
+    "maxTokens": 10000,
+    "allowLlmJudge": false
+  },
+  "models": [
+    {
+      "provider": "fixture",
+      "model": "benchmark-lab-smoke-model",
+      "purpose": "deterministic-smoke"
+    }
+  ],
+  "tags": ["benchmark-lab", "fixture", "api", "e2e"]
+}
+

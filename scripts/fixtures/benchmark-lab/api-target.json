@@ -1,0 +1,20 @@
+{
+  "name": "benchmark-lab-chatbot-endpoint",
+  "method": "POST",
+  "path": "/api/chat",
+  "body": {
+    "message": "{{input}}",
+    "model": "{{model}}"
+  },
+  "expected": "benchmark-quality",
+  "modelOverride": {
+    "kind": "request_body",
+    "field": "model"
+  },
+  "privacyFixture": {
+    "authorization": "Authorization: Bearer benchmark-lab-secret-token",
+    "apiKey": "OPENAI_API_KEY=sk-test-benchmarklabsecret123",
+    "databaseUrl": "postgres://user:pass@example.com/db"
+  }
+}
+
