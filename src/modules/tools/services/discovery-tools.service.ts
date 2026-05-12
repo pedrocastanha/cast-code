@@ -217,6 +217,7 @@ export class DiscoveryToolsService {
           { name: '/agents create', desc: 'create new agent' },
           { name: '/skills', desc: 'list loaded skills' },
           { name: '/skills create', desc: 'create new skill' },
+          { name: '/env', desc: 'list, activate, or inspect domain environment packs' },
         ],
       },
       {
