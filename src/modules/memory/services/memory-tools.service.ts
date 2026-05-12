@@ -86,10 +86,14 @@ export class MemoryToolsService {
 
   private createRagSearchTool(): StructuredTool {
     return tool(
-      async (input: { query: string; topK?: number }) => {
-        const { query, topK } = input;
+      async (input: { query?: string; topK?: number }) => {
+        const query = String(input.query ?? '').trim();
+        const { topK } = input;
         if (!this.platformService.isRagEnabled()) {
           return 'Platform RAG is not enabled for this linked project. Link a Cast project with Memory/RAG enabled before using rag_search.';
+        }
+        if (!query) {
+          return this.platformMemoryOverview();
         }
         try {
           const retrieval = await this.platformService.retrieveMemory(query, topK);
@@ -125,13 +129,44 @@ export class MemoryToolsService {
       {
         name: 'rag_search',
         description:
-          'Search the linked Cast platform Memory/RAG index for project docs, decisions, and indexed context. Use this before answering questions that may depend on platform knowledge.',
+          'Search the linked Cast platform Memory/RAG index for project docs, decisions, and indexed context. Use a natural-language query. If the user asks what memory contains, call with an empty query to list indexed sources.',
         schema: z.object({
-          query: z.string().min(1).describe('Natural language search query for the project memory index.'),
+          query: z.string().optional().describe('Natural language search query for the project memory index. Leave empty only to list indexed sources.'),
           topK: z.number().int().min(1).max(20).optional().describe('Maximum number of memory results to retrieve.'),
         }),
       },
     );
+  }
+
+  private async platformMemoryOverview(): Promise<string> {
+    try {
+      const overview = await this.platformService.memoryOverview();
+      const stats = overview.stats ?? {};
+      const sources = overview.sources ?? [];
+      const header = [
+        'Platform memory overview',
+        `sources=${stats.sources ?? sources.length}`,
+        `ready=${stats.readySources ?? sources.filter((source) => source.status === 'ready').length}`,
+        stats.units !== undefined ? `units=${stats.units}` : '',
+        stats.edges !== undefined ? `edges=${stats.edges}` : '',
+        stats.retrievalMode ? `mode=${stats.retrievalMode}` : '',
+      ].filter(Boolean).join(' ');
+
+      if (!sources.length) {
+        return `${header}\n\nNo indexed memory sources found yet.`;
+      }
+
+      const rows = sources.slice(0, 12).map((source, index) => [
+        `${index + 1}. ${source.title || source.id || 'Untitled source'}`,
+        source.status ? `status=${source.status}` : '',
+        source.unitCount !== undefined ? `units=${source.unitCount}` : '',
+        source.description ? `- ${source.description}` : '',
+      ].filter(Boolean).join(' '));
+      const more = sources.length > rows.length ? `\n... ${sources.length - rows.length} more sources` : '';
+      return `${header}\n\n${rows.join('\n')}${more}`;
+    } catch (error) {
+      return `Platform RAG overview failed: ${(error as Error).message}`;
+    }
   }
 }
 
