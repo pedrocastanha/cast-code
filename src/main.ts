@@ -6,8 +6,8 @@ import { AppModule } from './app.module';
 import { ReplService } from './modules/repl/services/repl.service';
 import { ConfigManagerService } from './modules/config/services/config-manager.service';
 import { InitConfigService } from './modules/config/services/init-config.service';
-import { CastLinkService } from './modules/platform/services/cast-link.service';
 import { PlatformService } from './modules/platform/services/platform.service';
+import { PlatformCommandsService } from './modules/repl/services/commands/platform-commands.service';
 
 config({ quiet: true });
 
@@ -46,25 +46,18 @@ async function bootstrap() {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  if (command === 'link') {
+  if (command === 'platform' || command === 'link') {
     const app = await NestFactory.createApplicationContext(AppModule, {
       logger: false,
     });
 
-    const getArg = (name: string): string | undefined => {
-      const idx = args.indexOf(name);
-      return idx >= 0 ? args[idx + 1] : undefined;
-    };
-
-    const linkService = app.get(CastLinkService);
-    const result = await linkService.link(process.cwd(), {
-      projectId: getArg('--project') || '',
-      apiUrl: getArg('--api-url'),
-      apiKeyEnv: getArg('--api-key-env'),
-    });
-    console.log(result.message);
+    if (command === 'link') {
+      console.warn('cast link was removed. Use: cast platform --project <id> --api-url <url>');
+    }
+    const platformCommands = app.get(PlatformCommandsService);
+    const changed = await platformCommands.cmdPlatform(args.slice(1));
     await app.close();
-    if (!result.ok) {
+    if (!changed && args[1] !== 'status') {
       process.exitCode = 1;
     }
     return;

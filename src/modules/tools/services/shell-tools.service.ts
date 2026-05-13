@@ -25,26 +25,29 @@ export class ShellToolsService {
   private backgroundProcesses: Map<string, any> = new Map();
   private processCounter = 0;
   private rootDir: string = process.cwd();
+  private workspaceRoot: string = process.cwd();
 
   constructor(private permissionService: PermissionService) {}
 
-  setRootDir(dir: string): void {
+  setRootDir(dir: string, workspaceRoot: string = dir): void {
     this.rootDir = path.resolve(dir);
+    this.workspaceRoot = path.resolve(workspaceRoot);
   }
 
   private resolveWorkingDirectory(cwd?: string): { ok: true; cwd: string } | { ok: false; error: string } {
     const root = path.resolve(this.rootDir);
+    const workspaceRoot = path.resolve(this.workspaceRoot);
     const resolved = cwd
       ? (path.isAbsolute(cwd) ? path.resolve(cwd) : path.resolve(root, cwd))
       : root;
 
-    if (resolved === root || resolved.startsWith(root + path.sep)) {
+    if (resolved === workspaceRoot || resolved.startsWith(workspaceRoot + path.sep)) {
       return { ok: true, cwd: resolved };
     }
 
     return {
       ok: false,
-      error: `Error: cwd "${cwd}" resolves outside the project root (${root}). Use a relative working directory inside the project.`,
+      error: `Error: cwd "${cwd}" resolves outside the project root or workspace root (${workspaceRoot}). Use a relative working directory inside the project or another linked workspace folder.`,
     };
   }
 

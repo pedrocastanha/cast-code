@@ -29,7 +29,7 @@ Se a API não responder em 2 segundos, o cast inicializa com o cache local e a s
 
 ## Arquivo .cast/platform.yaml
 
-Criado pelo comando `cast link --project <id>`. Fica no diretório do projeto (não no global `~/.cast/`).
+Criado pelo comando `cast platform --project <id>`. Fica no diretório do projeto (não no global `~/.cast/`).
 
 ```yaml
 projectId: "uuid-do-projeto"
@@ -174,12 +174,12 @@ Comandos não registrados não aparecem no `/help` e não geram erro ao digitar 
 
 ---
 
-## Comando `cast link`
+## Comando `cast platform`
 
 ```bash
-cast link --project <projectId>
+cast platform --project <projectId>
 # ou interativo:
-cast link
+cast platform
 # → abre lista de projetos do usuário na plataforma
 # → usuário seleciona
 # → gera .cast/platform.yaml no diretório atual

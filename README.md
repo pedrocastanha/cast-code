@@ -112,10 +112,10 @@ Configure com `/config init` ou edite `~/.cast/config.yaml` diretamente.
 ### Platform
 | Comando | O que faz |
 |---|---|
-| `cast link --project <id>` | Vincula o diretório atual a um projeto remoto da Cast Platform |
-| `/link` | Vincula o diretório atual pela interface do CLI |
-| `/link --project <id>` | Vincula direto, sem sair do chat |
-| `/link status` | Mostra projeto, API URL, env var da key e status do RAG sem expor segredo |
+| `cast platform --project <id>` | Vincula o diretório atual a um projeto remoto da Cast Platform |
+| `/platform` | Configura API URL, key global e projeto atual pela interface do CLI |
+| `/platform --project <id>` | Vincula direto, sem sair do chat |
+| `/platform status` | Mostra projeto, API URL, env var da key e status do RAG sem expor segredo |
 
 ---
 
@@ -229,7 +229,7 @@ O CLI pode ser vinculado a um projeto remoto sem armazenar secrets no repositór
 
 ```bash
 export CAST_API_KEY="csk_..."
-cast link --project <project-id>
+cast platform --project <project-id>
 ```
 
 Isso cria ou atualiza `.cast/cast.yaml`:

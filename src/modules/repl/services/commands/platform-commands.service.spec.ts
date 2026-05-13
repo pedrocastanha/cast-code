@@ -25,53 +25,162 @@ function captureStdout(run: () => Promise<void>): Promise<string> {
 }
 
 describe('PlatformCommandsService', () => {
-  test('cmdLink links the current working directory with direct flags', async () => {
+  test('cmdPlatform configures global credentials, writes project manifest, and bootstraps remote context', async () => {
     const projectRoot = await mkdtemp(path.join(tmpdir(), 'cast-link-command-'));
     const previousCwd = process.cwd();
-    let captured: { projectRoot: string; options: Record<string, string | undefined> } | null = null;
+    const calls: Array<{ type: string; value?: unknown }> = [];
 
     const service = new PlatformCommandsService(
+      {} as any,
       {
-        link: async (root: string, options: Record<string, string | undefined>) => {
-          captured = { projectRoot: root, options };
-          return { ok: true, status: 'linked', message: 'Linked to "Demo" (0 skills, 0 agents).' };
+        readConfig: async () => ({
+          enabled: false,
+          projectRoot,
+          apiUrl: 'http://localhost:3022',
+          apiKeyEnv: 'CAST_API_KEY',
+        }),
+        writeLink: async (root: string, options: Record<string, string | undefined>) => {
+          calls.push({ type: 'writeLink', value: { root, options } });
+        },
+        getApiKey: () => 'csk_configured_key',
+      } as any,
+      {
+        bootstrap: async (root: string) => {
+          calls.push({ type: 'bootstrap', value: root });
+          return {
+            status: 'online',
+            project: { id: 'project-1', name: 'Demo' },
+            skills: [{ name: 'document-writer' }, { name: 'visual-qa' }],
+            agents: [{ role: 'reviewer' }],
+            mcp: [],
+            features: { remoteAgents: true, benchAccess: true, maxSkills: 200 },
+          };
         },
       } as any,
-      {} as any,
-      {} as any,
+      {
+        loadConfig: async () => ({
+          platform: {
+            apiUrl: 'http://localhost:3001',
+            apiKey: 'csk_existing_global_key',
+          },
+        }),
+        getConfig: () => ({
+          platform: {
+            apiUrl: 'http://localhost:3001',
+            apiKey: 'csk_existing_global_key',
+          },
+        }),
+        setPlatformConfig: async (platform: Record<string, string>) => {
+          calls.push({ type: 'setPlatformConfig', value: platform });
+        },
+      } as any,
     );
+    const smartInput = {
+      question: async (message: string) => {
+        if (message.startsWith('Project ID')) return 'project-1';
+        if (message.startsWith('Platform API URL')) return 'http://localhost:3001';
+        if (message.startsWith('Platform API key')) return 'csk_new_global_key';
+        return '';
+      },
+    };
 
     try {
       process.chdir(projectRoot);
 
       const output = await captureStdout(async () => {
-        const linked = await service.cmdLink([
-          '--project',
-          'project-1',
-          '--api-url',
-          'http://localhost:3022',
-          '--api-key-env',
-          'CAST_API_KEY_DEV',
-        ]);
-        assert.equal(linked, true);
+        const configured = await service.cmdPlatform([], smartInput as any);
+        assert.equal(configured, true);
       });
 
-      assert.deepEqual(captured, {
-        projectRoot,
-        options: {
-          projectId: 'project-1',
-          apiUrl: 'http://localhost:3022',
-          apiKeyEnv: 'CAST_API_KEY_DEV',
+      assert.deepEqual(calls[0], {
+        type: 'setPlatformConfig',
+        value: {
+          apiUrl: 'http://localhost:3001',
+          apiKey: 'csk_new_global_key',
         },
       });
-      assert.match(output, /Linked to "Demo"/);
+      assert.deepEqual(calls[1], {
+        type: 'writeLink',
+        value: {
+          root: projectRoot,
+          options: {
+            projectId: 'project-1',
+            apiUrl: 'http://localhost:3001',
+            apiKeyEnv: 'CAST_API_KEY',
+          },
+        },
+      });
+      assert.deepEqual(calls[2], { type: 'bootstrap', value: projectRoot });
+      assert.match(output, /Platform configured/i);
+      assert.match(output, /Demo/);
       assert.match(output, new RegExp(projectRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      assert.doesNotMatch(output, /csk_new_global_key/);
     } finally {
       process.chdir(previousCwd);
     }
   });
 
-  test('cmdLink status hides the platform key value', async () => {
+  test('cmdPlatform supports direct flags without asking for an api key env', async () => {
+    const projectRoot = await mkdtemp(path.join(tmpdir(), 'cast-platform-direct-'));
+    const previousCwd = process.cwd();
+    let captured: Record<string, unknown> | null = null;
+
+    const service = new PlatformCommandsService(
+      {} as any,
+      {
+        readConfig: async () => ({
+          enabled: false,
+          projectRoot,
+          apiUrl: 'http://localhost:3022',
+          apiKeyEnv: 'CAST_API_KEY',
+        }),
+        writeLink: async (root: string, options: Record<string, string | undefined>) => {
+          captured = { root, options };
+        },
+        getApiKey: () => 'csk_global_key',
+      } as any,
+      {
+        bootstrap: async () => ({
+          status: 'online',
+          project: { id: 'project-1', name: 'Demo' },
+          skills: [],
+          agents: [],
+          mcp: [],
+        }),
+      } as any,
+      {
+        loadConfig: async () => ({ platform: {} }),
+        getConfig: () => ({ platform: {} }),
+        setPlatformConfig: async () => {},
+      } as any,
+    );
+
+    try {
+      process.chdir(projectRoot);
+      await captureStdout(async () => {
+        const configured = await service.cmdPlatform([
+          '--project',
+          'project-1',
+          '--api-url',
+          'http://localhost:3001',
+        ]);
+        assert.equal(configured, true);
+      });
+
+      assert.deepEqual(captured, {
+        root: projectRoot,
+        options: {
+          projectId: 'project-1',
+          apiUrl: 'http://localhost:3001',
+          apiKeyEnv: 'CAST_API_KEY',
+        },
+      });
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
+  test('cmdPlatform status hides the platform key value', async () => {
     const service = new PlatformCommandsService(
       {} as any,
       {
@@ -85,14 +194,23 @@ describe('PlatformCommandsService', () => {
         getApiKey: () => 'secret-platform-key',
       } as any,
       {
+        bootstrap: async () => ({ status: 'online' }),
         getStatus: () => 'online',
         getProject: () => ({ id: 'project-1', name: 'Demo Project' }),
         isRagEnabled: () => true,
       } as any,
+      {
+        loadConfig: async () => ({
+          platform: { apiKey: 'secret-platform-key', apiUrl: 'https://api.cast.test' },
+        }),
+        getConfig: () => ({
+          platform: { apiKey: 'secret-platform-key', apiUrl: 'https://api.cast.test' },
+        }),
+      } as any,
     );
 
     const output = await captureStdout(async () => {
-      const linked = await service.cmdLink(['status']);
+      const linked = await service.cmdPlatform(['status']);
       assert.equal(linked, false);
     });
 
@@ -102,52 +220,5 @@ describe('PlatformCommandsService', () => {
     assert.match(output, /present/i);
     assert.match(output, /RAG/i);
     assert.doesNotMatch(output, /secret-platform-key/);
-  });
-
-  test('interactive link treats a pasted API key as session env instead of apiKeyEnv', async () => {
-    const previousKey = process.env.CAST_API_KEY;
-    let captured: { options: Record<string, string | undefined>; envKey?: string } | null = null;
-    const service = new PlatformCommandsService(
-      {
-        link: async (_root: string, options: Record<string, string | undefined>) => {
-          captured = { options, envKey: process.env.CAST_API_KEY };
-          return { ok: true, status: 'linked', message: 'Linked to "Demo" (0 skills, 0 agents).' };
-        },
-      } as any,
-      {
-        readConfig: async () => ({
-          enabled: false,
-          projectRoot: '/repo/app',
-          apiUrl: 'http://localhost:3022',
-          apiKeyEnv: 'CAST_API_KEY',
-        }),
-      } as any,
-      {} as any,
-    );
-    const smartInput = {
-      question: async (message: string) => {
-        if (message.startsWith('Project ID')) return 'project-1';
-        if (message.startsWith('Platform API URL')) return 'http://localhost:3022';
-        if (message.startsWith('API key env')) return 'csk_session_key';
-        return '';
-      },
-    };
-
-    try {
-      delete process.env.CAST_API_KEY;
-      const output = await captureStdout(async () => {
-        const linked = await service.cmdLink([], smartInput as any);
-        assert.equal(linked, true);
-      });
-
-      assert.ok(captured);
-      const result = captured as { options: Record<string, string | undefined>; envKey?: string };
-      assert.equal(result.options.apiKeyEnv, 'CAST_API_KEY');
-      assert.equal(result.envKey, 'csk_session_key');
-      assert.doesNotMatch(output, /csk_session_key/);
-    } finally {
-      if (previousKey === undefined) delete process.env.CAST_API_KEY;
-      else process.env.CAST_API_KEY = previousKey;
-    }
   });
 });

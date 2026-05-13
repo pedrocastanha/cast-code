@@ -30,13 +30,15 @@ export class FilesystemToolsService {
   private readFiles: Set<string> = new Set();
   private fileWriteHandler: FileWriteHandler | null = null;
   private rootDir = process.cwd();
+  private workspaceRoot = process.cwd();
 
   setFileWriteHandler(handler: FileWriteHandler): void {
     this.fileWriteHandler = handler;
   }
 
-  setRootDir(dir: string): void {
+  setRootDir(dir: string, workspaceRoot: string = dir): void {
     this.rootDir = path.resolve(dir);
+    this.workspaceRoot = path.resolve(workspaceRoot);
   }
 
   clearSession(): void {
@@ -69,17 +71,18 @@ export class FilesystemToolsService {
 
   private resolveInsideRoot(targetPath: string): { ok: true; path: string } | { ok: false; error: string } {
     const root = path.resolve(this.rootDir);
+    const workspaceRoot = path.resolve(this.workspaceRoot);
     const resolved = path.isAbsolute(targetPath)
       ? path.resolve(targetPath)
       : path.resolve(root, targetPath);
 
-    if (resolved === root || resolved.startsWith(root + path.sep)) {
+    if (resolved === workspaceRoot || resolved.startsWith(workspaceRoot + path.sep)) {
       return { ok: true, path: resolved };
     }
 
     return {
       ok: false,
-      error: `Error: Path "${targetPath}" resolves outside the project root (${root}). Use a relative path inside the working directory.`,
+      error: `Error: Path "${targetPath}" resolves outside the project root or workspace root (${workspaceRoot}). Use a relative path inside the working directory or another linked workspace folder.`,
     };
   }
 

@@ -6,12 +6,13 @@ import { describe, test } from 'node:test';
 import { PlatformConfigService } from './platform-config.service';
 
 const makeProject = async () => mkdtemp(path.join(tmpdir(), 'cast-platform-config-'));
+const isolatedConfigPath = (projectRoot: string) => path.join(projectRoot, 'missing-global-config.yaml');
 
 describe('PlatformConfigService', () => {
   test('returns disabled config when .cast/cast.yaml is missing', async () => {
     const projectRoot = await makeProject();
     try {
-      const service = new PlatformConfigService();
+      const service = new PlatformConfigService(isolatedConfigPath(projectRoot));
       const config = await service.readConfig(projectRoot);
 
       assert.equal(config.enabled, false);
@@ -26,7 +27,7 @@ describe('PlatformConfigService', () => {
   test('reads enabled platform config and applies defaults', async () => {
     const projectRoot = await makeProject();
     try {
-      const service = new PlatformConfigService();
+      const service = new PlatformConfigService(isolatedConfigPath(projectRoot));
       await service.writeLink(projectRoot, { projectId: 'project-1' });
 
       const config = await service.readConfig(projectRoot);
@@ -82,7 +83,7 @@ describe('PlatformConfigService', () => {
   test('allows localhost http api urls', async () => {
     const projectRoot = await makeProject();
     try {
-      const service = new PlatformConfigService();
+      const service = new PlatformConfigService(isolatedConfigPath(projectRoot));
       await service.writeLink(projectRoot, {
         projectId: 'project-1',
         apiUrl: 'http://localhost:3000',
@@ -100,7 +101,7 @@ describe('PlatformConfigService', () => {
   test('rejects non-localhost http api urls', async () => {
     const projectRoot = await makeProject();
     try {
-      const service = new PlatformConfigService();
+      const service = new PlatformConfigService(isolatedConfigPath(projectRoot));
       await service.writeLink(projectRoot, {
         projectId: 'project-1',
         apiUrl: 'http://api.example.com',
@@ -116,7 +117,7 @@ describe('PlatformConfigService', () => {
   });
 
   test('rejects apiKeyEnv values that are not environment variable names', async () => {
-    const service = new PlatformConfigService();
+    const service = new PlatformConfigService(path.join(tmpdir(), 'cast-platform-config-missing.yaml'));
 
     const config = await service.buildConfig('/tmp/project', {
       projectId: 'project-1',
@@ -148,7 +149,7 @@ describe('PlatformConfigService', () => {
         ),
       );
 
-      const service = new PlatformConfigService();
+      const service = new PlatformConfigService(isolatedConfigPath(projectRoot));
       const config = await service.readConfig(projectRoot);
 
       assert.equal(config.enabled, false);
@@ -169,7 +170,7 @@ describe('PlatformConfigService', () => {
         ),
       );
 
-      const service = new PlatformConfigService();
+      const service = new PlatformConfigService(isolatedConfigPath(projectRoot));
       const config = await service.readConfig(projectRoot);
 
       assert.equal(config.enabled, false);
@@ -182,7 +183,7 @@ describe('PlatformConfigService', () => {
   test('writeLink preserves unrelated manifest keys and never writes api key values', async () => {
     const projectRoot = await makeProject();
     try {
-      const service = new PlatformConfigService();
+      const service = new PlatformConfigService(isolatedConfigPath(projectRoot));
       await service.writeLink(projectRoot, { projectId: 'old-project' });
       await import('node:fs/promises').then((fs) =>
         fs.writeFile(

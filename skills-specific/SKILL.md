@@ -108,7 +108,7 @@ Skills remotas (da plataforma) seguem o mesmo formato e são mescladas com as lo
 - `/skills create` — cria nova skill
 
 ### Plataforma (novo módulo)
-- `cast link --project <id>` — vincula diretório a projeto da plataforma
+- `cast platform --project <id>` — vincula diretório a projeto da plataforma
 - `/bench run` — executa benchmark tasks (plano pro+)
 
 ---

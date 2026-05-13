@@ -26,6 +26,23 @@ export class ProjectLoaderService {
     return null;
   }
 
+  async detectWorkspaceRoot(startPath: string = process.cwd()): Promise<string> {
+    let currentPath = path.resolve(startPath);
+    let workspaceRoot: string | null = null;
+
+    while (currentPath !== path.parse(currentPath).root) {
+      const configPath = path.join(currentPath, CAST_DIR);
+
+      if (await this.markdownParser.exists(configPath)) {
+        workspaceRoot = currentPath;
+      }
+
+      currentPath = path.dirname(currentPath);
+    }
+
+    return workspaceRoot || path.resolve(startPath);
+  }
+
   async loadProject(projectPath: string): Promise<ProjectConfig> {
     const configDirPath = path.join(projectPath, CAST_DIR);
 

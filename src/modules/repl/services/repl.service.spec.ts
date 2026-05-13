@@ -59,7 +59,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       close: async () => {},
       getStatus: () => 'disabled',
     },
-    platformCommands: { cmdLink: async () => false },
+    platformCommands: { cmdPlatform: async () => false },
     benchmarkCommands: { handleBenchmarkCommand: async () => {} },
     discoveryTools: { setCastCommandHandler: () => {} },
     localSessionStore: undefined,
@@ -144,15 +144,17 @@ describe('ReplService', () => {
     );
   });
 
-  test('filters command suggestions and exposes the /link option', () => {
+  test('filters command suggestions and exposes the /platform option without /link', () => {
     const service = buildReplService();
-    const suggestions = (service as any).getCommandSuggestions('/li');
+    const platformSuggestions = (service as any).getCommandSuggestions('/pla');
+    const linkSuggestions = (service as any).getCommandSuggestions('/li');
 
     assert.deepStrictEqual(
-      suggestions.map((s: { text: string }) => s.text),
-      ['/link'],
-      'only the /link command starts with /li',
+      platformSuggestions.map((s: { text: string }) => s.text),
+      ['/platform'],
+      'only the /platform command starts with /pla',
     );
+    assert.deepStrictEqual(linkSuggestions, []);
   });
 
   test('filters command suggestions and exposes the /benchmark option', () => {
@@ -475,7 +477,7 @@ describe('ReplService', () => {
     }
   });
 
-  test('routes /link to platformCommands and refreshes the agent after a link', async () => {
+  test('routes /platform to platformCommands and refreshes the agent after setup', async () => {
     const recordedArgs: string[][] = [];
     const smartInputStub = { showPrompt: () => {} };
     let initializeCalls = 0;
@@ -490,7 +492,7 @@ describe('ReplService', () => {
         getMessageCount: () => 0,
       },
       platformCommands: {
-        cmdLink: async (args: string[], input: unknown) => {
+        cmdPlatform: async (args: string[], input: unknown) => {
           recordedArgs.push(args);
           assert.strictEqual(input, smartInputStub);
           return true;
@@ -499,7 +501,7 @@ describe('ReplService', () => {
     });
     (service as any).smartInput = smartInputStub;
 
-    await (service as any).handleCommand('/link --project project-1');
+    await (service as any).handleCommand('/platform --project project-1');
 
     assert.deepStrictEqual(recordedArgs, [['--project', 'project-1']]);
     assert.equal(initializeCalls, 1);

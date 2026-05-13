@@ -49,6 +49,32 @@ test('cmdContext displays the active configured model instead of the legacy fall
   assert.match(output, /1M/);
 });
 
+test('printHelp advertises /platform instead of the removed /link flow', () => {
+  const service = new ReplCommandsService(
+    {
+      getMessageCount: () => 0,
+      getTokenCount: () => 0,
+    } as any,
+    {
+      getProvider: () => 'openai',
+      getModel: () => 'gpt-4.1-mini',
+    } as any,
+    {
+      getModelConfig: () => ({ provider: 'openai', model: 'gpt-4.1-mini' }),
+    } as any,
+    { getServerSummaries: () => [] } as any,
+    { getAllAgents: () => [] } as any,
+    { getAllSkills: () => [] } as any,
+    { hasContext: () => false } as any,
+    { isInitialized: () => false } as any,
+  );
+
+  const output = captureStdout(() => service.printHelp());
+
+  assert.match(output, /\/platform/);
+  assert.doesNotMatch(output, /\/link/);
+});
+
 test('cmdModel can configure an unconfigured provider inline before saving the purpose model', async () => {
   const addProviderCalls: Array<{ provider: string; config: { apiKey?: string; baseUrl?: string } }> = [];
   const setModelCalls: Array<{ purpose: string; modelConfig: { provider: string; model: string } }> = [];

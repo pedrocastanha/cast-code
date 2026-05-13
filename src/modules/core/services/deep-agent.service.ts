@@ -67,6 +67,111 @@ const COMPACT_CHAT_PATTERNS = [
 ];
 const MAX_GIT_STATUS_PROMPT_LINES = 20;
 
+class WorkspaceFilesystemBackend {
+  private readonly backend: FilesystemBackend;
+
+  constructor(
+    private readonly projectRoot: string,
+    private readonly workspaceRoot: string,
+  ) {
+    this.backend = new FilesystemBackend({ rootDir: workspaceRoot });
+  }
+
+  private resolvePath(key: string): string {
+    const root = path.resolve(this.projectRoot);
+    const workspace = path.resolve(this.workspaceRoot);
+    const resolved = path.isAbsolute(key)
+      ? path.resolve(key)
+      : path.resolve(root, key);
+
+    if (resolved === workspace || resolved.startsWith(workspace + path.sep)) {
+      return resolved;
+    }
+
+    throw new Error(`Path ${resolved} outside workspace root ${workspace}`);
+  }
+
+  async lsInfo(dirPath: string) {
+    return this.backend.lsInfo(this.resolvePath(dirPath));
+  }
+
+  async read(filePath: string, offset?: number, limit?: number) {
+    try {
+      return await this.backend.read(this.resolvePath(filePath), offset, limit);
+    } catch (error) {
+      return `Error reading file '${filePath}': ${(error as Error).message}`;
+    }
+  }
+
+  async readRaw(filePath: string) {
+    return this.backend.readRaw(this.resolvePath(filePath));
+  }
+
+  async write(filePath: string, content: string) {
+    try {
+      return await this.backend.write(this.resolvePath(filePath), content);
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  }
+
+  async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean) {
+    try {
+      return await this.backend.edit(this.resolvePath(filePath), oldString, newString, replaceAll);
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  }
+
+  async grepRaw(pattern: string, dirPath?: string, glob?: string | null) {
+    try {
+      return await this.backend.grepRaw(pattern, this.resolvePath(dirPath || '.'), glob);
+    } catch (error) {
+      return `Error: ${(error as Error).message}`;
+    }
+  }
+
+  async globInfo(pattern: string, searchPath?: string) {
+    try {
+      return await this.backend.globInfo(pattern, this.resolvePath(searchPath || '.'));
+    } catch {
+      return [];
+    }
+  }
+
+  async uploadFiles(files: Array<[string, Uint8Array]>) {
+    const resolved: Array<[string, Uint8Array]> = [];
+    const responses: Array<{ path: string; error: 'permission_denied' | null }> = [];
+    for (const [filePath, content] of files) {
+      try {
+        resolved.push([this.resolvePath(filePath), content]);
+        responses.push({ path: filePath, error: null });
+      } catch {
+        responses.push({ path: filePath, error: 'permission_denied' });
+      }
+    }
+    const uploaded = resolved.length ? await this.backend.uploadFiles(resolved) : [];
+    let uploadedIndex = 0;
+    return responses.map((response) => response.error ? response : uploaded[uploadedIndex++]);
+  }
+
+  async downloadFiles(paths: string[]) {
+    const resolved: string[] = [];
+    const responses: Array<{ path: string; content: Uint8Array | null; error: 'permission_denied' | null }> = [];
+    for (const filePath of paths) {
+      try {
+        resolved.push(this.resolvePath(filePath));
+        responses.push({ path: filePath, content: null, error: null });
+      } catch {
+        responses.push({ path: filePath, content: null, error: 'permission_denied' });
+      }
+    }
+    const downloaded = resolved.length ? await this.backend.downloadFiles(resolved) : [];
+    let downloadedIndex = 0;
+    return responses.map((response) => response.error ? response : downloaded[downloadedIndex++]);
+  }
+}
+
 @Injectable()
 export class DeepAgentService {
   private agent: any;
@@ -91,6 +196,7 @@ export class DeepAgentService {
   private cachedAgentSubagentKey = '';
   private pendingContextRefresh = false;
   private projectRoot: string = process.cwd();
+  private workspaceRoot: string = process.cwd();
   private cachedProjectStructure: string = '';
   private cachedEnvironmentPrompt: string = '';
   private localSessionId: string | null = null;
@@ -139,7 +245,8 @@ export class DeepAgentService {
   async initialize(): Promise<ProjectInitResult> {
     const projectPath = await this.projectLoader.detectProject();
     this.projectRoot = projectPath ?? process.cwd();
-    this.toolsRegistry.setRootDir(this.projectRoot);
+    this.workspaceRoot = await this.projectLoader.detectWorkspaceRoot(this.projectRoot);
+    this.toolsRegistry.setRootDir(this.projectRoot, this.workspaceRoot);
 
     if (projectPath) {
       const projectConfig = await this.projectLoader.loadProject(projectPath);
@@ -212,7 +319,7 @@ export class DeepAgentService {
       systemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
-      backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
+      backend: () => this.createFilesystemBackend(),
     });
 
     return {
@@ -239,7 +346,7 @@ export class DeepAgentService {
       systemPrompt: this.cachedSystemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
-      backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
+      backend: () => this.createFilesystemBackend(),
     });
   }
 
@@ -267,8 +374,12 @@ export class DeepAgentService {
       systemPrompt: this.cachedSystemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
-      backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
+      backend: () => this.createFilesystemBackend(),
     });
+  }
+
+  private createFilesystemBackend(): WorkspaceFilesystemBackend {
+    return new WorkspaceFilesystemBackend(this.projectRoot, this.workspaceRoot);
   }
 
   async getActiveEnvironmentId(): Promise<string | null> {
@@ -451,10 +562,11 @@ export class DeepAgentService {
     parts.push(
       '## Environment',
       `- Working directory: ${this.projectRoot}`,
+      `- Workspace root: ${this.workspaceRoot}`,
       `- Platform: ${process.platform}`,
       '',
-      `**IMPORTANT:** Always use RELATIVE paths for all file operations (e.g. \`src/index.ts\`, NOT \`/src/index.ts\` or \`${this.projectRoot}/src/index.ts\`).`,
-      'All paths are resolved relative to the working directory above.',
+      `**IMPORTANT:** Always use RELATIVE paths for all file operations (e.g. \`src/index.ts\` or \`../web/package.json\`, NOT \`/src/index.ts\` or \`${this.projectRoot}/src/index.ts\`).`,
+      'All relative paths are resolved from the working directory above. Sibling folders under the workspace root are available through ../folder paths.',
     );
 
     if (this.cachedProjectStructure) {
@@ -514,6 +626,7 @@ export class DeepAgentService {
       '',
       '# Environment',
       `- Working directory: ${this.projectRoot}`,
+      `- Workspace root: ${this.workspaceRoot}`,
       `- Platform: ${process.platform}`,
     );
 
@@ -1651,7 +1764,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           systemPrompt: contextualPrompt,
           tools: activeTools,
           subagents: activeSubagents,
-          backend: () => new FilesystemBackend({ rootDir: this.projectRoot }),
+          backend: () => this.createFilesystemBackend(),
         });
       }
       activeAgent = this.agent;

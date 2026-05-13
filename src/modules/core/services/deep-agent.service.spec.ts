@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HumanMessage, ToolMessage } from '@langchain/core/messages';
@@ -484,6 +484,33 @@ describe('DeepAgentService system prompt engineering workflow', () => {
       assert.doesNotMatch(prompt, /Available Sub-Agents|list_agents|delegate to agent/i);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('filesystem backend defaults to project root while allowing sibling workspace folders', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'cast-deep-workspace-'));
+    const projectRoot = join(workspace, 'cast-code');
+    const webRoot = join(workspace, 'web');
+    mkdirSync(projectRoot);
+    mkdirSync(webRoot);
+    writeFileSync(join(projectRoot, 'package.json'), '{"name":"cast-code"}');
+    writeFileSync(join(webRoot, 'package.json'), '{"name":"web"}');
+
+    try {
+      const service = buildService();
+      (service as any).projectRoot = projectRoot;
+      (service as any).workspaceRoot = workspace;
+      const backend = (service as any).createFilesystemBackend();
+
+      const projectEntries = await backend.lsInfo('.');
+      const webEntries = await backend.lsInfo('../web');
+      const blocked = await backend.read('/etc/passwd');
+
+      assert.equal(projectEntries.some((entry: { path: string }) => entry.path.endsWith('cast-code/package.json')), true);
+      assert.equal(webEntries.some((entry: { path: string }) => entry.path.endsWith('web/package.json')), true);
+      assert.match(blocked, /outside workspace root/i);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
     }
   });
 

@@ -21,7 +21,7 @@ export class CastLinkService {
       return {
         ok: false,
         status: 'error',
-        message: 'Usage: cast link --project <projectId> [--api-url <url>] [--api-key-env <name>]',
+        message: 'Usage: cast platform --project <projectId> [--api-url <url>]',
       };
     }
 

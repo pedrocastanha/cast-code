@@ -83,7 +83,7 @@ export class ReplCommandsService {
           ['/env', 'domain environment packs'],
           ['/model', 'show or change models'],
           ['/config', 'show/edit configuration'],
-          ['/link', 'link this directory to Cast Platform'],
+          ['/platform', 'configure Cast Platform'],
         ]),
         commandSection('Tools and History', [
           ['/tools', 'list available tools'],

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import { FilesystemToolsService } from './filesystem-tools.service';
 
@@ -91,6 +91,33 @@ describe('FilesystemToolsService read_file', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('can inspect sibling workspace directories while defaulting to the active project', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'cast-fs-workspace-'));
+    const project = join(workspace, 'cast-code');
+    const web = join(workspace, 'web');
+    mkdirSync(project);
+    mkdirSync(web);
+    writeFileSync(join(project, 'package.json'), '{"name":"cast-code"}');
+    writeFileSync(join(web, 'package.json'), '{"name":"web"}');
+
+    try {
+      const service = new FilesystemToolsService();
+      service.setRootDir(project, workspace);
+      const ls = service.getTools().find((tool) => tool.name === 'ls');
+      assert(ls);
+
+      const projectOutput = String(await ls.invoke({ directory: '.' }));
+      const siblingOutput = String(await ls.invoke({ directory: '../web' }));
+
+      assert.match(projectOutput, new RegExp(relative('/', project).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      assert.match(projectOutput, /package\.json/);
+      assert.match(siblingOutput, new RegExp(relative('/', web).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      assert.match(siblingOutput, /package\.json/);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
     }
   });
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -53,6 +53,32 @@ describe('ShellToolsService root guard', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('runs commands in sibling workspace directories using relative cwd from the active project', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'cast-shell-workspace-'));
+    const project = join(workspace, 'cast-code');
+    const web = join(workspace, 'web');
+    mkdirSync(project);
+    mkdirSync(web);
+
+    try {
+      const service = new ShellToolsService({
+        checkPermission: async () => true,
+      } as any);
+      service.setRootDir(project, workspace);
+      const shell = service.getTools().find((tool) => tool.name === 'shell');
+      assert(shell);
+
+      const output = String(await shell.invoke({
+        command: 'pwd',
+        cwd: '../web',
+      }));
+
+      assert.equal(output.trim(), web);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
     }
   });
 });

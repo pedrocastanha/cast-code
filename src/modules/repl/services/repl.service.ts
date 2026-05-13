@@ -332,6 +332,7 @@ export class ReplService {
       agents: 'List or manage Cast agents',
       skills: 'List or manage Cast skills',
       tools: 'List available tools',
+      platform: 'Configure Cast Platform',
       benchmark: 'Run local Benchmark Lab commands',
       env: 'List, activate, or inspect Cast environments',
       schedule: 'Manage local scheduled benchmark and environment jobs',
@@ -415,7 +416,7 @@ export class ReplService {
       { text: '/effort', display: '/effort', description: 'Set runtime budget' },
       { text: '/model', display: '/model', description: 'Show model' },
       { text: '/config', display: '/config', description: 'Configuration' },
-      { text: '/link', display: '/link', description: 'Link Cast project' },
+      { text: '/platform', display: '/platform', description: 'Configure Cast Platform' },
       { text: '/project', display: '/project', description: 'Project context' },
       { text: '/project-deep', display: '/project-deep', description: 'Deep project analysis' },
       { text: '/init', display: '/init', description: 'Analyze project and generate context' },
@@ -659,13 +660,16 @@ export class ReplService {
       await this.configManager.loadConfig();
       await this.deepAgent.reinitializeModel();
       break;
-    case 'link': {
-      const linked = await this.platformCommands.cmdLink(args, this.smartInput!);
-      if (linked) {
+    case 'platform': {
+      const configured = await this.platformCommands.cmdPlatform(args, this.smartInput!);
+      if (configured) {
         await this.deepAgent.initialize();
       }
       break;
     }
+    case 'link':
+      process.stdout.write(this.ui.warning('/link foi removido. Use /platform para configurar a plataforma e vincular o projeto.'));
+      break;
     case 'model': {
       const changed = await this.replCommands.cmdModel(args, this.smartInput!);
       if (changed) {
