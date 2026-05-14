@@ -10,3 +10,6 @@ You are operating in a git repository. When generating commit messages:
 When working with branches, diffs, or commits:
 - Always run git status before assuming the state of the repo
 - Prefer small, focused commits over large ones
+
+
+##
