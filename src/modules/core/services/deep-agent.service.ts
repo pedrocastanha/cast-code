@@ -26,7 +26,7 @@ import { McpServerSummary } from '../../mcp/types';
 import { PermissionService } from '../../permissions/services/permission.service';
 import { SnapshotService } from '../../snapshots/services/snapshot.service';
 import { StatsService } from '../../stats/services/stats.service';
-import { ReplayService } from '../../replay/services/replay.service';
+import { ReplayService, SavedReplaySnapshot } from '../../replay/services/replay.service';
 import { I18nService } from '../../i18n/services/i18n.service';
 import { FileWatcherService, FILE_CHANGE_EVENT } from '../../watcher/services/file-watcher.service';
 import { PromptLoaderService } from './prompt-loader.service';
@@ -51,6 +51,13 @@ export interface TokenUsage {
   output: number;
   cachedInput: number;
 }
+
+export type SessionSummarySaveResult = {
+  saved: boolean;
+  reason?: 'too_few_messages' | 'memory_unavailable' | 'summarization_failed' | 'memory_write_failed';
+  filename?: string;
+  replayPath?: string;
+};
 
 const DEEPAGENT_BUILTIN_TOOLS = new Set([
   'read_file', 'write_file', 'edit_file', 'glob', 'grep', 'ls',
@@ -274,6 +281,7 @@ export class DeepAgentService {
       await this.skillRegistry.loadProjectSkills(legacySkillsOverridePath);
 
       await this.memoryService.initialize(projectPath);
+      await this.memoryService.getMemoryPrompt();
     }
 
     await this.refreshEnvironmentPrompt();
@@ -1707,6 +1715,152 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     } catch {
       return false;
     }
+  }
+
+  async saveSessionSummaryToMemory(options: { timeoutMs?: number } = {}): Promise<SessionSummarySaveResult> {
+    if (!this.memoryService.isInitialized()) {
+      return { saved: false, reason: 'memory_unavailable' };
+    }
+
+    if (this.messages.length < 4) {
+      return { saved: false, reason: 'too_few_messages' };
+    }
+
+    const replayName = this.buildSessionSummaryName();
+    const replay = this.saveReplaySnapshot(replayName);
+    const summary = await this.generateSessionMemorySummary(options.timeoutMs ?? 7000);
+    if (!summary) {
+      return { saved: false, reason: 'summarization_failed', replayPath: replay.filePath };
+    }
+
+    const filename = `${replayName}.md`;
+    const content = this.buildSessionMemoryContent(summary, replay);
+    const result = await this.memoryService.write(filename, content);
+    if (!/^Memory saved:/i.test(result)) {
+      return { saved: false, reason: 'memory_write_failed', filename, replayPath: replay.filePath };
+    }
+
+    return { saved: true, filename, replayPath: replay.filePath };
+  }
+
+  private buildSessionSummaryName(): string {
+    const timestamp = new Date().toISOString()
+      .replace(/[:.]/g, '-')
+      .replace(/Z$/, 'z');
+    return `session-summary-${timestamp}`;
+  }
+
+  private saveReplaySnapshot(name: string): SavedReplaySnapshot {
+    const service = this.replayService as ReplayService & {
+      saveSnapshot?: (name: string) => SavedReplaySnapshot;
+    };
+    if (typeof service.saveSnapshot === 'function') {
+      return service.saveSnapshot(name);
+    }
+    service.save(name);
+    return {
+      name,
+      fileName: `${name}.json`,
+      filePath: path.join(process.env.CAST_REPLAYS_DIR || path.join(process.env.HOME || '', '.cast', 'replays'), `${name}.json`),
+      entries: this.messages.length,
+    };
+  }
+
+  private async generateSessionMemorySummary(timeoutMs: number): Promise<string> {
+    const conversationText = this.buildSessionSummaryConversationText();
+    if (!conversationText) {
+      return '';
+    }
+
+    try {
+      const summaryModel = this.multiLlmService.createModel('cheap', false);
+      const response = await this.withTimeout(
+        summaryModel.invoke([
+          new SystemMessage([
+            'You summarize a Cast Code CLI session for future local memory.',
+            'Persist only durable context: decisions, user preferences, completed work, pending follow-ups, and relevant file/module names.',
+            'Do not include raw secrets, API keys, long tool outputs, or full diffs.',
+            'Keep it under 350 words. Output only the summary.',
+          ].join('\n')),
+          new HumanMessage(conversationText),
+        ]),
+        timeoutMs,
+      );
+      const text = typeof response.content === 'string'
+        ? response.content
+        : JSON.stringify(response.content);
+      return this.redactSensitiveText(this.truncateText(text.trim(), 3500));
+    } catch {
+      return '';
+    }
+  }
+
+  private buildSessionSummaryConversationText(): string {
+    const lines: string[] = [];
+    let total = 0;
+    const maxTotal = 12000;
+    const recentMessages = this.messages.slice(-80);
+
+    for (let index = recentMessages.length - 1; index >= 0; index--) {
+      const message = recentMessages[index];
+      const role = message._getType() === 'human'
+        ? 'User'
+        : message._getType() === 'ai'
+          ? 'Assistant'
+          : 'System';
+      const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+      const line = `${role}: ${this.truncateText(content.replace(/\s+/g, ' ').trim(), 900)}`;
+      if (total + line.length > maxTotal) {
+        break;
+      }
+      total += line.length;
+      lines.unshift(line);
+    }
+
+    return lines.join('\n');
+  }
+
+  private buildSessionMemoryContent(summary: string, replay: SavedReplaySnapshot): string {
+    return [
+      '# Session Summary',
+      '',
+      `Date: ${new Date().toISOString()}`,
+      `Replay path: ${replay.filePath}`,
+      `Replay command: /replay show ${replay.name}`,
+      `Replay entries: ${replay.entries}`,
+      '',
+      '## Summary',
+      '',
+      summary,
+      '',
+    ].join('\n');
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('summary timeout')), timeoutMs);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  private truncateText(value: string, max: number): string {
+    return value.length <= max ? value : `${value.slice(0, max)}...`;
+  }
+
+  private redactSensitiveText(value: string): string {
+    return value
+      .replace(/\b(?:sk|csk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g, '[REDACTED_KEY]')
+      .replace(/\bBearer\s+[A-Za-z0-9._-]{16,}\b/gi, 'Bearer [REDACTED_TOKEN]')
+      .replace(/\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED_JWT]');
   }
 
   async *chat(message: string): AsyncGenerator<string> {

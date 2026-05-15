@@ -27,7 +27,10 @@ export type CommandPanelOptions = {
 @Injectable()
 export class CommandUiService {
   panel(options: CommandPanelOptions): string {
-    const width = Math.max(48, Math.min(options.width || process.stdout.columns || 88, 100));
+    const terminalWidth = Math.max(20, process.stdout.columns || 80);
+    const requestedWidth = options.width || terminalWidth;
+    const minimumWidth = Math.min(24, terminalWidth);
+    const width = Math.max(minimumWidth, Math.min(requestedWidth, terminalWidth, 100));
     const innerWidth = width - 4;
     const lines: string[] = [];
     const border = Colors.subtle;

@@ -3,7 +3,7 @@ import { Box } from '../../modules/repl/utils/theme';
 export type Align = 'left' | 'center' | 'right';
 
 export function stripAnsi(value: string): string {
-  return value.replace(/\x1b\[[0-9;]*m/g, '');
+  return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
 export function visibleWidth(value: string): number {

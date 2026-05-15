@@ -44,6 +44,8 @@ describe('StateDbService', () => {
       assert(tables.includes('local_messages'));
       assert(tables.includes('local_tool_calls'));
       assert(tables.includes('local_state_fts'));
+      assert(tables.includes('local_memory_entries'));
+      assert(tables.includes('local_memory_fts'));
       assert.match(String(db.pragma('journal_mode', { simple: true })), /wal/i);
       assert.equal(db.pragma('busy_timeout', { simple: true }), 5000);
       assert.equal(db.pragma('foreign_keys', { simple: true }), 1);
@@ -65,6 +67,7 @@ describe('StateDbService', () => {
         '0003_benchmark_core',
         '0004_environment_activation',
         '0005_scheduler_core',
+        '0006_local_memory',
       ]);
 
       await service.close();

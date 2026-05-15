@@ -41,4 +41,36 @@ describe('CommandUiService', () => {
     assert.match(stripAnsi(ui.warning('Careful')), /Careful/);
     assert.match(stripAnsi(ui.error('Failed')), /Failed/);
   });
+
+  test('keeps command panels within narrow terminal width', () => {
+    const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
+    Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 32 });
+    const ui = new CommandUiService();
+
+    try {
+      const output = ui.panel({
+        title: 'Agents',
+        subtitle: '7 loaded',
+        sections: [
+          {
+            lines: [
+              'frontend  Frontend specialist for UI/UX implementation [read_file, write_file, edit_file]',
+            ],
+          },
+        ],
+        footer: '/agents <name> shows details.',
+      });
+
+      for (const line of output.split(/\r?\n/).filter(Boolean)) {
+        assert(
+          visibleWidth(line) <= 32,
+          `line should fit 32 columns: ${stripAnsi(line)}`,
+        );
+      }
+    } finally {
+      if (originalColumns) {
+        Object.defineProperty(process.stdout, 'columns', originalColumns);
+      }
+    }
+  });
 });

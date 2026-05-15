@@ -11,7 +11,7 @@ import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { PlanModeService } from '../../core/services/plan-mode.service';
-import { SmartInput } from './smart-input';
+import { SmartInput, type Suggestion } from './smart-input';
 import { WelcomeScreenService } from './welcome-screen.service';
 import { ReplCommandsService } from './commands/repl-commands.service';
 import { GitCommandsService } from './commands/git-commands.service';
@@ -44,6 +44,13 @@ import { ScheduleCommandsService } from '../../scheduler/commands/schedule-comma
 import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.service';
 import { CommandUiService } from './command-ui.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
+
+type CastReference = {
+  type: 'agent' | 'skill';
+  name: string;
+  label: string;
+  content: string;
+};
 
 @Injectable()
 export class ReplService {
@@ -143,6 +150,7 @@ export class ReplService {
       promptVisibleLen: 2,
       getCommandSuggestions: (input) => this.getCommandSuggestions(input),
       getMentionSuggestions: (partial) => this.getMentionSuggestions(partial),
+      getReferenceSuggestions: (partial) => this.getReferenceSuggestions(partial),
       getFooterLines: () => this.getInputFooterLines(),
       onSubmit: (line) => this.handleLine(line),
       onCancel: () => this.handleCancel(),
@@ -434,6 +442,159 @@ export class ReplService {
     ];
 
     return commands.filter(c => c.text.startsWith(input));
+  }
+
+  private getReferenceSuggestions(partial: string): Suggestion[] {
+    const query = partial.toLowerCase();
+    const matches = (name: string) => query === '' || name.toLowerCase().startsWith(query);
+    const describe = (type: 'agent' | 'skill', description?: string) =>
+      description ? `${type} - ${description}` : type;
+
+    const agents = this.agentRegistry.resolveAllAgents()
+      .filter((agent) => matches(agent.name))
+      .map((agent) => ({
+        text: `$${agent.name}`,
+        display: `$${agent.name}`,
+        description: describe('agent', agent.description),
+      }));
+
+    const skills = (this.skillRegistry.getAllSkills?.() || [])
+      .filter((skill) => matches(skill.name))
+      .map((skill) => ({
+        text: `$${skill.name}`,
+        display: `$${skill.name}`,
+        description: describe('skill', skill.description),
+      }));
+
+    return [...agents, ...skills];
+  }
+
+  private expandReferenceMentions(message: string): { expandedMessage: string; references: CastReference[] } {
+    const references = this.resolveReferenceMentions(message);
+    if (references.length === 0) {
+      return { expandedMessage: message, references };
+    }
+
+    const context = [
+      'The user referenced Cast agents or skills with $name. These references were injected automatically.',
+      'Use the injected reference blocks as the source of truth for these names.',
+      'Do not call list_agents, read_skill, read_file, grep, glob, or other discovery tools just to resolve these $ references; only inspect files or call discovery tools if the user asks for details not present here.',
+      '',
+      ...references.map((ref) => ref.content),
+    ].join('\n');
+
+    return {
+      expandedMessage: `${message}\n\n<cast_reference_context>\n${context}\n</cast_reference_context>`,
+      references,
+    };
+  }
+
+  private resolveReferenceMentions(message: string): CastReference[] {
+    const names: string[] = [];
+    const seenNames = new Set<string>();
+    const pattern = /(?:^|[^\w])\$([\w.-]+)/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(message)) !== null) {
+      const name = match[1];
+      const key = name.toLowerCase();
+      if (!seenNames.has(key)) {
+        seenNames.add(key);
+        names.push(name);
+      }
+    }
+
+    if (names.length === 0) {
+      return [];
+    }
+
+    const agents = new Map<string, any>();
+    for (const agent of this.agentRegistry.resolveAllAgents()) {
+      agents.set(agent.name.toLowerCase(), agent);
+    }
+
+    const skills = new Map<string, any>();
+    for (const skill of this.skillRegistry.getAllSkills?.() || []) {
+      skills.set(skill.name.toLowerCase(), skill);
+    }
+
+    const references: CastReference[] = [];
+    const seenReferences = new Set<string>();
+
+    for (const requestedName of names) {
+      const key = requestedName.toLowerCase();
+      const agent = agents.get(key);
+      if (agent && !seenReferences.has(`agent:${agent.name}`)) {
+        seenReferences.add(`agent:${agent.name}`);
+        references.push({
+          type: 'agent',
+          name: agent.name,
+          label: 'agent',
+          content: this.formatAgentReference(agent),
+        });
+      }
+
+      const skill = skills.get(key);
+      if (skill && !seenReferences.has(`skill:${skill.name}`)) {
+        seenReferences.add(`skill:${skill.name}`);
+        references.push({
+          type: 'skill',
+          name: skill.name,
+          label: 'skill',
+          content: this.formatSkillReference(skill),
+        });
+      }
+    }
+
+    return references;
+  }
+
+  private formatAgentReference(agent: any): string {
+    const tools = (agent.tools || [])
+      .map((tool: any) => tool?.name)
+      .filter(Boolean)
+      .join(', ') || 'none';
+    const mcp = Array.isArray(agent.mcp) && agent.mcp.length > 0 ? agent.mcp.join(', ') : 'none';
+
+    return [
+      `<cast_reference type="agent" name="${this.escapeAttribute(agent.name)}">`,
+      `Description: ${agent.description || 'No description'}`,
+      `Model: ${agent.model || 'unknown'}`,
+      `Tools: ${tools}`,
+      `MCP: ${mcp}`,
+      'System prompt:',
+      this.truncateReferenceContent(agent.systemPrompt || '(none)'),
+      '</cast_reference>',
+    ].join('\n');
+  }
+
+  private formatSkillReference(skill: any): string {
+    const tools = Array.isArray(skill.tools) && skill.tools.length > 0 ? skill.tools.join(', ') : 'none';
+
+    return [
+      `<cast_reference type="skill" name="${this.escapeAttribute(skill.name)}">`,
+      `Description: ${skill.description || 'No description'}`,
+      `Tools: ${tools}`,
+      'Guidelines:',
+      this.truncateReferenceContent(skill.guidelines || '(none)'),
+      '</cast_reference>',
+    ].join('\n');
+  }
+
+  private truncateReferenceContent(content: string): string {
+    const max = 6000;
+    if (content.length <= max) {
+      return content;
+    }
+    return `${content.slice(0, max)}\n... (truncated ${content.length - max} chars)`;
+  }
+
+  private escapeAttribute(value: string): string {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   private getMentionSuggestions(partial: string): Array<{ text: string; display: string; description: string }> {
@@ -856,7 +1017,16 @@ export class ReplService {
         }
       }
 
+      const referenceResult = this.expandReferenceMentions(messageToProcess);
+      messageToProcess = referenceResult.expandedMessage;
+
       const mentionResult = await this.mentionsService.processMessage(messageToProcess);
+      if (referenceResult.references.length > 0) {
+        for (const ref of referenceResult.references) {
+          this.writeInline(`${Colors.dim}$${ref.name} ${ref.label} injected${Colors.reset}\r\n`);
+        }
+        this.writeInline('\r\n');
+      }
       if (mentionResult.mentions.length > 0) {
         const summary = this.mentionsService.getMentionsSummary(mentionResult.mentions);
         for (const line of summary) {
@@ -1270,9 +1440,23 @@ export class ReplService {
   async shutdown(): Promise<void> {
     this.stop();
     try {
+      await this.saveSessionSummaryBeforeShutdown();
       await this.platformService.close();
     } finally {
       await this.endLocalStateSession();
+    }
+  }
+
+  private async saveSessionSummaryBeforeShutdown(): Promise<void> {
+    const saveSummary = (this.deepAgent as any).saveSessionSummaryToMemory;
+    if (typeof saveSummary !== 'function') {
+      return;
+    }
+
+    try {
+      await saveSummary.call(this.deepAgent, { timeoutMs: 7000 });
+    } catch {
+      // Shutdown should not be blocked by best-effort memory summaries.
     }
   }
 

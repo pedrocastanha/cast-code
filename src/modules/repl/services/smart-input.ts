@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Colors } from '../utils/theme';
-import { visibleWidth } from '../../../ui/cast-design/cli-renderer';
+import { truncateVisible, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
 const HISTORY_FILE = path.join(os.homedir(), '.cast', 'history');
 const MAX_HISTORY = 500;
@@ -57,6 +57,7 @@ export interface SmartInputOptions {
   promptVisibleLen: number;
   getCommandSuggestions: (input: string) => Suggestion[];
   getMentionSuggestions: (partial: string) => Suggestion[];
+  getReferenceSuggestions?: (partial: string) => Suggestion[];
   getFooterLines?: () => string[];
   onSubmit: (line: string) => void;
   onCancel: () => void;
@@ -748,6 +749,12 @@ export class SmartInput implements ISmartInput {
       if (atMatch && atMatch.index !== undefined) {
         this.buffer = this.buffer.slice(0, atMatch.index) + s.text;
         this.cursor = this.buffer.length;
+      } else {
+        const referenceMatch = this.buffer.match(/\$[\w.-]*$/);
+        if (referenceMatch && referenceMatch.index !== undefined) {
+          this.buffer = this.buffer.slice(0, referenceMatch.index) + s.text;
+          this.cursor = this.buffer.length;
+        }
       }
     }
 
@@ -769,6 +776,12 @@ export class SmartInput implements ISmartInput {
     const atMatch = this.buffer.match(/@\[?([\w./:~-]*)\]?$/);
     if (atMatch) {
       this.suggestions = this.opts.getMentionSuggestions(atMatch[1]);
+      return;
+    }
+
+    const referenceMatch = this.buffer.match(/\$([\w.-]*)$/);
+    if (referenceMatch && this.opts.getReferenceSuggestions) {
+      this.suggestions = this.opts.getReferenceSuggestions(referenceMatch[1]);
       return;
     }
 
@@ -888,18 +901,7 @@ export class SmartInput implements ISmartInput {
 
       for (let i = scrollStart; i < scrollEnd; i++) {
         const s = this.suggestions[i];
-        const selected = i === this.selectedIndex;
-        let line: string;
-
-        if (selected) {
-          line = `  ${Colors.primary}\u276f${Colors.reset} ${Colors.bold}${Colors.primary}${s.display}${Colors.reset}`;
-        } else {
-          line = `    ${Colors.dim}${s.display}${Colors.reset}`;
-        }
-
-        if (s.description) {
-          line += `  ${Colors.muted}${s.description}${Colors.reset}`;
-        }
+        const line = this.formatSuggestionLine(s, i === this.selectedIndex);
 
         write(`\r\n${line}`);
         extraLines += this.countWrappedRows(line);
@@ -929,6 +931,29 @@ export class SmartInput implements ISmartInput {
     write(`\x1b[${targetCol}G`);
 
     this.cursorRow = targetRow;
+  }
+
+  private formatSuggestionLine(s: Suggestion, selected: boolean): string {
+    const width = this.getTerminalWidth();
+    const marker = selected
+      ? `  ${Colors.primary}\u276f${Colors.reset} `
+      : '    ';
+    const markerWidth = 4;
+    const displayBudget = Math.max(1, width - markerWidth);
+    const plainDisplay = truncateVisible(s.display, displayBudget);
+    const display = selected
+      ? `${Colors.bold}${Colors.primary}${plainDisplay}${Colors.reset}`
+      : `${Colors.dim}${plainDisplay}${Colors.reset}`;
+
+    let description = '';
+    if (s.description && visibleWidth(plainDisplay) < displayBudget) {
+      const descriptionBudget = width - markerWidth - visibleWidth(plainDisplay) - 2;
+      if (descriptionBudget >= 8) {
+        description = `  ${Colors.muted}${truncateVisible(s.description, descriptionBudget)}${Colors.reset}`;
+      }
+    }
+
+    return `${marker}${display}${description}`;
   }
 
   private buildInputLines(): string[] {

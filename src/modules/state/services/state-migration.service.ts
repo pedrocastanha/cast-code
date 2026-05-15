@@ -186,6 +186,31 @@ export class StateMigrationService {
         'create index if not exists idx_local_schedule_runs_schedule_started on local_schedule_runs(schedule_id, started_at)',
       ],
     },
+    {
+      name: '0006_local_memory',
+      statements: [
+        `create table if not exists local_memory_entries (
+          id text primary key,
+          project_hash text not null,
+          project_root text not null,
+          filename text not null,
+          content text not null,
+          content_hash text not null,
+          source text not null default 'local_file',
+          created_at text not null,
+          updated_at text not null,
+          unique(project_hash, filename)
+        )`,
+        `create virtual table if not exists local_memory_fts using fts5(
+          project_hash unindexed,
+          filename,
+          content,
+          updated_at unindexed
+        )`,
+        'create index if not exists idx_local_memory_project_updated on local_memory_entries(project_hash, updated_at)',
+        'create index if not exists idx_local_memory_project_filename on local_memory_entries(project_hash, filename)',
+      ],
+    },
   ];
 
   apply(db: Database.Database): void {

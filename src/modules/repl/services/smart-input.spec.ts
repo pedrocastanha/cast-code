@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { stripAnsi } from '../../../ui/cast-design/cli-renderer';
+import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 import { SmartInput, type SmartInputOptions } from './smart-input';
 
 const buildInput = (overrides: Partial<SmartInputOptions> = {}) => new SmartInput({
@@ -64,6 +64,54 @@ describe('SmartInput render layout', () => {
       output,
       /\x1b\[3A\x1b\[3G$/,
       'footer wraps to three visual rows, so cursor restore must move up three rows',
+    );
+  });
+
+  test('shows dollar-reference suggestions and accepts the selected token', () => {
+    const input = buildInput();
+    ((input as any).opts as any).getReferenceSuggestions = (partial: string) => [
+      { text: `$frontend${partial}`, display: `$frontend${partial}`, description: 'agent - UI work' },
+    ];
+
+    captureStdout(() => {
+      (input as any).handleData('Use $');
+    });
+
+    assert.deepEqual(
+      (input as any).suggestions.map((s: { text: string }) => s.text),
+      ['$frontend'],
+    );
+
+    captureStdout(() => {
+      (input as any).handleData('\t');
+    });
+
+    assert.equal((input as any).buffer, 'Use $frontend');
+    assert.equal((input as any).cursor, 'Use $frontend'.length);
+  });
+
+  test('truncates long suggestion descriptions to the terminal width', () => {
+    const input = buildInput();
+    (input as any).terminalWidth = 28;
+    (input as any).suggestions = [
+      {
+        text: '$frontend',
+        display: '$frontend',
+        description: 'agent - Frontend specialist for UI implementation with a very long capability summary',
+      },
+    ];
+
+    const output = captureStdout(() => {
+      (input as any).render();
+    });
+
+    const visibleLines = stripAnsi(output)
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+
+    assert(
+      visibleLines.every((line) => visibleWidth(line) <= 28),
+      `all suggestion lines should fit the terminal width:\n${visibleLines.join('\n')}`,
     );
   });
 });

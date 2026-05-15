@@ -76,9 +76,9 @@ export class MemoryToolsService {
       {
         name: 'memory_search',
         description:
-          'Search through all memory files for a term or pattern. Returns matching lines from all memory files.',
+          'Search persistent local memory using the SQLite FTS index, with markdown compatibility fallback. Use natural-language queries.',
         schema: z.object({
-          query: z.string().describe('Search term or regex pattern'),
+          query: z.string().describe('Natural-language search query, search term, or regex pattern'),
         }),
       },
     );

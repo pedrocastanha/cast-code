@@ -18,6 +18,7 @@
     "start": "node dist/main.js",
     "start:dev": "node scripts/start-dev.mjs",
     "smoke:benchmark-lab": "node scripts/smoke-benchmark-lab.mjs",
+    "smoke:memory": "node scripts/memory-smoke.mjs",
     "smoke:schedule": "node scripts/schedule-smoke.mjs",
     "smoke:sandbox": "node scripts/sandbox-smoke.mjs",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",

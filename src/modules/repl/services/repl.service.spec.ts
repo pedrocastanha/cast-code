@@ -179,6 +179,78 @@ describe('ReplService', () => {
     );
   });
 
+  test('lists agents and skills as dollar-reference suggestions with type labels', () => {
+    const service = buildReplService({
+      agentRegistry: {
+        resolveAllAgents: () => [
+          {
+            name: 'frontend',
+            description: 'Frontend specialist for UI implementation',
+            tools: [],
+            model: 'fast',
+            temperature: 0,
+            systemPrompt: '',
+            mcp: [],
+          },
+        ],
+      },
+      skillRegistry: {
+        getAllSkills: () => [
+          {
+            name: 'api-design',
+            description: 'REST and GraphQL API design patterns',
+            tools: ['read_file'],
+            guidelines: '',
+          },
+        ],
+      },
+    });
+
+    const suggestions = (service as any).getReferenceSuggestions('');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['$frontend', '$api-design'],
+    );
+    assert.match(suggestions[0].description, /^agent\b/i);
+    assert.match(suggestions[1].description, /^skill\b/i);
+  });
+
+  test('filters dollar-reference suggestions by partial name', () => {
+    const service = buildReplService({
+      agentRegistry: {
+        resolveAllAgents: () => [
+          {
+            name: 'frontend',
+            description: 'Frontend specialist',
+            tools: [],
+            model: 'fast',
+            temperature: 0,
+            systemPrompt: '',
+            mcp: [],
+          },
+        ],
+      },
+      skillRegistry: {
+        getAllSkills: () => [
+          {
+            name: 'api-design',
+            description: 'REST and GraphQL API design patterns',
+            tools: [],
+            guidelines: '',
+          },
+        ],
+      },
+    });
+
+    const suggestions = (service as any).getReferenceSuggestions('api');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['$api-design'],
+    );
+  });
+
   test('routes the /sandbox command to SandboxCommandsService', async () => {
     const recorded: string[][] = [];
     const service = buildReplService({
@@ -320,6 +392,42 @@ describe('ReplService', () => {
       ['platform-close'],
       ['end', 'local-session-1', { totalTokens: 77 }],
     ]);
+  });
+
+  test('shutdown saves a guarded session summary before ending local state session', async () => {
+    const calls: string[] = [];
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '/repo' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 77,
+        getMessageCount: () => 4,
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        setLocalSessionId: () => {},
+        saveSessionSummaryToMemory: async () => {
+          calls.push('summary');
+          return { saved: true };
+        },
+      },
+      platformService: {
+        track: () => {},
+        close: async () => { calls.push('platform-close'); },
+        getStatus: () => 'online',
+        getProject: () => ({ id: 'project-1' }),
+      },
+      localSessionStore: {
+        startSession: async () => ({ id: 'local-session-1' }),
+        endSession: async () => {
+          calls.push('local-end');
+        },
+      },
+    });
+
+    await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    await service.shutdown();
+
+    assert.deepEqual(calls, ['summary', 'platform-close', 'local-end']);
   });
 
   test('warns once and keeps running when local state session start fails', async () => {
@@ -908,6 +1016,72 @@ describe('ReplService', () => {
     } finally {
       process.stdout.write = originalWrite;
     }
+  });
+
+  test('handleMessage injects dollar agent and skill references before calling the agent', async () => {
+    let chatMessage = '';
+    let processedMessage = '';
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* (message: string) {
+          chatMessage = message;
+          yield 'O backend cuida de APIs.';
+        },
+      },
+      agentRegistry: {
+        resolveAllAgents: () => [
+          {
+            name: 'backend',
+            description: 'Backend specialist for API and server-side development',
+            model: 'fast',
+            temperature: 0,
+            tools: [{ name: 'read_file' }],
+            mcp: [],
+            systemPrompt: 'You are a backend developer specializing in APIs and server-side systems.',
+          },
+        ],
+      },
+      skillRegistry: {
+        getAllSkills: () => [
+          {
+            name: 'api-design',
+            description: 'REST and GraphQL API design patterns',
+            tools: ['read_file'],
+            guidelines: 'Use resource-oriented URLs and proper status codes.',
+          },
+        ],
+      },
+      mentionsService: {
+        processMessage: async (message: string) => {
+          processedMessage = message;
+          return { expandedMessage: message, mentions: [] };
+        },
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => {},
+      endExternalOutput: () => {},
+      printExternal: () => {},
+      writeOutputLine: () => {},
+    };
+
+    await captureStdoutAsync(() =>
+      (service as any).handleMessage('ola, o que o $backend e o $api-design fazem?'),
+    );
+
+    assert.match(processedMessage, /<cast_reference_context>/);
+    assert.match(chatMessage, /type="agent" name="backend"/);
+    assert.match(chatMessage, /Backend specialist for API and server-side development/);
+    assert.match(chatMessage, /type="skill" name="api-design"/);
+    assert.match(chatMessage, /REST and GraphQL API design patterns/);
+    assert.match(chatMessage, /Do not call list_agents, read_skill, read_file, grep, glob/);
   });
 
   test('file write prompt treats cancellation as denied', async () => {

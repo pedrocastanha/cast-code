@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HumanMessage, ToolMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 
 import { DeepAgentService } from './deep-agent.service';
 import { EFFORT_PROFILES } from '../../config/types/config.types';
@@ -319,6 +319,84 @@ describe('DeepAgentService compact chat route', () => {
       'capability questions should not send the full agent prompt',
     );
   });
+
+  test('saves a shutdown session summary with replay path in local memory', async () => {
+    const writes: Array<{ filename: string; content: string }> = [];
+    const service = buildService({
+      multiLlmService: {
+        getCurrentEffortProfile: () => EFFORT_PROFILES.balanced,
+        createModel: () => ({
+          invoke: async () => ({
+            content: 'Implementamos memoria persistente com SQLite e mantivemos guardrails.',
+          }),
+        }),
+      },
+      memoryService: {
+        isInitialized: () => true,
+        getCachedMemoryPrompt: () => '',
+        write: async (filename: string, content: string) => {
+          writes.push({ filename, content });
+          return `Memory saved: ${filename}`;
+        },
+      },
+      replayService: {
+        recordEntry: () => {},
+        setModel: () => {},
+        saveSnapshot: () => ({
+          name: 'session-summary-2026-05-15',
+          fileName: 'session-summary-2026-05-15.json',
+          filePath: '/home/user/.cast/replays/session-summary-2026-05-15.json',
+          entries: 4,
+        }),
+      },
+    });
+    (service as any).messages = [
+      new HumanMessage('vamos melhorar memoria'),
+      new AIMessage('ok, vou implementar'),
+      new HumanMessage('inclui path da conversa resumida'),
+      new AIMessage('vou salvar junto do resumo'),
+    ];
+
+    const result = await service.saveSessionSummaryToMemory({ timeoutMs: 1000 });
+
+    assert.equal(result.saved, true);
+    assert.equal(writes.length, 1);
+    assert.match(writes[0].filename, /^session-summary-/);
+    assert.match(writes[0].content, /SQLite/);
+    assert.match(writes[0].content, /\/home\/user\/\.cast\/replays\/session-summary-2026-05-15\.json/);
+    assert.match(writes[0].content, /\/replay show session-summary-2026-05-15/);
+  });
+
+  test('skips shutdown session summary when there is not enough conversation', async () => {
+    let saveSnapshotCalled = false;
+    const service = buildService({
+      memoryService: {
+        isInitialized: () => true,
+        getCachedMemoryPrompt: () => '',
+        write: async () => {
+          throw new Error('memory write should not run');
+        },
+      },
+      replayService: {
+        recordEntry: () => {},
+        setModel: () => {},
+        saveSnapshot: () => {
+          saveSnapshotCalled = true;
+          return { name: 'short', fileName: 'short.json', filePath: '/tmp/short.json', entries: 1 };
+        },
+      },
+    });
+    (service as any).messages = [
+      new HumanMessage('oi'),
+      new AIMessage('ola'),
+    ];
+
+    const result = await service.saveSessionSummaryToMemory({ timeoutMs: 1000 });
+
+    assert.equal(result.saved, false);
+    assert.equal(result.reason, 'too_few_messages');
+    assert.equal(saveSnapshotCalled, false);
+  });
 });
 
 describe('DeepAgentService system prompt engineering workflow', () => {
@@ -387,6 +465,73 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     assert.match(basePrompt, /list_agents/);
     assert.doesNotMatch(basePrompt, /`(?:backend|coder|frontend|architect|tester|reviewer|devops)`/);
     assert.doesNotMatch(basePrompt, /task\(subagent_type: "(?:backend|coder|frontend|architect|tester|reviewer|devops)"/);
+  });
+
+  test('initialization loads persistent memory into the prompt cache', async () => {
+    let loadedMemory = false;
+    const service = buildService({
+      multiLlmService: {
+        getCurrentEffortProfile: () => EFFORT_PROFILES.balanced,
+        createStreamingModel: () => ({
+          getName: () => 'gpt-4.1-mini',
+          bindTools: () => ({
+            getName: () => 'gpt-4.1-mini',
+            stream: async function* () {},
+            streamEvents: async function* () {},
+          }),
+        }),
+      },
+      projectLoader: {
+        detectProject: async () => '/repo',
+        detectWorkspaceRoot: async () => '/repo',
+        loadProject: async () => ({}),
+        getAgentsOverridePath: () => '/repo/.cast/agents',
+        getLegacyAgentsOverridePath: () => '/repo/.agents',
+        getSkillsOverridePath: () => '/repo/.cast/skills',
+        getLegacySkillsOverridePath: () => '/repo/.skills',
+      },
+      toolsRegistry: {
+        setRootDir: () => {},
+        getAllTools: () => [],
+      },
+      mcpRegistry: {
+        loadConfigs: () => {},
+        connectAll: async () => {},
+        getAllMcpTools: () => [],
+        getDiscoveryTools: () => [],
+        getServerSummaries: () => [],
+      },
+      agentRegistry: {
+        loadProjectAgents: async () => {},
+        getSubagentDefinitions: () => [],
+      },
+      skillRegistry: {
+        loadProjectSkills: async () => {},
+        getSkillNames: () => [],
+      },
+      memoryService: {
+        initialize: async () => {},
+        getMemoryPrompt: async () => {
+          loadedMemory = true;
+          return '# User Memory\n- castanha-tchan';
+        },
+        isInitialized: () => true,
+        getCachedMemoryPrompt: () => loadedMemory ? '# User Memory\n- castanha-tchan' : '',
+      },
+      promptLoader: {
+        getPrompt: () => [
+          '{{language_instruction}}',
+          '{{tool_names}}',
+          '{{subagents_section}}',
+        ].join('\n'),
+      },
+    });
+
+    await service.initialize();
+    const prompt = (service as any).buildContextualPrompt('como eu gosto de ser chamado?', false);
+
+    assert.equal(loadedMemory, true);
+    assert.match(prompt, /castanha-tchan/);
   });
 
   test('context tool set keeps MCP tools lazy until MCP context is active', () => {
