@@ -10,6 +10,7 @@ import { ProjectCommandsService } from './services/commands/project-commands.ser
 import { SnapshotCommandsService } from './services/commands/snapshot-commands.service';
 import { StatsCommandsService } from './services/commands/stats-commands.service';
 import { ReplayCommandsService } from './services/commands/replay-commands.service';
+import { SessionsCommandsService } from './services/commands/session-commands.service';
 import { VaultCommandsService } from './services/commands/vault-commands.service';
 import { PlatformCommandsService } from './services/commands/platform-commands.service';
 import { CoreModule } from '../core/core.module';
@@ -72,6 +73,7 @@ import { SandboxModule } from '../sandbox/sandbox.module';
     SnapshotCommandsService,
     StatsCommandsService,
     ReplayCommandsService,
+    SessionsCommandsService,
     VaultCommandsService,
     PlatformCommandsService,
   ],

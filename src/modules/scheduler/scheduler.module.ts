@@ -11,6 +11,7 @@ import { SchedulePolicyService } from './services/schedule-policy.service';
 import { ScheduleRunnerService } from './services/schedule-runner.service';
 import { ScheduleStoreService } from './services/schedule-store.service';
 import { ScheduleSuggestionService } from './services/schedule-suggestion.service';
+import { ScheduleWorkerService } from './services/schedule-worker.service';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { ScheduleSuggestionService } from './services/schedule-suggestion.servic
     ScheduleRunnerService,
     ScheduleStoreService,
     ScheduleSuggestionService,
+    ScheduleWorkerService,
   ],
   exports: [
     ScheduleCommandsService,
@@ -37,6 +39,7 @@ import { ScheduleSuggestionService } from './services/schedule-suggestion.servic
     ScheduleRunnerService,
     ScheduleStoreService,
     ScheduleSuggestionService,
+    ScheduleWorkerService,
   ],
 })
 export class SchedulerModule {}

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BenchmarkModule } from '../benchmark/benchmark.module';
+import { AgentsModule } from '../agents/agents.module';
 import { McpModule } from '../mcp/mcp.module';
 import { PlatformModule } from '../platform/platform.module';
 import { ProjectModule } from '../project/project.module';
@@ -17,6 +18,7 @@ import { EnvironmentResolverService } from './services/environment-resolver.serv
     PlatformModule,
     ProjectModule,
     BenchmarkModule,
+    AgentsModule,
     SkillsModule,
     McpModule,
   ],

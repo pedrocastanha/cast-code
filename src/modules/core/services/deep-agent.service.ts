@@ -249,6 +249,19 @@ export class DeepAgentService {
     this.localSessionId = sessionId;
   }
 
+  addSessionContext(title: string, content: string): void {
+    const trimmed = content.trim();
+    if (!trimmed) {
+      return;
+    }
+    const safeContent = this.redactSensitiveText(this.truncateText(trimmed, 12_000));
+    this.messages.push(new SystemMessage([
+      `Resumed local session context: ${title}`,
+      '',
+      safeContent,
+    ].join('\n')));
+  }
+
   async initialize(): Promise<ProjectInitResult> {
     const projectPath = await this.projectLoader.detectProject();
     this.projectRoot = projectPath ?? process.cwd();

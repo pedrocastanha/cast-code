@@ -11,6 +11,7 @@ const manifest: ResolvedCastEnvironmentManifest = {
   name: 'Marketing',
   description: 'Marketing environment',
   defaultAgent: 'marketing-agent',
+  agents: { required: ['marketing-agent'], optional: ['copy-reviewer'] },
   skills: { required: ['marketing-campaign'], optional: [] },
   mcp: { recommended: ['brave-search'], required: ['meta-ads'] },
   permissions: { defaultMode: 'read-only', requireApproval: ['ad_spend'] },
@@ -22,6 +23,7 @@ const manifest: ResolvedCastEnvironmentManifest = {
 describe('EnvironmentReadinessService', () => {
   test('blocks on missing required skills or MCPs and warns on recommended setup', async () => {
     const service = new EnvironmentReadinessService(
+      { getUnscopedAgentNames: () => ['marketing-agent'] } as any,
       { getUnscopedSkillNames: () => ['marketing-campaign'] } as any,
       { getUnscopedServerNames: () => [] } as any,
       { listDefinitions: async () => [] } as any,
@@ -31,6 +33,7 @@ describe('EnvironmentReadinessService', () => {
 
     assert.equal(report.status, 'blocked');
     assert(report.checks.some((check) => check.kind === 'mcp' && check.id === 'meta-ads' && check.status === 'blocked'));
+    assert(report.checks.some((check) => check.kind === 'agent' && check.id === 'copy-reviewer' && check.status === 'warning'));
     assert(report.checks.some((check) => check.kind === 'rag' && check.status === 'warning'));
     assert(report.checks.some((check) => check.kind === 'benchmark' && check.status === 'ready'));
   });

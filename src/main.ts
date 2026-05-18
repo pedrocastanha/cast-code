@@ -8,6 +8,9 @@ import { ConfigManagerService } from './modules/config/services/config-manager.s
 import { InitConfigService } from './modules/config/services/init-config.service';
 import { PlatformService } from './modules/platform/services/platform.service';
 import { PlatformCommandsService } from './modules/repl/services/commands/platform-commands.service';
+import { BenchmarkCommandsService } from './modules/benchmark/commands/benchmark-commands.service';
+import { DeepAgentService } from './modules/core/services/deep-agent.service';
+import { ScheduleCommandsService } from './modules/scheduler/commands/schedule-commands.service';
 
 config({ quiet: true });
 
@@ -40,6 +43,56 @@ async function checkAndRunSetup(
   }
 
   return true;
+}
+
+function getFlag(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index < 0) {
+    return undefined;
+  }
+  return args[index + 1];
+}
+
+function stripDirectScheduleFlags(args: string[]): string[] {
+  const stripped: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--project-root') {
+      index++;
+      continue;
+    }
+    if (arg === '--background') {
+      continue;
+    }
+    stripped.push(arg);
+  }
+  return stripped;
+}
+
+function scheduleCommandNeedsAgent(args: string[]): boolean {
+  const subcommand = (args[0] ?? 'overview').toLowerCase();
+  if (subcommand === 'run' || subcommand === 'tick') {
+    return true;
+  }
+  return subcommand === 'worker' && (args[1] ?? '').toLowerCase() === 'tick';
+}
+
+async function configureDirectScheduleRuntime(
+  app: Awaited<ReturnType<typeof NestFactory.createApplicationContext>>,
+  args: string[],
+): Promise<void> {
+  const configManager = app.get(ConfigManagerService);
+  if (await configManager.configExists()) {
+    await configManager.loadConfig();
+  }
+
+  if (!scheduleCommandNeedsAgent(args)) {
+    return;
+  }
+
+  const deepAgent = app.get(DeepAgentService);
+  await deepAgent.initialize();
+  app.get(BenchmarkCommandsService).setAgentExecutor(deepAgent as any);
 }
 
 async function bootstrap() {
@@ -78,6 +131,30 @@ async function bootstrap() {
       process.exitCode = 1;
     }
     await app.close();
+    return;
+  }
+
+  if (command === 'schedule') {
+    const app = await NestFactory.createApplicationContext(AppModule, {
+      logger: false,
+    });
+
+    try {
+      const scheduleArgs = args.slice(1);
+      const projectRoot = getFlag(scheduleArgs, '--project-root');
+      if (projectRoot) {
+        process.chdir(projectRoot);
+      }
+      const commandArgs = stripDirectScheduleFlags(scheduleArgs);
+      await configureDirectScheduleRuntime(app, commandArgs);
+      await app.get(ScheduleCommandsService).cmdSchedule(commandArgs);
+    } catch (error) {
+      const message = error instanceof Error ? error.stack || error.message : String(error);
+      console.error('\nFailed to run schedule command:\n', message);
+      process.exitCode = 1;
+    } finally {
+      await app.close();
+    }
     return;
   }
 

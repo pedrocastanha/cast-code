@@ -3,16 +3,26 @@ source: builtin
 id: design
 name: Product Design
 description: Figma handoff, design systems, UI implementation, visual QA, and accessibility checks.
-defaultAgent: design-engineer
+defaultAgent: frontend
+agents:
+  required:
+    - frontend
+  optional:
+    - tester
+    - reviewer
 skills:
   required:
     - frontend-bootstrap
     - react-patterns
     - design-system
     - visual-qa
+    - popular-web-designs
   optional:
     - file-operations
     - testing-strategies
+    - claude-design
+    - design-md
+    - p5js
 mcp:
   recommended:
     - figma

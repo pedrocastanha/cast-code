@@ -115,6 +115,7 @@ export class EnvironmentCommandsService {
     process.stdout.write(`${environment.description}\n`);
     process.stdout.write(`Source: ${environment.source}\n`);
     process.stdout.write(`Default agent: ${environment.defaultAgent}\n`);
+    process.stdout.write(`Agents: ${[environment.defaultAgent, ...environment.agents.required, ...environment.agents.optional].join(', ') || 'none'}\n`);
     process.stdout.write(`Skills: ${[...environment.skills.required, ...environment.skills.optional].join(', ') || 'none'}\n`);
     process.stdout.write(`MCPs: ${[...(environment.mcp.required ?? []), ...environment.mcp.recommended].join(', ') || 'none'}\n`);
     process.stdout.write(`Permission mode: ${environment.permissions.defaultMode}\n`);

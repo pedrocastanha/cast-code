@@ -94,4 +94,38 @@ describe('LocalSessionStoreService', () => {
       assert.deepEqual(await store.search('"unterminated', 10), []);
     });
   });
+
+  test('lists and searches sessions with activity summaries', async () => {
+    await withStore(async (store) => {
+      const session = await store.startSession({ projectRoot: '/repo', model: 'gpt-test' });
+      await store.recordMessage({
+        sessionId: session.id,
+        role: 'user',
+        redactedContent: 'We improved scheduler presets and session resume.',
+      });
+      await store.recordMessage({
+        sessionId: session.id,
+        role: 'assistant',
+        redactedContent: 'Implemented weekly schedule presets.',
+      });
+      await store.recordToolCall({
+        sessionId: session.id,
+        toolName: 'shell',
+        outputPreview: 'scheduler tests passed',
+        status: 'ok',
+      });
+
+      const listed = await store.listSessions('/repo', 10);
+      assert.equal(listed.length, 1);
+      assert.equal(listed[0].id, session.id);
+      assert.equal(listed[0].messageCount, 2);
+      assert.equal(listed[0].toolCallCount, 1);
+      assert.match(listed[0].preview ?? '', /Implemented weekly schedule presets/);
+
+      const matches = await store.searchSessions('scheduler', '/repo', 10);
+      assert.equal(matches.length, 1);
+      assert.equal(matches[0].id, session.id);
+      assert.match(matches[0].preview ?? '', /scheduler/);
+    });
+  });
 });

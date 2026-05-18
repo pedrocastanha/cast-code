@@ -8,6 +8,8 @@ import * as path from 'path';
 export class AgentLoaderService implements OnModuleInit {
   private agents: Map<string, AgentDefinition> = new Map();
   private definitionsPath: string;
+  private activeEnvironmentId: string | null = null;
+  private activeEnvironmentAgents: Set<string> | null = null;
 
   constructor(private readonly markdownParser: MarkdownParserService) {
     this.definitionsPath = path.join(__dirname, '..', 'definitions');
@@ -35,6 +37,9 @@ export class AgentLoaderService implements OnModuleInit {
         skills: frontmatter.skills || [],
         mcp: frontmatter.mcp || [],
         systemPrompt: content,
+        source: 'builtin',
+        environments: Array.isArray(frontmatter.environments) ? frontmatter.environments : [],
+        tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
       });
     }
   }
@@ -62,6 +67,8 @@ export class AgentLoaderService implements OnModuleInit {
           model: frontmatter.model || existingAgent.model,
           temperature: frontmatter.temperature ?? existingAgent.temperature,
           source: 'local',
+          environments: [...new Set([...(existingAgent.environments ?? []), ...(frontmatter.environments || [])])],
+          tags: [...new Set([...(existingAgent.tags ?? []), ...(frontmatter.tags || [])])],
         });
         continue;
       }
@@ -75,6 +82,8 @@ export class AgentLoaderService implements OnModuleInit {
         mcp: frontmatter.mcp || [],
         systemPrompt: content,
         source: 'local',
+        environments: Array.isArray(frontmatter.environments) ? frontmatter.environments : [],
+        tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
       });
     }
   }
@@ -96,14 +105,46 @@ export class AgentLoaderService implements OnModuleInit {
   }
 
   getAgent(name: string): AgentDefinition | undefined {
-    return this.agents.get(name);
+    const agent = this.agents.get(name);
+    if (!agent || !this.isAgentInActiveScope(agent)) {
+      return undefined;
+    }
+    return agent;
   }
 
   getAllAgents(): AgentDefinition[] {
-    return Array.from(this.agents.values());
+    return Array.from(this.agents.values()).filter((agent) => this.isAgentInActiveScope(agent));
   }
 
   getAgentNames(): string[] {
+    return Array.from(this.agents.entries())
+      .filter(([, agent]) => this.isAgentInActiveScope(agent))
+      .map(([name]) => name);
+  }
+
+  getAllUnscopedAgents(): AgentDefinition[] {
+    return Array.from(this.agents.values());
+  }
+
+  getUnscopedAgentNames(): string[] {
     return Array.from(this.agents.keys());
+  }
+
+  setActiveEnvironmentScope(environmentId: string, agentNames: string[]): void {
+    this.activeEnvironmentId = environmentId;
+    this.activeEnvironmentAgents = new Set(agentNames);
+  }
+
+  clearActiveEnvironmentScope(): void {
+    this.activeEnvironmentId = null;
+    this.activeEnvironmentAgents = null;
+  }
+
+  private isAgentInActiveScope(agent: AgentDefinition): boolean {
+    if (!this.activeEnvironmentId || !this.activeEnvironmentAgents) {
+      return true;
+    }
+    return this.activeEnvironmentAgents.has(agent.name)
+      || Boolean(agent.environments?.includes(this.activeEnvironmentId));
   }
 }

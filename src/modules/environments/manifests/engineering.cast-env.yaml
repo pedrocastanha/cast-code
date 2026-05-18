@@ -3,7 +3,17 @@ source: builtin
 id: engineering
 name: Engineering
 description: Code review, TDD, debugging, architecture changes, test runs, and delivery workflows.
-defaultAgent: software-engineer
+defaultAgent: coder
+agents:
+  required:
+    - coder
+    - reviewer
+    - tester
+  optional:
+    - architect
+    - backend
+    - frontend
+    - devops
 skills:
   required:
     - planning
@@ -12,11 +22,17 @@ skills:
     - git-operations
     - testing-strategies
     - code-review
+    - test-driven-development
+    - systematic-debugging
   optional:
     - api-design
     - database-operations
     - frontend-bootstrap
     - react-patterns
+    - writing-plans
+    - github-code-review
+    - requesting-code-review
+    - subagent-driven-development
 mcp:
   recommended:
     - github

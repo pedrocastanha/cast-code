@@ -7,6 +7,8 @@ export interface AgentFrontmatter {
   temperature?: number;
   skills: string[];
   mcp?: string[];
+  environments?: string[];
+  tags?: string[];
 }
 
 export interface AgentDefinition {
@@ -18,6 +20,8 @@ export interface AgentDefinition {
   mcp: string[];
   systemPrompt: string;
   source?: 'builtin' | 'local' | 'remote';
+  environments?: string[];
+  tags?: string[];
   updatedAt?: string;
 }
 

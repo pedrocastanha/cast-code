@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { BenchmarkStoreService } from '../../benchmark/services/benchmark-store.service';
 import { getTemplate } from '../../mcp/catalog/mcp-templates';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
@@ -14,6 +15,7 @@ import { DEFAULT_ENVIRONMENT_BENCHMARKS } from './environment-default-benchmarks
 @Injectable()
 export class EnvironmentReadinessService {
   constructor(
+    private readonly agentRegistry: AgentRegistryService,
     private readonly skillLoader: SkillLoaderService,
     private readonly mcpRegistry: McpRegistryService,
     private readonly benchmarkStore: BenchmarkStoreService,
@@ -21,9 +23,28 @@ export class EnvironmentReadinessService {
 
   async inspect(projectRoot: string, manifest: ResolvedCastEnvironmentManifest): Promise<EnvironmentReadinessReport> {
     const checks: EnvironmentReadinessCheck[] = [];
+    const agents = new Set(this.agentRegistry.getUnscopedAgentNames());
     const skills = new Set(this.skillLoader.getUnscopedSkillNames());
     const mcpSummaries = new Set(this.mcpRegistry.getUnscopedServerNames());
     const benchmarkDefinitions = new Set((await this.benchmarkStore.listDefinitions(projectRoot)).map((definition) => definition.id));
+
+    for (const agentName of this.requiredAgentNames(manifest)) {
+      checks.push({
+        kind: 'agent',
+        id: agentName,
+        status: agents.has(agentName) ? 'ready' : 'blocked',
+        message: agents.has(agentName) ? `Agent ${agentName} loaded.` : `Required agent ${agentName} is missing.`,
+      });
+    }
+
+    for (const agentName of manifest.agents.optional.filter((name) => !this.requiredAgentNames(manifest).includes(name))) {
+      checks.push({
+        kind: 'agent',
+        id: agentName,
+        status: agents.has(agentName) ? 'ready' : 'warning',
+        message: agents.has(agentName) ? `Optional agent ${agentName} loaded.` : `Optional agent ${agentName} is missing.`,
+      });
+    }
 
     for (const skillName of manifest.skills.required) {
       checks.push({
@@ -92,5 +113,9 @@ export class EnvironmentReadinessService {
       return 'warning';
     }
     return 'ready';
+  }
+
+  private requiredAgentNames(manifest: ResolvedCastEnvironmentManifest): string[] {
+    return [...new Set([manifest.defaultAgent, ...manifest.agents.required])];
   }
 }

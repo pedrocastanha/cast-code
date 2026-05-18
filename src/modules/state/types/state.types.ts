@@ -41,6 +41,13 @@ export interface LocalSearchResult {
   createdAt: string;
 }
 
+export interface LocalSessionSummary extends LocalSession {
+  messageCount: number;
+  toolCallCount: number;
+  lastActivityAt?: string;
+  preview?: string;
+}
+
 export interface LocalStateConfig {
   stateDir?: string;
   dbPath?: string;

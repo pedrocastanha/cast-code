@@ -7,6 +7,15 @@ skills:
   - general/file-operations
   - general/search
   - general/git-operations
+  - docker-management
+  - watchers
+  - kanban-orchestrator
+environments:
+  - devops
+  - engineering
+tags:
+  - infra
+  - deployment
 ---
 
 # DevOps Agent

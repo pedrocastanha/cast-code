@@ -1,0 +1,47 @@
+version: 1
+source: builtin
+id: security
+name: Security Review
+description: Security-sensitive code review, dependency checks, auth paths, secrets, and threat analysis.
+defaultAgent: reviewer
+agents:
+  required:
+    - reviewer
+  optional:
+    - backend
+    - devops
+    - tester
+skills:
+  required:
+    - file-operations
+    - search
+    - code-review
+    - github-code-review
+    - oss-forensics
+  optional:
+    - 1password
+    - sherlock
+    - systematic-debugging
+mcp:
+  recommended:
+    - github
+    - sentry
+  required: []
+permissions:
+  defaultMode: read-only
+  requireApproval:
+    - credential_access
+    - production_write
+    - destructive_command
+    - external_network
+rag:
+  recommendedSources:
+    - security-policy
+    - threat-models
+    - incident-history
+benchmarks:
+  smoke:
+    - engineering-code-review-smoke
+schedules:
+  suggested:
+    - weekly-dependency-review

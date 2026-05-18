@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { SkillLoaderService } from '../../skills/services/skill-loader.service';
 import { EnvironmentReadinessReport, ResolvedCastEnvironmentManifest } from '../types';
@@ -12,6 +13,7 @@ export class EnvironmentResolverService {
     private readonly loader: EnvironmentLoaderService,
     private readonly activation: EnvironmentActivationService,
     private readonly readiness: EnvironmentReadinessService,
+    private readonly agentRegistry: AgentRegistryService,
     private readonly skillLoader: SkillLoaderService,
     private readonly mcpRegistry: McpRegistryService,
   ) {}
@@ -35,11 +37,13 @@ export class EnvironmentResolverService {
   async applyActiveScope(projectRoot: string): Promise<ResolvedCastEnvironmentManifest | null> {
     const environment = await this.getActive(projectRoot);
     if (!environment) {
+      this.agentRegistry.clearActiveEnvironmentScope();
       this.skillLoader.clearActiveEnvironmentScope();
       this.mcpRegistry.clearActiveEnvironmentScope();
       return null;
     }
 
+    this.agentRegistry.setActiveEnvironmentScope(environment.id, this.agentNames(environment));
     this.skillLoader.setActiveEnvironmentScope(environment.id, this.skillNames(environment));
     this.mcpRegistry.setActiveEnvironmentScope(environment.id, this.mcpNames(environment));
     return environment;
@@ -75,6 +79,7 @@ export class EnvironmentResolverService {
       `- Name: ${environment.name}`,
       `- Description: ${environment.description}`,
       `- Default agent: ${environment.defaultAgent}`,
+      `- Agents: ${this.agentNames(environment).join(', ') || 'none'}`,
       `- Skills: ${this.skillNames(environment).join(', ') || 'none'}`,
       `- Recommended MCPs: ${this.mcpNames(environment).join(', ') || 'none'}`,
       `- Permission mode: ${environment.permissions.defaultMode}`,
@@ -96,6 +101,10 @@ export class EnvironmentResolverService {
 
   private skillNames(environment: ResolvedCastEnvironmentManifest): string[] {
     return [...new Set([...environment.skills.required, ...environment.skills.optional])];
+  }
+
+  private agentNames(environment: ResolvedCastEnvironmentManifest): string[] {
+    return [...new Set([environment.defaultAgent, ...environment.agents.required, ...environment.agents.optional])];
   }
 
   private mcpNames(environment: ResolvedCastEnvironmentManifest): string[] {

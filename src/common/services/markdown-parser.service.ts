@@ -17,13 +17,20 @@ export class MarkdownParserService {
     };
   }
 
-  async parseAll<T>(directory: string, pattern = '**/*.md'): Promise<Map<string, ParsedMarkdown<T>>> {
+  async parseAll<T>(
+    directory: string,
+    pattern = '**/*.md',
+    shouldParse?: (relativePathWithoutExtension: string) => boolean,
+  ): Promise<Map<string, ParsedMarkdown<T>>> {
     const files = await glob(path.join(directory, pattern));
     const results = new Map<string, ParsedMarkdown<T>>();
 
     for (const file of files) {
       const relativePath = path.relative(directory, file);
       const name = relativePath.replace(/\.md$/, '');
+      if (shouldParse && !shouldParse(name)) {
+        continue;
+      }
       const parsed = await this.parse<T>(file);
       results.set(name, parsed);
     }

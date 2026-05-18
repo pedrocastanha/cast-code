@@ -3,7 +3,12 @@ source: builtin
 id: marketing
 name: Marketing Growth
 description: Campaign planning, copywriting, brand voice, channel research, and performance analysis.
-defaultAgent: marketing-strategist
+defaultAgent: coder
+agents:
+  required:
+    - coder
+  optional:
+    - reviewer
 skills:
   required:
     - planning
@@ -13,6 +18,9 @@ skills:
   optional:
     - brand-voice
     - performance-analysis
+    - ideation
+    - youtube-content
+    - blogwatcher
 mcp:
   recommended:
     - meta-ads

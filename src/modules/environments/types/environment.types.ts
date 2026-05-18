@@ -3,7 +3,7 @@ import { z } from 'zod';
 export type CastEnvironmentSource = 'builtin' | 'project';
 export type CastEnvironmentPermissionMode = 'read-only' | 'balanced' | 'custom';
 export type EnvironmentReadinessStatus = 'ready' | 'warning' | 'blocked';
-export type EnvironmentReadinessCheckKind = 'skill' | 'mcp' | 'rag' | 'benchmark';
+export type EnvironmentReadinessCheckKind = 'agent' | 'skill' | 'mcp' | 'rag' | 'benchmark';
 
 const stringArraySchema = z.array(z.string().trim().min(1)).default([]);
 
@@ -20,6 +20,10 @@ export const castEnvironmentManifestSchema = z.object({
   name: z.string().trim().min(1),
   description: z.string().trim().default(''),
   defaultAgent: z.string().trim().min(1),
+  agents: z.object({
+    required: stringArraySchema,
+    optional: stringArraySchema,
+  }).default({ required: [], optional: [] }),
   skills: z.object({
     required: stringArraySchema,
     optional: stringArraySchema,

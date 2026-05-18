@@ -2,7 +2,7 @@ import { StructuredTool } from '@langchain/core/tools';
 
 export type SkillTrust = 'builtin' | 'trusted' | 'community' | 'local' | 'quarantined';
 export type SkillRisk = 'low' | 'medium' | 'high' | 'critical';
-export type SkillSource = 'builtin' | 'local' | 'remote' | 'hermes-import';
+export type SkillSource = 'builtin' | 'local' | 'remote' | 'hermes-import' | 'hermes-bundled';
 export type SkillScannerFindingCategory =
   | 'prompt_injection'
   | 'credential_exfiltration'

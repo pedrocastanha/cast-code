@@ -111,6 +111,75 @@ describe('SkillLoaderService remote loading', () => {
     assert.equal(loader.getAllUnscopedSkills()[0]?.name, 'campaign-strategy');
   });
 
+  test('loads copied Hermes SKILL.md packages without indexing support markdown as skills', async () => {
+    const parser = {
+      exists: async () => true,
+      parseAll: async () =>
+        new Map([
+          [
+            'hermes/skills/software-development/test-driven-development/SKILL',
+            {
+              frontmatter: {
+                name: 'test-driven-development',
+                description: 'TDD workflow',
+                metadata: { hermes: { tags: ['testing', 'development'] } },
+              },
+              content: 'Write the failing test first.',
+            },
+          ],
+          [
+            'hermes/skills/software-development/test-driven-development/references/example',
+            {
+              frontmatter: {},
+              content: 'Support file, not a standalone skill.',
+            },
+          ],
+        ]),
+    };
+
+    const loader = new SkillLoaderService(parser as any);
+    await loader.loadSkills();
+
+    assert.equal(loader.getAllSkills().length, 1);
+    const skill = loader.getSkill('test-driven-development');
+    assert.equal(skill?.source, 'hermes-bundled');
+    assert.equal(skill?.sourceRepo, 'nousresearch/hermes-agent');
+    assert.equal(skill?.sourcePath, 'skills/software-development/test-driven-development/SKILL.md');
+    assert.deepEqual(skill?.tags, ['testing', 'development']);
+    assert(skill?.environments?.includes('engineering'));
+    assert(skill?.environments?.includes('qa'));
+    assert.equal(loader.getSkill('example'), undefined);
+  });
+
+  test('quarantines copied Hermes jailbreak skills by default', async () => {
+    const parser = {
+      exists: async () => true,
+      parseAll: async () =>
+        new Map([
+          [
+            'hermes/skills/red-teaming/godmode/SKILL',
+            {
+              frontmatter: {
+                name: 'godmode',
+                description: 'Jailbreak LLMs',
+                metadata: { hermes: { tags: ['jailbreak', 'safety-bypass'] } },
+              },
+              content: 'Bypass safety filters.',
+            },
+          ],
+        ]),
+    };
+
+    const loader = new SkillLoaderService(parser as any);
+    await loader.loadSkills();
+    const skill = loader.getAllUnscopedSkills()[0];
+
+    assert.equal(skill?.risk, 'critical');
+    assert.equal(skill?.trust, 'quarantined');
+    assert.equal(skill?.isActive, false);
+    assert.equal(loader.getSkill('godmode'), undefined);
+  });
+
   test('loads remote skills and lets local project skills override them', async () => {
     const parser = {
       exists: async () => true,

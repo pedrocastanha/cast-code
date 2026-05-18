@@ -1,0 +1,48 @@
+version: 1
+source: builtin
+id: frontend
+name: Frontend Engineering
+description: UI implementation, responsive behavior, component quality, and frontend debugging.
+defaultAgent: frontend
+agents:
+  required:
+    - frontend
+    - coder
+  optional:
+    - tester
+    - reviewer
+skills:
+  required:
+    - file-operations
+    - search
+    - frontend-bootstrap
+    - react-patterns
+    - visual-qa
+    - popular-web-designs
+  optional:
+    - claude-design
+    - design-md
+    - page-agent
+    - test-driven-development
+mcp:
+  recommended:
+    - figma
+    - figma-remote
+    - github
+  required: []
+permissions:
+  defaultMode: balanced
+  requireApproval:
+    - external_post
+    - destructive_command
+rag:
+  recommendedSources:
+    - design-system
+    - frontend-architecture
+    - accessibility-guidelines
+benchmarks:
+  smoke:
+    - design-implementation-smoke
+schedules:
+  suggested:
+    - weekly-visual-qa

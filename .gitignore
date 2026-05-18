@@ -12,6 +12,7 @@ coverage/
 .claude/
 CLAUDE.md
 claude.md
+!src/modules/skills/definitions/hermes/skills/creative/popular-web-designs/templates/claude.md
 .superpowers/
 
 .cast/

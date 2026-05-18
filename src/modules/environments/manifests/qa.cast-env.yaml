@@ -1,0 +1,42 @@
+version: 1
+source: builtin
+id: qa
+name: QA Automation
+description: Test strategy, regression prevention, debugging, and quality checks.
+defaultAgent: tester
+agents:
+  required:
+    - tester
+  optional:
+    - reviewer
+    - coder
+skills:
+  required:
+    - file-operations
+    - search
+    - testing-strategies
+    - test-driven-development
+    - systematic-debugging
+  optional:
+    - requesting-code-review
+    - github-code-review
+    - writing-plans
+mcp:
+  recommended:
+    - github
+  required: []
+permissions:
+  defaultMode: balanced
+  requireApproval:
+    - destructive_command
+rag:
+  recommendedSources:
+    - test-strategy
+    - bug-history
+    - quality-rubrics
+benchmarks:
+  smoke:
+    - engineering-code-review-smoke
+schedules:
+  suggested:
+    - nightly-test-health
