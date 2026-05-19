@@ -2,14 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 
 import {
-  DiscoveredHermesSkill,
+  DiscoveredSkillPackage,
   ExistingSkillForDuplicateDetection,
   SkillDuplicateReport,
 } from '../types/skills-import.types';
 
 @Injectable()
 export class SkillDuplicateDetectorService {
-  detect(skill: Pick<DiscoveredHermesSkill, 'name' | 'description' | 'body'>, existing: ExistingSkillForDuplicateDetection[]): SkillDuplicateReport {
+  detect(skill: Pick<DiscoveredSkillPackage, 'name' | 'description' | 'body'>, existing: ExistingSkillForDuplicateDetection[]): SkillDuplicateReport {
     const duplicateName = existing.find((candidate) => candidate.name.toLowerCase() === skill.name.toLowerCase());
     if (duplicateName) {
       return { status: 'duplicateName', matches: [{ name: duplicateName.name, status: 'duplicateName' }] };

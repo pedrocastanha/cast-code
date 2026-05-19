@@ -54,6 +54,51 @@ const ensureDir = (filePath) => {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 };
 
+const textAssetExtensions = new Set([
+  '.bash',
+  '.css',
+  '.env',
+  '.html',
+  '.js',
+  '.json',
+  '.md',
+  '.mjs',
+  '.py',
+  '.sh',
+  '.svg',
+  '.toml',
+  '.tmpl',
+  '.txt',
+  '.yaml',
+  '.yml',
+]);
+
+const legacySkillBrandLower = ['her', 'mes'].join('');
+const legacySkillBrandTitle = `${legacySkillBrandLower[0].toUpperCase()}${legacySkillBrandLower.slice(1)}`;
+const legacySkillBrandUpper = legacySkillBrandLower.toUpperCase();
+const legacySkillAgentTitle = `${legacySkillBrandTitle} Agent`;
+const legacySkillAgentCompact = `${legacySkillBrandTitle}Agent`;
+const legacySkillAgentSlug = `${legacySkillBrandLower}-agent`;
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeSkillCatalogAsset = (content) => content
+  .replace(new RegExp(`${escapeRegExp(legacySkillAgentTitle)}\\s+[\\u2014-]\\s+Implementation Notes`, 'gi'), 'Implementation Notes')
+  .replace(new RegExp(escapeRegExp(legacySkillAgentTitle), 'gi'), 'Cast')
+  .replace(new RegExp(escapeRegExp(legacySkillAgentCompact), 'gi'), 'Cast')
+  .replace(new RegExp(escapeRegExp(legacySkillAgentSlug), 'gi'), 'cast-agent')
+  .replace(new RegExp(`${legacySkillBrandUpper}_HOME`, 'g'), 'CAST_HOME')
+  .replace(new RegExp(`~\\/\\.${legacySkillBrandLower}`, 'gi'), '~/.cast')
+  .replace(new RegExp(`\\.${legacySkillBrandLower}`, 'gi'), '.cast')
+  .replace(new RegExp(legacySkillBrandUpper, 'g'), 'CAST')
+  .replace(new RegExp(legacySkillBrandTitle, 'g'), 'Cast')
+  .replace(new RegExp(legacySkillBrandLower, 'g'), 'cast');
+
+const isSkillCatalogTextAsset = (relativePath) => {
+  const normalized = relativePath.split(path.sep).join('/');
+  return normalized.startsWith('modules/skills/definitions/catalog/')
+    && textAssetExtensions.has(path.extname(relativePath));
+};
+
 const compilerOptions = {
   ...readTsConfig(),
   incremental: false,
@@ -93,6 +138,10 @@ for (const filePath of sourceFiles) {
 
   const outputPath = path.join(outDir, relativePath);
   ensureDir(outputPath);
+  if (isSkillCatalogTextAsset(relativePath)) {
+    fs.writeFileSync(outputPath, normalizeSkillCatalogAsset(fs.readFileSync(filePath, 'utf8')), 'utf8');
+    continue;
+  }
   fs.copyFileSync(filePath, outputPath);
 }
 

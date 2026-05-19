@@ -75,6 +75,12 @@ export class SkillRegistryService {
     return this.skillLoader.getAllUnscopedSkills();
   }
 
+  getSkillDefinition(name: string, options: { includeInactive?: boolean } = {}): SkillDefinition | undefined {
+    return options.includeInactive
+      ? this.skillLoader.getUnscopedSkill(name)
+      : this.skillLoader.getSkill(name);
+  }
+
   getSkillNames(): string[] {
     return this.skillLoader.getSkillNames();
   }

@@ -95,6 +95,12 @@ describe('LocalSessionStoreService', () => {
     });
   });
 
+  test('returns no session instead of throwing for hyphenated resume selectors', async () => {
+    await withStore(async (store) => {
+      assert.equal(await store.findSession('missing-session', '/repo'), null);
+    });
+  });
+
   test('lists and searches sessions with activity summaries', async () => {
     await withStore(async (store) => {
       const session = await store.startSession({ projectRoot: '/repo', model: 'gpt-test' });

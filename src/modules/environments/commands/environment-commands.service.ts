@@ -32,10 +32,13 @@ export class EnvironmentCommandsService {
       await this.list();
       return;
     case 'use':
-      await this.use(args[1]);
+      await this.use(args.slice(1));
       return;
     case 'inspect':
-      await this.inspect(args[1]);
+      await this.inspect(args.slice(1));
+      return;
+    case 'profiles':
+      await this.profiles(args[1]);
       return;
     case 'help':
     default:
@@ -63,9 +66,10 @@ export class EnvironmentCommandsService {
     process.stdout.write('\nUse /env use <id> to activate an environment.\n');
   }
 
-  private async use(environmentId?: string): Promise<void> {
+  private async use(args: string[]): Promise<void> {
+    const { environmentId, profileId } = this.parseEnvironmentArgs(args);
     if (!environmentId) {
-      process.stdout.write('Usage: /env use <environment-id>\n');
+      process.stdout.write('Usage: /env use <environment-id> [--profile <profile-id>]\n');
       return;
     }
 
@@ -76,18 +80,25 @@ export class EnvironmentCommandsService {
       return;
     }
 
-    await this.activation.activate(projectRoot, environment);
-    const readiness = await this.resolver.inspect(projectRoot, environment.id);
+    const manifest = profileId ? this.resolver.resolveProfile(environment, profileId) : environment;
+    if (!manifest) {
+      process.stdout.write(`Profile not found: ${environment.id}:${profileId}\n`);
+      return;
+    }
+
+    await this.activation.activate(projectRoot, environment, profileId);
+    const readiness = await this.resolver.inspect(projectRoot, environment.id, profileId);
     await this.resolver.applyActiveScope(projectRoot);
     await this.refreshAgentBestEffort();
 
-    process.stdout.write(`Active Cast environment: ${environment.id} (${environment.name})\n`);
+    process.stdout.write(`Active Cast environment: ${environment.id} (${environment.name})${profileId ? ` profile ${profileId}` : ''}\n`);
     if (readiness) {
       this.printReadiness(readiness.readiness);
     }
   }
 
-  private async inspect(environmentId?: string): Promise<void> {
+  private async inspect(args: string[]): Promise<void> {
+    const { environmentId, profileId } = this.parseEnvironmentArgs(args);
     const projectRoot = await this.getProjectRoot();
     const target = environmentId
       ? await this.resolver.resolve(environmentId, projectRoot)
@@ -100,9 +111,9 @@ export class EnvironmentCommandsService {
       return;
     }
 
-    const inspection = await this.resolver.inspect(projectRoot, target.id);
+    const inspection = await this.resolver.inspect(projectRoot, target.id, profileId);
     if (!inspection) {
-      process.stdout.write(`Environment not found: ${target.id}\n`);
+      process.stdout.write(profileId ? `Profile not found: ${target.id}:${profileId}\n` : `Environment not found: ${target.id}\n`);
       return;
     }
 
@@ -110,8 +121,36 @@ export class EnvironmentCommandsService {
     this.printReadiness(inspection.readiness);
   }
 
+  private async profiles(environmentId?: string): Promise<void> {
+    const projectRoot = await this.getProjectRoot();
+    const target = environmentId
+      ? await this.resolver.resolve(environmentId, projectRoot)
+      : await this.resolver.getActive(projectRoot);
+
+    if (!target) {
+      process.stdout.write(environmentId
+        ? `Environment not found: ${environmentId}\n`
+        : 'No active Cast environment. Run /env list or /env use <id>.\n');
+      return;
+    }
+
+    const entries = Object.entries(target.profiles);
+    if (entries.length === 0) {
+      process.stdout.write(`Environment ${target.id} has no profiles.\n`);
+      return;
+    }
+
+    process.stdout.write(`Profiles for ${target.id}:\n`);
+    for (const [id, profile] of entries) {
+      process.stdout.write(`- ${id}: ${profile.description || 'No description'}\n`);
+    }
+  }
+
   private printManifest(environment: ResolvedCastEnvironmentManifest): void {
     process.stdout.write(`Environment: ${environment.id} (${environment.name})\n`);
+    if (environment.activeProfile) {
+      process.stdout.write(`Profile: ${environment.activeProfile}\n`);
+    }
     process.stdout.write(`${environment.description}\n`);
     process.stdout.write(`Source: ${environment.source}\n`);
     process.stdout.write(`Default agent: ${environment.defaultAgent}\n`);
@@ -123,6 +162,8 @@ export class EnvironmentCommandsService {
     process.stdout.write(`RAG sources: ${environment.rag.recommendedSources.join(', ') || 'none'}\n`);
     process.stdout.write(`Smoke benchmarks: ${environment.benchmarks.smoke.join(', ') || 'none'}\n`);
     process.stdout.write(`Suggested schedules: ${environment.schedules.suggested.join(', ') || 'none'}\n`);
+    const profiles = Object.keys(environment.profiles);
+    process.stdout.write(`Profiles: ${profiles.join(', ') || 'none'}\n`);
   }
 
   private printReadiness(readiness: EnvironmentReadinessReport): void {
@@ -137,9 +178,17 @@ export class EnvironmentCommandsService {
     process.stdout.write([
       'Environment commands:',
       '- /env list',
-      '- /env use <environment-id>',
-      '- /env inspect [environment-id]',
+      '- /env use <environment-id> [--profile <profile-id>]',
+      '- /env inspect [environment-id] [--profile <profile-id>]',
+      '- /env profiles [environment-id]',
     ].join('\n') + '\n');
+  }
+
+  private parseEnvironmentArgs(args: string[]): { environmentId?: string; profileId?: string } {
+    const environmentId = args.find((arg) => arg && !arg.startsWith('--'));
+    const profileFlagIndex = args.findIndex((arg) => arg === '--profile');
+    const profileId = profileFlagIndex >= 0 ? args[profileFlagIndex + 1] : undefined;
+    return { environmentId, profileId };
   }
 
   private async refreshAgentBestEffort(): Promise<void> {

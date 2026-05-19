@@ -11,6 +11,7 @@ agents:
     - backend
     - devops
     - tester
+    - security-reviewer
 skills:
   required:
     - file-operations
@@ -22,6 +23,31 @@ skills:
     - 1password
     - sherlock
     - systematic-debugging
+profiles:
+  audit:
+    description: Read-only security audit with dependency and repository forensics.
+    agents:
+      required:
+        - reviewer
+        - security-reviewer
+      optional:
+        - backend
+        - devops
+    skills:
+      required:
+        - file-operations
+        - search
+        - code-review
+        - github-code-review
+        - oss-forensics
+      optional:
+        - systematic-debugging
+    permissions:
+      defaultMode: read-only
+      requireApproval:
+        - credential_access
+        - destructive_command
+        - external_network
 mcp:
   recommended:
     - github

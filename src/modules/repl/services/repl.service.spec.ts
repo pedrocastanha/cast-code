@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { ReplService } from './repl.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
@@ -120,6 +121,17 @@ const captureStdoutAsync = async <T>(run: (writes: string[]) => Promise<T>): Pro
   } finally {
     process.stdout.write = originalWrite;
   }
+};
+
+const waitFor = async (condition: () => boolean, timeoutMs = 1000): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return;
+    }
+    await delay(5);
+  }
+  throw new Error('Timed out waiting for condition');
 };
 
 describe('ReplService', () => {
@@ -613,6 +625,42 @@ describe('ReplService', () => {
 
     assert.deepStrictEqual(recordedArgs, [['--project', 'project-1']]);
     assert.equal(initializeCalls, 1);
+  });
+
+  test('queues slash commands while a previous slash command is running', async () => {
+    const calls: string[] = [];
+    let releaseFirst!: () => void;
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const firstReleasePromise = new Promise<void>((resolve) => { releaseFirst = resolve; });
+
+    const service = buildReplService({
+      environmentCommands: {
+        cmdEnv: async (args: string[]) => {
+          calls.push(args.join(' '));
+          if (calls.length === 1) {
+            firstStarted();
+            await firstReleasePromise;
+          }
+        },
+      },
+    });
+
+    await captureStdoutAsync(async () => {
+      await (service as any).handleLine('/env use backend --profile api');
+      await firstStartedPromise;
+      await (service as any).handleLine('/env use frontend --profile ui-build');
+
+      assert.deepEqual(calls, ['use backend --profile api']);
+
+      releaseFirst();
+      await waitFor(() => calls.length === 2);
+
+      assert.deepEqual(calls, [
+        'use backend --profile api',
+        'use frontend --profile ui-build',
+      ]);
+    });
   });
 
   test('routes /benchmark to benchmark commands with the active smart input', async () => {

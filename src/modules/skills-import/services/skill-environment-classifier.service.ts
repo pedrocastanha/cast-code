@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import { DiscoveredHermesSkill, SkillEnvironmentTag } from '../types/skills-import.types';
+import { DiscoveredSkillPackage, SkillEnvironmentTag } from '../types/skills-import.types';
 
 const ENVIRONMENT_KEYWORDS: Record<SkillEnvironmentTag, RegExp[]> = {
   marketing: [/\bcampaign\b/i, /\bcopy\b/i, /\bads?\b/i, /\bseo\b/i, /\bcontent\b/i],
@@ -12,7 +12,7 @@ const ENVIRONMENT_KEYWORDS: Record<SkillEnvironmentTag, RegExp[]> = {
 
 @Injectable()
 export class SkillEnvironmentClassifierService {
-  classify(skill: Pick<DiscoveredHermesSkill, 'name' | 'description' | 'body'>): SkillEnvironmentTag[] {
+  classify(skill: Pick<DiscoveredSkillPackage, 'name' | 'description' | 'body'>): SkillEnvironmentTag[] {
     const text = [skill.name, skill.description, skill.body].join('\n');
     const matches: SkillEnvironmentTag[] = [];
 

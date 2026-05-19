@@ -100,13 +100,21 @@ export class DiscoveryToolsService {
           const available = this.skillLoader.getSkillNames().join(', ');
           return 'Skill "' + input.name + '" not found. Available: ' + available;
         }
+        const supportFiles = skill.supportFiles || [];
+        const supportSection = supportFiles.length > 0
+          ? '\n\n**Support files:**\n' +
+            supportFiles.slice(0, 25).map((file) => '- ' + file).join('\n') +
+            (supportFiles.length > 25 ? `\n... (${supportFiles.length - 25} more)` : '') +
+            '\n\nUse list_skill_files("' + skill.name + '") and skill_view("' + skill.name + '", filePath) for references, templates, scripts, or assets.'
+          : '';
         return (
           '## Skill: ' +
           skill.name +
           '\n\n**Description:** ' +
           skill.description +
           '\n\n**Guidelines:**\n' +
-          (skill.guidelines || '(none)')
+          (skill.guidelines || '(none)') +
+          supportSection
         );
       },
       {

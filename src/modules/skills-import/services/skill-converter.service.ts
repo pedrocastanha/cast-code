@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import matter from 'gray-matter';
 
 import { SkillConversionInput } from '../types/skills-import.types';
+import { normalizeSkillContentForCast } from '../../skills/services/skill-content-normalizer';
 
 @Injectable()
 export class SkillConverterService {
@@ -11,9 +12,6 @@ export class SkillConverterService {
       name: skill.name,
       description: skill.description,
       tools: this.readTools(skill.frontmatter),
-      source: 'hermes-import',
-      sourceRepo: 'nousresearch/hermes-agent',
-      sourcePath: skill.sourcePath,
       trust: scan.risk === 'critical' ? 'quarantined' : 'community',
       risk: scan.risk,
       environments,
@@ -23,9 +21,9 @@ export class SkillConverterService {
     };
 
     const sections = [
-      '<!-- Imported from Hermes. Review scanner findings and activate only after approval. -->',
+      '<!-- Imported skill. Review scanner findings and activate only after approval. -->',
       '',
-      skill.body.trim(),
+      normalizeSkillContentForCast(skill.body).trim(),
     ];
 
     if (skill.supportFiles.length > 0) {

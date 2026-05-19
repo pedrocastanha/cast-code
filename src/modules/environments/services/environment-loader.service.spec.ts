@@ -31,6 +31,15 @@ describe('EnvironmentLoaderService', () => {
       'skills:',
       '  required: [marketing-campaign]',
       '  optional: []',
+      'profiles:',
+      '  campaign:',
+      '    description: Campaign profile.',
+      '    skills:',
+      '      required: [marketing-campaign]',
+      '      optional: [brand-voice]',
+      '    agents:',
+      '      required: [coder]',
+      '      optional: []',
       'mcp:',
       '  recommended: []',
       '  required: []',
@@ -52,6 +61,9 @@ describe('EnvironmentLoaderService', () => {
       assert.equal(marketing?.source, 'project');
       assert.equal(marketing?.name, 'Project Marketing');
       assert.deepEqual(marketing?.skills.required, ['marketing-campaign']);
+      const campaign = marketing?.profiles.campaign;
+      assert(campaign?.skills);
+      assert.deepEqual(campaign.skills.optional, ['brand-voice']);
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
     }

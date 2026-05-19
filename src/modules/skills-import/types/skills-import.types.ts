@@ -2,7 +2,7 @@ import { SkillDefinition, SkillRisk, SkillScannerFinding, SkillScannerFindingCat
 
 export type SkillEnvironmentTag = 'marketing' | 'design' | 'engineering' | 'data' | 'support';
 
-export interface DiscoveredHermesSkill {
+export interface DiscoveredSkillPackage {
   name: string;
   description: string;
   sourcePath: string;
@@ -35,7 +35,7 @@ export interface SkillDuplicateReport {
 }
 
 export interface SkillImportReportItem {
-  skill: DiscoveredHermesSkill;
+  skill: DiscoveredSkillPackage;
   risk: SkillRisk;
   findings: SkillRiskFinding[];
   environments: SkillEnvironmentTag[];
@@ -50,7 +50,7 @@ export interface SkillsImportReport {
 }
 
 export interface SkillConversionInput {
-  skill: DiscoveredHermesSkill;
+  skill: DiscoveredSkillPackage;
   scan: SkillRiskScanReport;
   environments: SkillEnvironmentTag[];
   tags: string[];

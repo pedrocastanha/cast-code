@@ -22,7 +22,7 @@ describe('RemoteDefinitionAdapterService', () => {
     assert.equal(skill.updatedAt, '2026-04-29T12:00:00.000Z');
   });
 
-  test('preserves governed metadata from remote skill payloads', () => {
+  test('preserves governed metadata from remote skill payloads without provenance branding', () => {
     const service = new RemoteDefinitionAdapterService();
 
     const [skill] = service.adaptSkills([
@@ -32,8 +32,7 @@ describe('RemoteDefinitionAdapterService', () => {
         isActive: false,
         trust: 'community',
         risk: 'high',
-        source: 'hermes-import',
-        sourceRepo: 'nousresearch/hermes-agent',
+        source: 'local',
         sourcePath: 'skills/campaign-strategy/SKILL.md',
         tags: ['campaign', 'strategy'],
         environments: ['marketing'],
@@ -47,8 +46,8 @@ describe('RemoteDefinitionAdapterService', () => {
       },
     ]);
 
-    assert.equal(skill.source, 'hermes-import');
-    assert.equal(skill.sourceRepo, 'nousresearch/hermes-agent');
+    assert.equal(skill.source, 'local');
+    assert.equal(skill.sourceRepo, undefined);
     assert.equal(skill.sourcePath, 'skills/campaign-strategy/SKILL.md');
     assert.equal(skill.trust, 'community');
     assert.equal(skill.risk, 'high');

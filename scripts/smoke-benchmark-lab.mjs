@@ -42,7 +42,7 @@ const { SkillsImportCommandsService } = require('../dist/modules/skills-import/c
 
 const fixturesDir = join(__dirname, 'fixtures', 'benchmark-lab');
 const strictPlatform = process.env.CAST_BENCHMARK_LAB_STRICT_PLATFORM === '1';
-const hermesRepo = process.env.HERMES_AGENT_PATH || '/tmp/hermes-agent';
+const skillsRepo = process.env.CAST_SKILLS_REPO_PATH || '/tmp/cast-skills-source';
 const checks = [];
 
 function pass(name, details = {}) {
@@ -93,7 +93,7 @@ async function main() {
     const apiRun = await runApiBenchmark(root, baseUrl, discovered, benchmarkStore, benchmarkCommands, platformLinked);
     await verifyMarketingEnvironment(root, benchmarkStore, benchmarkCommands, envCommands, envResolver);
     await verifyDesignEnvironment(root, benchmarkStore, benchmarkCommands, envCommands, envResolver);
-    await verifyHermesImport(skillsImport);
+    await verifySkillImport(skillsImport);
     await verifyMcpCatalog(mcpPolicy, mcpRiskScanner);
     await verifyScheduler(root, apiRun.definitionId, scheduleCommands, scheduleStore);
     await verifySandboxMutation(root, sandboxManager, sandboxCommands);
@@ -456,26 +456,26 @@ async function runStaticEnvironmentBenchmark(root, benchmarkStore, benchmarkComm
   return run;
 }
 
-async function verifyHermesImport(skillsImport) {
-  if (!existsSync(hermesRepo)) {
+async function verifySkillImport(skillsImport) {
+  if (!existsSync(skillsRepo)) {
     if (strictPlatform) {
-      throw new Error(`Hermes checkout not found at ${hermesRepo}. Set HERMES_AGENT_PATH or clone Hermes there.`);
+      throw new Error(`Skills source checkout not found at ${skillsRepo}. Set CAST_SKILLS_REPO_PATH to a skill package repository.`);
     }
-    skip('hermes-import', `Hermes checkout not found at ${hermesRepo}.`);
+    skip('skill-import', `Skills source checkout not found at ${skillsRepo}.`);
     return;
   }
 
-  const dryRun = await skillsImport.handle(['import-hermes', hermesRepo, '--dry-run']);
+  const dryRun = await skillsImport.handle(['import', skillsRepo, '--dry-run']);
   assert.equal(dryRun.ok, true);
-  assert(dryRun.report?.discovered > 0, 'Expected Hermes skills to be discovered.');
+  assert(dryRun.report?.discovered > 0, 'Expected skills to be discovered.');
   const importable = dryRun.report.items.find((item) => item.risk !== 'critical');
-  assert(importable, 'Expected at least one non-critical Hermes skill for approval smoke.');
+  assert(importable, 'Expected at least one non-critical skill for approval smoke.');
 
-  const approved = await skillsImport.handle(['import-hermes', hermesRepo, '--approve', importable.skill.name]);
+  const approved = await skillsImport.handle(['import', skillsRepo, '--approve', importable.skill.name]);
   assert.equal(approved.ok, true);
   const importedSkills = await readdir(join(process.cwd(), '.cast', 'skills'));
-  assert(importedSkills.some((name) => name.endsWith('.md')), 'Expected approved Hermes skill markdown in .cast/skills.');
-  pass('hermes-import', {
+  assert(importedSkills.some((name) => name.endsWith('.md')), 'Expected approved skill markdown in .cast/skills.');
+  pass('skill-import', {
     discovered: dryRun.report.discovered,
     imported: importable.skill.name,
     risk: importable.risk,

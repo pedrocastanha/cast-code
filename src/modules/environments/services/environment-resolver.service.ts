@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { SkillLoaderService } from '../../skills/services/skill-loader.service';
-import { EnvironmentReadinessReport, ResolvedCastEnvironmentManifest } from '../types';
+import { CastEnvironmentProfile, EnvironmentReadinessReport, ResolvedCastEnvironmentManifest } from '../types';
 import { EnvironmentActivationService } from './environment-activation.service';
 import { EnvironmentLoaderService } from './environment-loader.service';
 import { EnvironmentReadinessService } from './environment-readiness.service';
@@ -31,7 +31,13 @@ export class EnvironmentResolverService {
     if (!active) {
       return null;
     }
-    return this.loader.get(active.environmentId, projectRoot);
+    const environment = await this.loader.get(active.environmentId, projectRoot);
+    if (!environment) {
+      return null;
+    }
+    return active.profileId
+      ? this.resolveProfile(environment, active.profileId) ?? environment
+      : environment;
   }
 
   async applyActiveScope(projectRoot: string): Promise<ResolvedCastEnvironmentManifest | null> {
@@ -43,17 +49,21 @@ export class EnvironmentResolverService {
       return null;
     }
 
-    this.agentRegistry.setActiveEnvironmentScope(environment.id, this.agentNames(environment));
-    this.skillLoader.setActiveEnvironmentScope(environment.id, this.skillNames(environment));
-    this.mcpRegistry.setActiveEnvironmentScope(environment.id, this.mcpNames(environment));
+    const strict = Boolean(environment.activeProfile);
+    this.agentRegistry.setActiveEnvironmentScope(environment.id, this.agentNames(environment), { strict });
+    this.skillLoader.setActiveEnvironmentScope(environment.id, this.skillNames(environment), { strict });
+    this.mcpRegistry.setActiveEnvironmentScope(environment.id, this.mcpNames(environment), { strict });
     return environment;
   }
 
-  async inspect(projectRoot: string, environmentId: string): Promise<{
+  async inspect(projectRoot: string, environmentId: string, profileId?: string): Promise<{
     manifest: ResolvedCastEnvironmentManifest;
     readiness: EnvironmentReadinessReport;
   } | null> {
-    const manifest = await this.resolve(environmentId, projectRoot);
+    const environment = await this.resolve(environmentId, projectRoot);
+    const manifest = profileId && environment
+      ? this.resolveProfile(environment, profileId)
+      : environment;
     if (!manifest) {
       return null;
     }
@@ -77,6 +87,7 @@ export class EnvironmentResolverService {
       '# Active Cast Environment',
       `- Id: ${environment.id}`,
       `- Name: ${environment.name}`,
+      `- Profile: ${environment.activeProfile ?? 'none'}`,
       `- Description: ${environment.description}`,
       `- Default agent: ${environment.defaultAgent}`,
       `- Agents: ${this.agentNames(environment).join(', ') || 'none'}`,
@@ -97,6 +108,47 @@ export class EnvironmentResolverService {
     }
 
     return lines.join('\n');
+  }
+
+  resolveProfile(
+    environment: ResolvedCastEnvironmentManifest,
+    profileId: string,
+  ): ResolvedCastEnvironmentManifest | null {
+    const profile = environment.profiles[profileId];
+    if (!profile) {
+      return null;
+    }
+
+    return {
+      ...environment,
+      activeProfile: profileId,
+      description: profile.description || environment.description,
+      defaultAgent: profile.defaultAgent || environment.defaultAgent,
+      agents: this.mergeMembers(environment.agents, profile.agents),
+      skills: this.mergeMembers(environment.skills, profile.skills),
+      mcp: profile.mcp && this.hasMcpEntries(profile.mcp) ? profile.mcp : environment.mcp,
+      permissions: profile.permissions ?? environment.permissions,
+      rag: profile.rag ?? environment.rag,
+      benchmarks: profile.benchmarks && profile.benchmarks.smoke.length > 0 ? profile.benchmarks : environment.benchmarks,
+      schedules: profile.schedules && profile.schedules.suggested.length > 0 ? profile.schedules : environment.schedules,
+    };
+  }
+
+  private mergeMembers<T extends { required: string[]; optional: string[] }>(
+    base: T,
+    profile?: CastEnvironmentProfile['agents'] | CastEnvironmentProfile['skills'],
+  ): T {
+    if (!profile || (profile.required.length === 0 && profile.optional.length === 0)) {
+      return base;
+    }
+    return {
+      required: profile.required,
+      optional: profile.optional,
+    } as T;
+  }
+
+  private hasMcpEntries(mcp: { required?: string[]; recommended: string[] }): boolean {
+    return (mcp.required?.length ?? 0) > 0 || mcp.recommended.length > 0;
   }
 
   private skillNames(environment: ResolvedCastEnvironmentManifest): string[] {

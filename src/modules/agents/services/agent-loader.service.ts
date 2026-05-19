@@ -10,6 +10,7 @@ export class AgentLoaderService implements OnModuleInit {
   private definitionsPath: string;
   private activeEnvironmentId: string | null = null;
   private activeEnvironmentAgents: Set<string> | null = null;
+  private activeEnvironmentScopeStrict = false;
 
   constructor(private readonly markdownParser: MarkdownParserService) {
     this.definitionsPath = path.join(__dirname, '..', 'definitions');
@@ -39,6 +40,7 @@ export class AgentLoaderService implements OnModuleInit {
         systemPrompt: content,
         source: 'builtin',
         environments: Array.isArray(frontmatter.environments) ? frontmatter.environments : [],
+        profiles: Array.isArray(frontmatter.profiles) ? frontmatter.profiles : [],
         tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
       });
     }
@@ -68,6 +70,7 @@ export class AgentLoaderService implements OnModuleInit {
           temperature: frontmatter.temperature ?? existingAgent.temperature,
           source: 'local',
           environments: [...new Set([...(existingAgent.environments ?? []), ...(frontmatter.environments || [])])],
+          profiles: [...new Set([...(existingAgent.profiles ?? []), ...(frontmatter.profiles || [])])],
           tags: [...new Set([...(existingAgent.tags ?? []), ...(frontmatter.tags || [])])],
         });
         continue;
@@ -83,6 +86,7 @@ export class AgentLoaderService implements OnModuleInit {
         systemPrompt: content,
         source: 'local',
         environments: Array.isArray(frontmatter.environments) ? frontmatter.environments : [],
+        profiles: Array.isArray(frontmatter.profiles) ? frontmatter.profiles : [],
         tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
       });
     }
@@ -130,19 +134,28 @@ export class AgentLoaderService implements OnModuleInit {
     return Array.from(this.agents.keys());
   }
 
-  setActiveEnvironmentScope(environmentId: string, agentNames: string[]): void {
+  setActiveEnvironmentScope(
+    environmentId: string,
+    agentNames: string[],
+    options: { strict?: boolean } = {},
+  ): void {
     this.activeEnvironmentId = environmentId;
     this.activeEnvironmentAgents = new Set(agentNames);
+    this.activeEnvironmentScopeStrict = options.strict ?? false;
   }
 
   clearActiveEnvironmentScope(): void {
     this.activeEnvironmentId = null;
     this.activeEnvironmentAgents = null;
+    this.activeEnvironmentScopeStrict = false;
   }
 
   private isAgentInActiveScope(agent: AgentDefinition): boolean {
     if (!this.activeEnvironmentId || !this.activeEnvironmentAgents) {
       return true;
+    }
+    if (this.activeEnvironmentScopeStrict) {
+      return this.activeEnvironmentAgents.has(agent.name);
     }
     return this.activeEnvironmentAgents.has(agent.name)
       || Boolean(agent.environments?.includes(this.activeEnvironmentId));

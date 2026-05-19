@@ -10,6 +10,8 @@ agents:
   optional:
     - tester
     - reviewer
+    - frontend-ui-engineer
+    - docs-writer
 skills:
   required:
     - frontend-bootstrap
@@ -23,6 +25,26 @@ skills:
     - claude-design
     - design-md
     - p5js
+profiles:
+  handoff:
+    description: Translate product design context into implementation-ready guidance.
+    agents:
+      required:
+        - frontend
+        - frontend-ui-engineer
+      optional:
+        - reviewer
+        - tester
+        - docs-writer
+    skills:
+      required:
+        - frontend-bootstrap
+        - react-patterns
+        - design-system
+        - popular-web-designs
+      optional:
+        - visual-qa
+        - design-md
 mcp:
   recommended:
     - figma

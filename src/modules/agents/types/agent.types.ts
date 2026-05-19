@@ -8,6 +8,7 @@ export interface AgentFrontmatter {
   skills: string[];
   mcp?: string[];
   environments?: string[];
+  profiles?: string[];
   tags?: string[];
 }
 
@@ -21,6 +22,7 @@ export interface AgentDefinition {
   systemPrompt: string;
   source?: 'builtin' | 'local' | 'remote';
   environments?: string[];
+  profiles?: string[];
   tags?: string[];
   updatedAt?: string;
 }

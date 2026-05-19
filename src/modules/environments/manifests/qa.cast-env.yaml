@@ -10,6 +10,7 @@ agents:
   optional:
     - reviewer
     - coder
+    - test-automation-engineer
 skills:
   required:
     - file-operations
@@ -21,6 +22,25 @@ skills:
     - requesting-code-review
     - github-code-review
     - writing-plans
+profiles:
+  regression:
+    description: Add or repair regression coverage around known failing behavior.
+    agents:
+      required:
+        - tester
+        - coder
+        - test-automation-engineer
+      optional:
+        - reviewer
+    skills:
+      required:
+        - file-operations
+        - search
+        - testing-strategies
+        - test-driven-development
+        - systematic-debugging
+      optional:
+        - requesting-code-review
 mcp:
   recommended:
     - github

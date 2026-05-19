@@ -48,13 +48,16 @@ describe('EnvironmentActivationService', () => {
       const marketing = await loader.get('marketing', projectRoot);
       assert(marketing);
 
-      const result = await activation.activate(projectRoot, marketing);
+      const result = await activation.activate(projectRoot, marketing, 'campaign');
 
       assert.equal(result.environmentId, 'marketing');
+      assert.equal(result.profileId, 'campaign');
       assert.equal(await platformConfig.getProjectEnvironment(projectRoot), 'marketing');
+      assert.equal(await platformConfig.getProjectEnvironmentProfile(projectRoot), 'campaign');
 
       const row = db.getDbSync().prepare('select * from environment_activations where project_root = ?').get(projectRoot) as any;
       assert.equal(row.environment_id, 'marketing');
+      assert.equal(row.profile_id, 'campaign');
       assert.equal(row.manifest_source, 'builtin');
 
       const benchmarks = await benchmarkStore.listDefinitions(projectRoot);

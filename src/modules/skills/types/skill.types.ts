@@ -2,7 +2,7 @@ import { StructuredTool } from '@langchain/core/tools';
 
 export type SkillTrust = 'builtin' | 'trusted' | 'community' | 'local' | 'quarantined';
 export type SkillRisk = 'low' | 'medium' | 'high' | 'critical';
-export type SkillSource = 'builtin' | 'local' | 'remote' | 'hermes-import' | 'hermes-bundled';
+export type SkillSource = 'builtin' | 'local' | 'remote';
 export type SkillScannerFindingCategory =
   | 'prompt_injection'
   | 'credential_exfiltration'
@@ -37,6 +37,13 @@ export interface SkillDefinition {
   description: string;
   tools: string[];
   guidelines: string;
+  packageRoot?: string;
+  definitionPath?: string;
+  supportFiles?: string[];
+  aliases?: string[];
+  category?: string;
+  profiles?: string[];
+  activationPolicy?: string;
   environments?: string[];
   source?: SkillSource;
   sourceRepo?: string;

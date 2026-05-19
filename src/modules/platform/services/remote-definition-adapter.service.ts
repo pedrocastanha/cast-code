@@ -4,6 +4,7 @@ import { DEFAULT_MODEL, DEFAULT_TEMPERATURE } from '../../../common/constants';
 import { AgentDefinition } from '../../agents/types';
 import { getTemplate } from '../../mcp/catalog/mcp-templates';
 import type { McpConfig } from '../../mcp/types';
+import { normalizeSkillContentForCast } from '../../skills/services/skill-content-normalizer';
 import type { SkillDefinition, SkillRisk, SkillScannerFinding, SkillSource, SkillTrust } from '../../skills/types';
 import { PlatformMcpPayload, RemoteAgentPayload, RemoteSkillPayload } from '../types';
 
@@ -16,9 +17,8 @@ export class RemoteDefinitionAdapterService {
         name: String(parsed.data.name || skill.name),
         description: String(parsed.data.description || ''),
         tools: Array.isArray(parsed.data.tools) ? parsed.data.tools.map(String) : [],
-        guidelines: parsed.content,
-        source: readMetadata<SkillSource>(skill.source, parsed.data.source, 'remote'),
-        sourceRepo: readOptionalString(skill.sourceRepo, parsed.data.sourceRepo),
+        guidelines: normalizeSkillContentForCast(parsed.content),
+        source: normalizeSkillSource(readMetadata<string>(skill.source, parsed.data.source, 'remote')),
         sourcePath: readOptionalString(skill.sourcePath, parsed.data.sourcePath),
         trust: readMetadata<SkillTrust>(skill.trust, parsed.data.trust),
         risk: readMetadata<SkillRisk>(skill.risk, parsed.data.risk),
@@ -90,6 +90,13 @@ export class RemoteDefinitionAdapterService {
       ...(Object.keys(env).length > 0 ? { env } : {}),
     };
   }
+}
+
+function normalizeSkillSource(source?: string): SkillSource {
+  if (source === 'builtin' || source === 'local' || source === 'remote') {
+    return source;
+  }
+  return 'remote';
 }
 
 function readMetadata<T extends string>(primary: T | null | undefined, fallback: unknown, defaultValue?: T): T | undefined {

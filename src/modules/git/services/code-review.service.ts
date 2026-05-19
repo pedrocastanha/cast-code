@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 
@@ -91,10 +93,11 @@ export class CodeReviewService {
         return { success: false, error: 'Could not read file' };
       }
 
-      try {
-        execSync(`npx prettier --write "${filePath}"`, { cwd: process.cwd() });
+      if (this.runPrettier(filePath)) {
         return { success: true };
-      } catch {
+      }
+
+      try {
         const llm = this.multiLlmService.createModel('reviewer');
         const prompt = `Format and indent this code properly. Maintain all functionality, only fix indentation and formatting:
 
@@ -118,6 +121,8 @@ Return ONLY the formatted code in a code block.`;
           this.writeFile(filePath, formattedCode);
           return { success: true };
         }
+      } catch {
+        return { success: false, error: 'Could not format file' };
       }
 
       return { success: false, error: 'Could not format file' };
@@ -128,7 +133,7 @@ Return ONLY the formatted code in a code block.`;
 
   async indentAll(_pattern = 'src/**/*.{ts,tsx,js,jsx}'): Promise<{ success: number; failed: number }> {
     try {
-      const files = execSync('find src -type f -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx"', {
+      const files = execSync('find src -type f \\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \\)', {
         cwd: process.cwd(),
         encoding: 'utf-8',
       }).trim().split('\n').filter(f => f);
@@ -145,6 +150,40 @@ Return ONLY the formatted code in a code block.`;
       return { success, failed };
     } catch {
       return { success: 0, failed: 0 };
+    }
+  }
+
+  private runPrettier(filePath: string): boolean {
+    const formatter = this.resolvePrettierFormatter();
+    if (!formatter) {
+      return false;
+    }
+
+    const result = spawnSync(formatter.command, [...formatter.args, '--write', filePath], {
+      cwd: process.cwd(),
+      stdio: 'ignore',
+    });
+
+    return result.status === 0;
+  }
+
+  private resolvePrettierFormatter(): { command: string; args: string[] } | null {
+    const projectBin = path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'prettier.cmd' : 'prettier');
+    if (fs.existsSync(projectBin)) {
+      return { command: projectBin, args: [] };
+    }
+
+    try {
+      const packagePath = require.resolve('prettier/package.json');
+      const packageDir = path.dirname(packagePath);
+      const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'));
+      const binPath = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.prettier;
+      if (!binPath) {
+        return null;
+      }
+      return { command: process.execPath, args: [path.join(packageDir, binPath)] };
+    } catch {
+      return null;
     }
   }
 

@@ -537,6 +537,9 @@ export class DeepAgentService {
     if (['list_skills', 'read_skill'].some((name) => names.has(name))) {
       lines.push('- Skills: call list_skills, then read_skill(name), before specialized work.');
     }
+    if (['list_skill_files', 'skill_view'].some((name) => names.has(name))) {
+      lines.push('- Skill support files: use list_skill_files(skillName) and skill_view(skillName, filePath) when a loaded skill mentions references, templates, scripts, or assets.');
+    }
     if (names.has('list_agents')) {
       lines.push('- Agents: call list_agents before choosing a sub-agent to delegate with task.');
     }

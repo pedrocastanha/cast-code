@@ -3,6 +3,7 @@ import { colorize, Icons } from '../../utils/theme';
 import { CommandUiService } from '../command-ui.service';
 import { AgentRegistryService } from '../../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../../skills/services/skill-registry.service';
+import { SkillSearchService } from '../../../skills/services/skill-search.service';
 import { SkillsImportCommandsService } from '../../../skills-import/commands/skills-import-commands.service';
 import { ISmartInput } from '../smart-input';
 
@@ -14,6 +15,7 @@ export class AgentCommandsService {
     private readonly agentRegistry: AgentRegistryService,
     private readonly skillRegistry: SkillRegistryService,
     @Optional() private readonly skillsImportCommands?: SkillsImportCommandsService,
+    @Optional() private readonly skillSearch?: SkillSearchService,
   ) {}
 
   async cmdAgents(args: string[], smartInput: ISmartInput): Promise<void> {
@@ -21,7 +23,10 @@ export class AgentCommandsService {
     const w = (s: string) => process.stdout.write(s);
 
     if (!sub || sub === 'list') {
-      const agents = this.agentRegistry.resolveAllAgents();
+      const flags = this.parseFlags(args.slice(1));
+      const agents = this.agentRegistry.resolveAllAgents()
+        .filter((agent) => !flags.env || this.agentRegistry.getAllUnscopedAgents()
+          .find((definition) => definition.name === agent.name)?.environments?.includes(flags.env));
       w(this.ui.panel({
         title: 'Agents',
         subtitle: `${agents.length} loaded`,
@@ -38,9 +43,13 @@ export class AgentCommandsService {
               }),
           },
         ],
-        footer: '/agents <name> shows details. /agents create starts the agent wizard.',
+        footer: '/agents inspect <name> shows details. /agents create starts the agent wizard.',
       }));
       return;
+    }
+
+    if (sub === 'inspect') {
+      args = args.slice(1);
     }
 
     if (sub === 'create') {
@@ -48,7 +57,7 @@ export class AgentCommandsService {
       return;
     }
 
-    const agent = this.agentRegistry.resolveAgent(sub);
+    const agent = this.agentRegistry.resolveAgent(args[0] ?? sub);
     if (agent) {
       const toolNames = (agent.tools as any[]).map((t: any) => t.name);
       w(this.ui.panel({
@@ -66,7 +75,7 @@ export class AgentCommandsService {
         ],
       }));
     } else {
-      w(this.ui.error(`Agent "${sub}" not found. Run /agents to see available agents.`));
+      w(this.ui.error(`Agent "${args[0] ?? sub}" not found. Run /agents to see available agents.`));
     }
   }
 
@@ -75,7 +84,10 @@ export class AgentCommandsService {
     const w = (s: string) => process.stdout.write(s);
 
     if (!sub || sub === 'list') {
-      const skills = this.skillRegistry.getAllSkills();
+      const flags = this.parseFlags(args.slice(1));
+      const skills = this.skillRegistry.getAllSkills()
+        .filter((skill) => !flags.env || skill.environments?.includes(flags.env))
+        .filter((skill) => !flags.risk || skill.risk === flags.risk);
       w(this.ui.panel({
         title: 'Skills',
         subtitle: `${skills.length} loaded`,
@@ -89,7 +101,33 @@ export class AgentCommandsService {
               }),
           },
         ],
-        footer: '/skills create starts the skill wizard.',
+        footer: '/skills search <query> finds skills and agents. /skills inspect <name> shows metadata.',
+      }));
+      return;
+    }
+
+    if (sub === 'search') {
+      const query = this.parseQueryArgs(args.slice(1));
+      const flags = this.parseFlags(args.slice(1));
+      const search = this.skillSearch ?? new SkillSearchService();
+      const results = search.search({
+        query,
+        includeQuarantined: flags.includeQuarantined,
+        risk: flags.risk as any,
+        activeEnvironment: flags.env,
+        skills: this.skillRegistry.getAllUnscopedSkills(),
+        agents: this.agentRegistry.getAllUnscopedAgents(),
+      });
+      w(this.ui.panel({
+        title: 'Skill Search',
+        subtitle: query || 'all',
+        sections: [
+          {
+            lines: results.length === 0
+              ? [colorize('No matching skills or agents.', 'muted')]
+              : results.map((result) => `${colorize(Icons.bullet, result.kind === 'agent' ? 'primary' : 'accent')} ${colorize(result.kind, 'subtle')} ${colorize(result.name, 'cyan')}  ${colorize(result.description, 'muted')} ${colorize(`[${result.reason}]`, 'subtle')}`),
+          },
+        ],
       }));
       return;
     }
@@ -99,7 +137,50 @@ export class AgentCommandsService {
       return;
     }
 
-    if (sub === 'import-hermes') {
+    if (sub === 'inspect') {
+      const name = args[1];
+      if (!name) {
+        w(this.ui.error('Usage: /skills inspect <name>'));
+        return;
+      }
+      const skill = this.skillRegistry.getSkillDefinition(name, { includeInactive: true });
+      if (!skill) {
+        w(this.ui.error(`Skill "${name}" not found. Run /skills to see available skills.`));
+        return;
+      }
+
+      const supportFiles = skill.supportFiles || [];
+      w(this.ui.panel({
+        title: 'Skill',
+        subtitle: skill.name,
+        sections: [
+          {
+            rows: [
+              { label: 'Description', value: skill.description || colorize('none', 'subtle') },
+              { label: 'Aliases', value: skill.aliases?.length ? colorize(skill.aliases.join(', '), 'cyan') : colorize('none', 'subtle') },
+              { label: 'Category', value: skill.category || colorize('none', 'subtle') },
+              { label: 'Risk', value: skill.risk ? colorize(skill.risk, skill.risk === 'critical' ? 'error' : 'warning') : colorize('unset', 'subtle') },
+              { label: 'Trust', value: skill.trust || colorize('unset', 'subtle') },
+              { label: 'Active', value: skill.isActive === false ? colorize('no', 'warning') : colorize('yes', 'success') },
+              { label: 'Environments', value: skill.environments?.length ? skill.environments.join(', ') : colorize('none', 'subtle') },
+              { label: 'Profiles', value: skill.profiles?.length ? skill.profiles.join(', ') : colorize('none', 'subtle') },
+            ],
+          },
+          {
+            title: 'Support files',
+            lines: supportFiles.length > 0
+              ? supportFiles.slice(0, 25).map((file) => `${colorize(Icons.bullet, 'accent')} ${file}`)
+              : [colorize('No support files.', 'muted')],
+          },
+        ],
+        footer: supportFiles.length > 0
+          ? `Use skill_view("${skill.name}", filePath) for references, templates, scripts, or assets.`
+          : undefined,
+      }));
+      return;
+    }
+
+    if (sub === 'import') {
       if (!this.skillsImportCommands) {
         w(this.ui.error('Skills import commands are not available in this build.'));
         return;
@@ -241,5 +322,42 @@ export class AgentCommandsService {
     }
 
     w(this.ui.warning(`Open the file to edit: ${filePath}`));
+  }
+
+  private parseFlags(args: string[]): { env?: string; risk?: string; includeQuarantined?: boolean } {
+    const flags: { env?: string; risk?: string; includeQuarantined?: boolean } = {};
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i];
+      if (arg === '--env') {
+        flags.env = args[i + 1];
+        i += 1;
+      }
+      if (arg === '--risk') {
+        flags.risk = args[i + 1];
+        i += 1;
+      }
+      if (arg === '--include-quarantined') flags.includeQuarantined = true;
+    }
+    return flags;
+  }
+
+  private parseQueryArgs(args: string[]): string {
+    const valueFlags = new Set(['--env', '--risk']);
+    const parts: string[] = [];
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i];
+      if (valueFlags.has(arg)) {
+        i += 1;
+        continue;
+      }
+      if (arg.startsWith('--')) {
+        if (args[i + 1] && !args[i + 1].startsWith('--')) {
+          i += 1;
+        }
+        continue;
+      }
+      parts.push(arg);
+    }
+    return parts.join(' ').trim();
   }
 }

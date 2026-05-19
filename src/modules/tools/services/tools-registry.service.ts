@@ -6,6 +6,7 @@ import { SearchToolsService } from './search-tools.service';
 import { DiscoveryToolsService } from './discovery-tools.service';
 import { TaskToolsService } from '../../tasks/services/task-tools.service';
 import { MemoryToolsService } from '../../memory/services/memory-tools.service';
+import { SkillRuntimeToolsService } from '../../skills/services/skill-runtime-tools.service';
 
 @Injectable()
 export class ToolsRegistryService {
@@ -21,6 +22,8 @@ export class ToolsRegistryService {
     private readonly taskTools: TaskToolsService,
     @Inject(forwardRef(() => MemoryToolsService))
     private readonly memoryTools: MemoryToolsService,
+    @Inject(forwardRef(() => SkillRuntimeToolsService))
+    private readonly skillRuntimeTools: SkillRuntimeToolsService,
   ) {
     this.registerBuiltInTools();
   }
@@ -31,6 +34,7 @@ export class ToolsRegistryService {
       ...this.shellTools.getTools(),
       ...this.searchTools.getTools(),
       ...this.discoveryTools.getTools(),
+      ...this.skillRuntimeTools.getTools(),
       ...this.taskTools.getTools(),
       ...this.memoryTools.getTools(),
     ];
@@ -62,6 +66,7 @@ export class ToolsRegistryService {
     }
     for (const t of [
       ...this.searchTools.getTools(),
+      ...this.skillRuntimeTools.getTools(),
       ...this.taskTools.getTools(),
       ...this.memoryTools.getTools(),
     ]) {

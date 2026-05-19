@@ -14,6 +14,7 @@ export class McpRegistryService implements OnModuleDestroy {
   private configs: Map<string, McpConfig> = new Map();
   private activeEnvironmentId: string | null = null;
   private activeEnvironmentServers: Set<string> | null = null;
+  private activeEnvironmentScopeStrict = false;
 
   constructor(
     private readonly mcpClient: McpClientService,
@@ -346,14 +347,20 @@ export class McpRegistryService implements OnModuleDestroy {
       .map(s => s.name);
   }
 
-  setActiveEnvironmentScope(environmentId: string, serverNames: string[]): void {
+  setActiveEnvironmentScope(
+    environmentId: string,
+    serverNames: string[],
+    options: { strict?: boolean } = {},
+  ): void {
     this.activeEnvironmentId = environmentId;
     this.activeEnvironmentServers = new Set(serverNames);
+    this.activeEnvironmentScopeStrict = options.strict ?? false;
   }
 
   clearActiveEnvironmentScope(): void {
     this.activeEnvironmentId = null;
     this.activeEnvironmentServers = null;
+    this.activeEnvironmentScopeStrict = false;
   }
 
   private isServerInActiveScope(name: string): boolean {
@@ -361,6 +368,9 @@ export class McpRegistryService implements OnModuleDestroy {
       return true;
     }
     const template = getTemplate(name);
+    if (this.activeEnvironmentScopeStrict) {
+      return this.activeEnvironmentServers.has(name);
+    }
     return this.activeEnvironmentServers.has(name)
       || Boolean(template?.environments?.includes(this.activeEnvironmentId));
   }

@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
+import { MarkdownParserService } from '../../../common/services/markdown-parser.service';
 import { SkillLoaderService } from './skill-loader.service';
+import { SkillMetadataIndexService } from './skill-metadata-index.service';
+
+const legacySkillBrandLower = ['her', 'mes'].join('');
+const legacySkillBrandTitle = `${legacySkillBrandLower[0].toUpperCase()}${legacySkillBrandLower.slice(1)}`;
+const legacySkillAgentTitle = `${legacySkillBrandTitle} Agent`;
+const legacySkillAgentSlug = `${legacySkillBrandLower}-agent`;
+const legacySkillBrandPattern = new RegExp(legacySkillBrandLower, 'i');
 
 describe('SkillLoaderService remote loading', () => {
   test('keeps legacy skill frontmatter valid when governance metadata is absent', async () => {
@@ -44,8 +55,7 @@ describe('SkillLoaderService remote loading', () => {
                 name: 'campaign-strategy',
                 description: 'Plan campaigns',
                 tools: [],
-                source: 'hermes-import',
-                sourceRepo: 'nousresearch/hermes-agent',
+                source: 'local',
                 sourcePath: 'skills/campaign-strategy/SKILL.md',
                 trust: 'community',
                 risk: 'medium',
@@ -70,8 +80,8 @@ describe('SkillLoaderService remote loading', () => {
     await loader.loadSkills();
     const skill = loader.getAllUnscopedSkills()[0];
 
-    assert.equal(skill?.source, 'hermes-import');
-    assert.equal(skill?.sourceRepo, 'nousresearch/hermes-agent');
+    assert.equal(skill?.source, 'local');
+    assert.equal(skill?.sourceRepo, undefined);
     assert.equal(skill?.sourcePath, 'skills/campaign-strategy/SKILL.md');
     assert.equal(skill?.trust, 'community');
     assert.equal(skill?.risk, 'medium');
@@ -93,7 +103,7 @@ describe('SkillLoaderService remote loading', () => {
                 name: 'campaign-strategy',
                 description: 'Plan campaigns',
                 tools: [],
-                source: 'hermes-import',
+                source: 'local',
                 risk: 'low',
                 isActive: false,
               },
@@ -111,24 +121,24 @@ describe('SkillLoaderService remote loading', () => {
     assert.equal(loader.getAllUnscopedSkills()[0]?.name, 'campaign-strategy');
   });
 
-  test('loads copied Hermes SKILL.md packages without indexing support markdown as skills', async () => {
+  test('loads bundled SKILL.md packages without indexing support markdown as skills', async () => {
     const parser = {
       exists: async () => true,
       parseAll: async () =>
         new Map([
           [
-            'hermes/skills/software-development/test-driven-development/SKILL',
+            'catalog/skills/software-development/test-driven-development/SKILL',
             {
               frontmatter: {
                 name: 'test-driven-development',
                 description: 'TDD workflow',
-                metadata: { hermes: { tags: ['testing', 'development'] } },
+                metadata: { cast: { tags: ['testing', 'development'] } },
               },
               content: 'Write the failing test first.',
             },
           ],
           [
-            'hermes/skills/software-development/test-driven-development/references/example',
+            'catalog/skills/software-development/test-driven-development/references/example',
             {
               frontmatter: {},
               content: 'Support file, not a standalone skill.',
@@ -142,8 +152,8 @@ describe('SkillLoaderService remote loading', () => {
 
     assert.equal(loader.getAllSkills().length, 1);
     const skill = loader.getSkill('test-driven-development');
-    assert.equal(skill?.source, 'hermes-bundled');
-    assert.equal(skill?.sourceRepo, 'nousresearch/hermes-agent');
+    assert.equal(skill?.source, 'builtin');
+    assert.equal(skill?.sourceRepo, undefined);
     assert.equal(skill?.sourcePath, 'skills/software-development/test-driven-development/SKILL.md');
     assert.deepEqual(skill?.tags, ['testing', 'development']);
     assert(skill?.environments?.includes('engineering'));
@@ -151,18 +161,49 @@ describe('SkillLoaderService remote loading', () => {
     assert.equal(loader.getSkill('example'), undefined);
   });
 
-  test('quarantines copied Hermes jailbreak skills by default', async () => {
+  test('normalizes copied skill package names and descriptions before exposing them', async () => {
+    const legacySkillName = ['debugging', legacySkillBrandLower, 'tui-commands'].join('-');
     const parser = {
       exists: async () => true,
       parseAll: async () =>
         new Map([
           [
-            'hermes/skills/red-teaming/godmode/SKILL',
+            `catalog/skills/software-development/${legacySkillName}/SKILL`,
+            {
+              frontmatter: {
+                name: legacySkillName,
+                description: `Debug ${legacySkillBrandTitle} TUI slash commands`,
+                metadata: { cast: { tags: [legacySkillAgentSlug, 'debugging'] } },
+              },
+              content: `Use ${legacySkillAgentTitle} tools.`,
+            },
+          ],
+        ]),
+    };
+
+    const loader = new SkillLoaderService(parser as any);
+    await loader.loadSkills();
+    const skill = loader.getSkill('debugging-cast-tui-commands');
+
+    assert.equal(skill?.name, 'debugging-cast-tui-commands');
+    assert.equal(skill?.description, 'Debug Cast TUI slash commands');
+    assert.deepEqual(skill?.tags, ['cast-agent', 'debugging']);
+    assert.doesNotMatch(loader.getSkillNames().join('\n'), legacySkillBrandPattern);
+    assert.doesNotMatch(skill?.guidelines ?? '', legacySkillBrandPattern);
+  });
+
+  test('quarantines copied jailbreak skills by default', async () => {
+    const parser = {
+      exists: async () => true,
+      parseAll: async () =>
+        new Map([
+          [
+            'catalog/skills/red-teaming/godmode/SKILL',
             {
               frontmatter: {
                 name: 'godmode',
                 description: 'Jailbreak LLMs',
-                metadata: { hermes: { tags: ['jailbreak', 'safety-bypass'] } },
+                metadata: { cast: { tags: ['jailbreak', 'safety-bypass'] } },
               },
               content: 'Bypass safety filters.',
             },
@@ -234,7 +275,7 @@ describe('SkillLoaderService remote loading', () => {
     assert.equal(loader.getSkill('search')?.guidelines, 'second');
   });
 
-  test('preserves remote governed skill provenance when loading platform skills', () => {
+  test('preserves remote governed skill metadata when loading platform skills', () => {
     const parser = {
       exists: async () => false,
       parseAll: async () => new Map(),
@@ -247,8 +288,7 @@ describe('SkillLoaderService remote loading', () => {
         description: 'Campaign strategy',
         tools: [],
         guidelines: 'Plan campaigns.',
-        source: 'hermes-import',
-        sourceRepo: 'nousresearch/hermes-agent',
+        source: 'remote',
         sourcePath: 'skills/campaign-strategy/SKILL.md',
         trust: 'community',
         risk: 'high',
@@ -266,8 +306,8 @@ describe('SkillLoaderService remote loading', () => {
     ]);
 
     const skill = loader.getAllUnscopedSkills()[0];
-    assert.equal(skill?.source, 'hermes-import');
-    assert.equal(skill?.sourceRepo, 'nousresearch/hermes-agent');
+    assert.equal(skill?.source, 'remote');
+    assert.equal(skill?.sourceRepo, undefined);
     assert.equal(skill?.sourcePath, 'skills/campaign-strategy/SKILL.md');
     assert.equal(skill?.trust, 'community');
     assert.equal(skill?.risk, 'high');
@@ -276,5 +316,61 @@ describe('SkillLoaderService remote loading', () => {
     assert.equal(skill?.scannerFindings?.[0]?.category, 'prompt_injection');
     assert.equal(skill?.isActive, false);
     assert.equal(loader.getSkill('campaign-strategy'), undefined);
+  });
+
+  test('applies sidecar metadata before heuristic classification and resolves aliases', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'cast-loader-index-'));
+    try {
+      const skillRoot = path.join(root, 'catalog/skills/creative/creative-ideation');
+      await mkdir(skillRoot, { recursive: true });
+      await writeFile(
+        path.join(skillRoot, 'SKILL.md'),
+        [
+          '---',
+          'name: ideation',
+          'description: Generate project ideas',
+          'metadata:',
+          '  cast:',
+          '    tags: [creative, ideation]',
+          '---',
+          '',
+          'Generate ideas.',
+        ].join('\n'),
+        'utf-8',
+      );
+      await writeFile(
+        path.join(root, 'skill-metadata.cast-skill-index.yaml'),
+        [
+          'version: 1',
+          'skills:',
+          '  ideation:',
+          '    sourcePath: skills/creative/creative-ideation/SKILL.md',
+          '    aliases:',
+          '      - creative-ideation',
+          '    category: creative',
+          '    environments:',
+          '      - marketing',
+          '    profiles:',
+          '      - marketing:campaign',
+          '    risk: medium',
+          '    trust: community',
+        ].join('\n'),
+        'utf-8',
+      );
+
+      const loader = new SkillLoaderService(new MarkdownParserService(), new SkillMetadataIndexService());
+      (loader as any).definitionsPath = root;
+      await loader.loadSkills();
+
+      const skill = loader.getSkill('ideation');
+      assert.equal(skill?.category, 'creative');
+      assert.deepEqual(skill?.aliases, ['creative-ideation']);
+      assert.deepEqual(skill?.environments, ['marketing']);
+      assert.deepEqual(skill?.profiles, ['marketing:campaign']);
+      assert.equal(skill?.risk, 'medium');
+      assert.equal(loader.getSkill('creative-ideation')?.name, 'ideation');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

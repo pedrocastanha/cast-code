@@ -1,0 +1,12 @@
+{
+  "id": "backend-express-api",
+  "environment": "backend",
+  "profile": "api",
+  "prompt": "Create an Express REST API with auth middleware, validation, and tests.",
+  "expectedSkills": ["api-design", "rest-graphql-debug", "test-driven-development"],
+  "forbiddenSkills": ["popular-web-designs", "oss-forensics"],
+  "expectedAgents": ["api-engineer"],
+  "expectedFiles": ["src/server.ts", "src/server.test.ts"],
+  "commands": ["npm test", "npm run build"],
+  "graders": ["environment-scope", "artifact-contract"]
+}

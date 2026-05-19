@@ -7,7 +7,7 @@ import type {
 
 export interface CastProjectManifest {
   version?: number;
-  project?: { name?: string; environment?: string };
+  project?: { name?: string; environment?: string; environmentProfile?: string };
   platform?: {
     projectId?: string;
     apiKeyEnv?: string;

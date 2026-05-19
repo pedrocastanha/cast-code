@@ -109,8 +109,12 @@ export class AgentRegistryService {
     return this.agentLoader.loadRemoteAgents(agents);
   }
 
-  setActiveEnvironmentScope(environmentId: string, agentNames: string[]): void {
-    this.agentLoader.setActiveEnvironmentScope(environmentId, agentNames);
+  setActiveEnvironmentScope(
+    environmentId: string,
+    agentNames: string[],
+    options: { strict?: boolean } = {},
+  ): void {
+    this.agentLoader.setActiveEnvironmentScope(environmentId, agentNames, options);
   }
 
   clearActiveEnvironmentScope(): void {

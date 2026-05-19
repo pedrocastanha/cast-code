@@ -1,7 +1,21 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { MarkdownParserService } from '../../../common/services/markdown-parser.service';
 import { SkillFrontmatter, SkillDefinition } from '../types';
 import * as path from 'path';
+import { collectSkillSupportFiles, packagePathsForSkill } from './skill-asset-utils';
+import { normalizeSkillContentForCast, normalizeSkillPublicText } from './skill-content-normalizer';
+import { LoadedSkillMetadataIndex, SkillMetadataEntry, SkillMetadataIndexService } from './skill-metadata-index.service';
+
+const VALID_METADATA_ENVIRONMENTS = [
+  'backend',
+  'design',
+  'devops',
+  'engineering',
+  'frontend',
+  'marketing',
+  'qa',
+  'security',
+];
 
 @Injectable()
 export class SkillLoaderService implements OnModuleInit {
@@ -9,8 +23,13 @@ export class SkillLoaderService implements OnModuleInit {
   private definitionsPath: string;
   private activeEnvironmentId: string | null = null;
   private activeEnvironmentSkills: Set<string> | null = null;
+  private activeEnvironmentScopeStrict = false;
 
-  constructor(private readonly markdownParser: MarkdownParserService) {
+  constructor(
+    private readonly markdownParser: MarkdownParserService,
+    @Optional()
+    private readonly metadataIndexService?: SkillMetadataIndexService,
+  ) {
     this.definitionsPath = path.join(__dirname, '..', 'definitions');
   }
 
@@ -30,24 +49,37 @@ export class SkillLoaderService implements OnModuleInit {
       '**/*.md',
       (relativePath) => this.isSkillDefinitionFile(relativePath),
     );
+    const metadataIndex = await this.loadMetadataIndex(parsed);
 
     for (const [relativePath, { frontmatter, content }] of parsed) {
       if (!this.isSkillDefinitionFile(relativePath)) {
         continue;
       }
 
-      const shortName = frontmatter.name || this.nameFromRelativePath(relativePath);
+      const sourceName = frontmatter.name || this.nameFromRelativePath(relativePath);
+      const publicName = this.normalizePublicSkillName(sourceName);
+      const packageMetadata = await this.readPackageMetadata(this.definitionsPath, relativePath);
+      const governanceMetadata = this.readGovernanceMetadata(frontmatter, relativePath);
       const skillDef: SkillDefinition = {
-        name: shortName,
-        description: frontmatter.description || '',
+        name: publicName,
+        description: normalizeSkillPublicText(frontmatter.description || ''),
         tools: frontmatter.tools || [],
-        ...this.readGovernanceMetadata(frontmatter, relativePath),
-        guidelines: content,
+        ...packageMetadata,
+        ...governanceMetadata,
+        guidelines: normalizeSkillContentForCast(content),
       };
+      this.applyIndexedMetadata(skillDef, metadataIndex.findForSkillOrSource(sourceName, governanceMetadata.sourcePath));
+      this.normalizePublicMetadata(skillDef);
 
       this.skills.set(relativePath, skillDef);
-      if (shortName !== relativePath) {
-        this.skills.set(shortName, skillDef);
+      if (publicName !== relativePath) {
+        this.skills.set(publicName, skillDef);
+      }
+      if (sourceName !== publicName) {
+        this.skills.set(sourceName, skillDef);
+      }
+      for (const alias of skillDef.aliases ?? []) {
+        this.skills.set(alias, skillDef);
       }
     }
   }
@@ -62,14 +94,23 @@ export class SkillLoaderService implements OnModuleInit {
     const parsed = await this.markdownParser.parseAll<SkillFrontmatter>(customPath);
 
     for (const [name, { frontmatter, content }] of parsed) {
-      this.skills.set(name, {
-        name: frontmatter.name || name,
-        description: frontmatter.description || '',
+      const packageMetadata = await this.readPackageMetadata(customPath, name);
+      const sourceName = frontmatter.name || name;
+      const skillDef: SkillDefinition = {
+        name: this.normalizePublicSkillName(sourceName),
+        description: normalizeSkillPublicText(frontmatter.description || ''),
         tools: frontmatter.tools || [],
+        ...packageMetadata,
         ...this.readGovernanceMetadata(frontmatter, name),
-        guidelines: content,
-        source: frontmatter.source || 'local',
-      });
+        guidelines: normalizeSkillContentForCast(content),
+        source: this.normalizeSource(frontmatter.source) || 'local',
+      };
+      this.normalizePublicMetadata(skillDef);
+      this.skills.set(name, skillDef);
+      this.skills.set(skillDef.name, skillDef);
+      for (const alias of skillDef.aliases ?? []) {
+        this.skills.set(alias, skillDef);
+      }
     }
   }
 
@@ -80,10 +121,20 @@ export class SkillLoaderService implements OnModuleInit {
       if (this.skills.has(skill.name)) {
         overridden.push(skill.name);
       }
-      this.skills.set(skill.name, {
+      const skillDef: SkillDefinition = {
         ...skill,
+        name: this.normalizePublicSkillName(skill.name),
+        description: normalizeSkillPublicText(skill.description || ''),
+        guidelines: normalizeSkillContentForCast(skill.guidelines),
         source: skill.source || 'remote',
-      });
+        supportFiles: skill.supportFiles || [],
+      };
+      this.normalizePublicMetadata(skillDef);
+      this.skills.set(skill.name, skillDef);
+      this.skills.set(skillDef.name, skillDef);
+      for (const alias of skillDef.aliases ?? []) {
+        this.skills.set(alias, skillDef);
+      }
     }
 
     return overridden;
@@ -95,6 +146,10 @@ export class SkillLoaderService implements OnModuleInit {
       return undefined;
     }
     return skill;
+  }
+
+  getUnscopedSkill(name: string): SkillDefinition | undefined {
+    return this.skills.get(name);
   }
 
   getAllSkills(): SkillDefinition[] {
@@ -116,23 +171,44 @@ export class SkillLoaderService implements OnModuleInit {
   }
 
   getSkillNames(): string[] {
-    return Array.from(this.skills.entries())
-      .filter(([, skill]) => this.isSkillInActiveScope(skill))
-      .map(([name]) => name);
+    const names = new Set<string>();
+    for (const [key, skill] of this.skills.entries()) {
+      if (!this.isSkillInActiveScope(skill)) {
+        continue;
+      }
+      names.add(skill.name);
+      if (this.isPublicSkillKey(key)) {
+        names.add(key);
+      }
+    }
+    return Array.from(names);
   }
 
   getUnscopedSkillNames(): string[] {
-    return Array.from(this.skills.keys());
+    const names = new Set<string>();
+    for (const [key, skill] of this.skills.entries()) {
+      names.add(skill.name);
+      if (this.isPublicSkillKey(key)) {
+        names.add(key);
+      }
+    }
+    return Array.from(names);
   }
 
-  setActiveEnvironmentScope(environmentId: string, skillNames: string[]): void {
+  setActiveEnvironmentScope(
+    environmentId: string,
+    skillNames: string[],
+    options: { strict?: boolean } = {},
+  ): void {
     this.activeEnvironmentId = environmentId;
     this.activeEnvironmentSkills = new Set(skillNames);
+    this.activeEnvironmentScopeStrict = options.strict ?? false;
   }
 
   clearActiveEnvironmentScope(): void {
     this.activeEnvironmentId = null;
     this.activeEnvironmentSkills = null;
+    this.activeEnvironmentScopeStrict = false;
   }
 
   private isSkillInActiveScope(skill: SkillDefinition): boolean {
@@ -143,21 +219,112 @@ export class SkillLoaderService implements OnModuleInit {
     if (!this.activeEnvironmentId || !this.activeEnvironmentSkills) {
       return true;
     }
+    if (this.activeEnvironmentScopeStrict) {
+      return this.activeEnvironmentSkills.has(skill.name);
+    }
     return this.activeEnvironmentSkills.has(skill.name)
       || Boolean(skill.environments?.includes(this.activeEnvironmentId));
+  }
+
+  private async readPackageMetadata(
+    definitionsPath: string,
+    relativePath: string,
+  ): Promise<Pick<SkillDefinition, 'definitionPath' | 'packageRoot' | 'supportFiles'>> {
+    const metadata = packagePathsForSkill(definitionsPath, relativePath);
+    if (!metadata.packageRoot) {
+      return metadata;
+    }
+
+    try {
+      return {
+        ...metadata,
+        supportFiles: await collectSkillSupportFiles(metadata.packageRoot),
+      };
+    } catch {
+      return metadata;
+    }
+  }
+
+  private async loadMetadataIndex(
+    parsed: Map<string, { frontmatter: SkillFrontmatter; content: string }>,
+  ): Promise<LoadedSkillMetadataIndex> {
+    const knownSkillNames: string[] = [];
+    const knownSourcePaths: string[] = [];
+
+    for (const [relativePath, { frontmatter }] of parsed) {
+      if (!this.isSkillDefinitionFile(relativePath)) {
+        continue;
+      }
+      knownSkillNames.push(frontmatter.name || this.nameFromRelativePath(relativePath));
+      if (this.isBundledSkillPackage(relativePath)) {
+        knownSourcePaths.push(this.bundledSourcePath(relativePath));
+      } else if (frontmatter.sourcePath) {
+        knownSourcePaths.push(frontmatter.sourcePath);
+      }
+    }
+
+    if (!this.metadataIndexService) {
+      return new LoadedSkillMetadataIndex([]);
+    }
+
+    return this.metadataIndexService.loadFromFile(path.join(this.definitionsPath, 'skill-metadata.cast-skill-index.yaml'), {
+      knownSkillNames,
+      knownSourcePaths,
+      validEnvironments: VALID_METADATA_ENVIRONMENTS,
+    });
+  }
+
+  private applyIndexedMetadata(skill: SkillDefinition, metadata?: SkillMetadataEntry): void {
+    if (!metadata) {
+      return;
+    }
+
+    if (metadata.sourcePath) skill.sourcePath = metadata.sourcePath;
+    if (metadata.aliases.length > 0) skill.aliases = metadata.aliases;
+    if (metadata.category) skill.category = metadata.category;
+    if (metadata.environments) skill.environments = metadata.environments;
+    if (metadata.profiles) skill.profiles = metadata.profiles;
+    if (metadata.risk) skill.risk = metadata.risk;
+    if (metadata.trust) skill.trust = metadata.trust;
+    if (metadata.activationPolicy) skill.activationPolicy = metadata.activationPolicy;
+    if (typeof metadata.isActive === 'boolean') skill.isActive = metadata.isActive;
+  }
+
+  private normalizePublicMetadata(skill: SkillDefinition): void {
+    skill.name = this.normalizePublicSkillName(skill.name);
+    skill.description = normalizeSkillPublicText(skill.description || '');
+    skill.aliases = this.normalizePublicStringList(skill.aliases);
+    skill.tags = this.normalizePublicStringList(skill.tags);
+  }
+
+  private normalizePublicSkillName(value: string): string {
+    return normalizeSkillPublicText(value).trim();
+  }
+
+  private normalizePublicStringList(values?: string[]): string[] | undefined {
+    if (!values) {
+      return undefined;
+    }
+    const normalized = values
+      .map((value) => normalizeSkillPublicText(String(value)).trim())
+      .filter(Boolean);
+    return Array.from(new Set(normalized));
+  }
+
+  private isPublicSkillKey(value: string): boolean {
+    return normalizeSkillPublicText(value) === value;
   }
 
   private readGovernanceMetadata(frontmatter: SkillFrontmatter, relativePath?: string): Pick<
     SkillDefinition,
     'source' | 'sourceRepo' | 'sourcePath' | 'trust' | 'risk' | 'tags' | 'environments' | 'scannerFindings' | 'isActive'
   > {
-    if (relativePath && this.isHermesBundledSkill(relativePath)) {
-      return this.readHermesBundledMetadata(frontmatter, relativePath);
+    if (relativePath && this.isBundledSkillPackage(relativePath)) {
+      return this.readBundledSkillMetadata(frontmatter, relativePath);
     }
 
     return {
-      source: frontmatter.source,
-      sourceRepo: frontmatter.sourceRepo,
+      source: this.normalizeSource(frontmatter.source),
       sourcePath: frontmatter.sourcePath,
       trust: frontmatter.trust,
       risk: frontmatter.risk,
@@ -170,7 +337,7 @@ export class SkillLoaderService implements OnModuleInit {
 
   private isSkillDefinitionFile(relativePath: string): boolean {
     const normalized = this.normalizePath(relativePath);
-    if (normalized.startsWith('hermes/')) {
+    if (normalized.startsWith('catalog/')) {
       return normalized.endsWith('/SKILL') || normalized === 'SKILL';
     }
     return true;
@@ -186,45 +353,44 @@ export class SkillLoaderService implements OnModuleInit {
     return last || normalized;
   }
 
-  private isHermesBundledSkill(relativePath: string): boolean {
+  private isBundledSkillPackage(relativePath: string): boolean {
     const normalized = this.normalizePath(relativePath);
-    return (normalized.startsWith('hermes/skills/') || normalized.startsWith('hermes/optional-skills/'))
+    return (normalized.startsWith('catalog/skills/') || normalized.startsWith('catalog/optional-skills/'))
       && normalized.endsWith('/SKILL');
   }
 
-  private readHermesBundledMetadata(frontmatter: SkillFrontmatter, relativePath: string): Pick<
+  private readBundledSkillMetadata(frontmatter: SkillFrontmatter, relativePath: string): Pick<
     SkillDefinition,
     'source' | 'sourceRepo' | 'sourcePath' | 'trust' | 'risk' | 'tags' | 'environments' | 'scannerFindings' | 'isActive'
   > {
-    const sourcePath = this.hermesSourcePath(relativePath);
+    const sourcePath = this.bundledSourcePath(relativePath);
     const tags = this.readTags(frontmatter);
-    const risk = this.hermesRisk(sourcePath, tags);
+    const risk = this.inferBundledRisk(sourcePath, tags);
 
     return {
-      source: 'hermes-bundled',
-      sourceRepo: 'nousresearch/hermes-agent',
+      source: 'builtin',
       sourcePath,
       trust: risk === 'critical' ? 'quarantined' : 'community',
       risk,
       tags,
-      environments: this.hermesEnvironments(sourcePath, frontmatter, tags),
+      environments: this.inferBundledEnvironments(sourcePath, frontmatter, tags),
       scannerFindings: risk === 'critical'
         ? [{
           category: 'system_override',
           severity: 'critical',
-          message: 'Bundled Hermes skill is quarantined by default because it teaches jailbreak or safety-bypass behavior.',
+          message: 'Skill is quarantined by default because it teaches jailbreak or safety-bypass behavior.',
         }]
         : [],
       isActive: risk === 'critical' ? false : undefined,
     };
   }
 
-  private hermesSourcePath(relativePath: string): string {
+  private bundledSourcePath(relativePath: string): string {
     const normalized = this.normalizePath(relativePath);
-    return `${normalized.replace(/^hermes\//, '').replace(/\/SKILL$/, '/SKILL.md')}`;
+    return `${normalized.replace(/^catalog\//, '').replace(/\/SKILL$/, '/SKILL.md')}`;
   }
 
-  private hermesRisk(sourcePath: string, tags: string[]): SkillDefinition['risk'] {
+  private inferBundledRisk(sourcePath: string, tags: string[]): SkillDefinition['risk'] {
     const text = `${sourcePath} ${tags.join(' ')}`.toLowerCase();
     if (text.includes('jailbreak') || text.includes('safety-bypass') || sourcePath.startsWith('skills/red-teaming/')) {
       return 'critical';
@@ -232,7 +398,7 @@ export class SkillLoaderService implements OnModuleInit {
     return 'low';
   }
 
-  private hermesEnvironments(sourcePath: string, frontmatter: SkillFrontmatter, tags: string[]): string[] {
+  private inferBundledEnvironments(sourcePath: string, frontmatter: SkillFrontmatter, tags: string[]): string[] {
     const text = [
       sourcePath,
       frontmatter.name,
@@ -298,9 +464,13 @@ export class SkillLoaderService implements OnModuleInit {
       return frontmatter.tags.map(String);
     }
 
-    const metadata = (frontmatter as SkillFrontmatter & { metadata?: { hermes?: { tags?: unknown } } }).metadata;
-    const hermesTags = metadata?.hermes?.tags;
-    return Array.isArray(hermesTags) ? hermesTags.map(String) : [];
+    const metadata = (frontmatter as SkillFrontmatter & { metadata?: Record<string, { tags?: unknown }> }).metadata;
+    const castTags = metadata?.cast?.tags;
+    return Array.isArray(castTags) ? castTags.map(String) : [];
+  }
+
+  private normalizeSource(source?: string): SkillDefinition['source'] | undefined {
+    return source as SkillDefinition['source'] | undefined;
   }
 
   private normalizePath(value: string): string {

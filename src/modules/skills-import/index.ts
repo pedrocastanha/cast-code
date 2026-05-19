@@ -1,6 +1,6 @@
 export * from './skills-import.module';
 export * from './commands/skills-import-commands.service';
-export * from './services/hermes-skill-discovery.service';
+export * from './services/skill-package-discovery.service';
 export * from './services/skill-risk-scanner.service';
 export * from './services/skill-environment-classifier.service';
 export * from './services/skill-converter.service';

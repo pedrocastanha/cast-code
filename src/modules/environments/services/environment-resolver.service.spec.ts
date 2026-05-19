@@ -165,6 +165,70 @@ describe('EnvironmentResolverService built-in environment scopes', () => {
       await rm(projectRoot, { recursive: true, force: true });
     }
   });
+
+  test('applies active environment profiles as a narrower scope', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'cast-env-profile-'));
+    const parser = new MarkdownParserService();
+    const agentLoader = new AgentLoaderService(parser);
+    const skillLoader = new SkillLoaderService(parser);
+    await agentLoader.loadAgents();
+    await skillLoader.loadSkills();
+
+    const loader = new EnvironmentLoaderService();
+    const activation = {
+      getActive: async (root: string): Promise<EnvironmentActivation | null> => ({
+        projectRoot: root,
+        environmentId: 'engineering',
+        profileId: 'bugfix',
+        manifestSource: 'builtin',
+        activatedAt: new Date(0).toISOString(),
+      }),
+    };
+    const agentRegistry = {
+      setActiveEnvironmentScope: (environmentId: string, agentNames: string[]) =>
+        agentLoader.setActiveEnvironmentScope(environmentId, agentNames),
+      clearActiveEnvironmentScope: () => agentLoader.clearActiveEnvironmentScope(),
+      getUnscopedAgentNames: () => agentLoader.getUnscopedAgentNames(),
+    };
+    const mcpRegistry = {
+      setActiveEnvironmentScope: () => undefined,
+      clearActiveEnvironmentScope: () => undefined,
+      getUnscopedServerNames: () => [],
+    };
+    const readiness = new EnvironmentReadinessService(
+      agentRegistry as any,
+      skillLoader,
+      mcpRegistry as any,
+      { listDefinitions: async () => [] } as any,
+    );
+    const resolver = new EnvironmentResolverService(
+      loader,
+      activation as any,
+      readiness,
+      agentRegistry as any,
+      skillLoader,
+      mcpRegistry as any,
+    );
+
+    try {
+      const engineering = await loader.get('engineering', projectRoot);
+      assert(engineering);
+      assert(engineering.profiles.bugfix);
+
+      const profiled = await resolver.applyActiveScope(projectRoot);
+      assert.equal(profiled?.activeProfile, 'bugfix');
+
+      const scopedSkills = new Set(skillLoader.getAllSkills().map((skill) => skill.name));
+      assert(scopedSkills.has('test-driven-development'));
+      assert(scopedSkills.has('systematic-debugging'));
+      assert(!scopedSkills.has('subagent-driven-development'));
+
+      const prompt = await resolver.buildActiveEnvironmentPrompt(projectRoot);
+      assert.match(prompt, /- Profile: bugfix/);
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 function assertEnvironmentScope(

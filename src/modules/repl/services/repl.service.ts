@@ -760,6 +760,7 @@ export class ReplService {
   }
 
   private runLine(line: string): void {
+    this.isProcessing = true;
     void this.processLine(line);
   }
 
@@ -773,9 +774,8 @@ export class ReplService {
       }
     } finally {
       this.isBroadcasting = false;
-      if (!this.isProcessing) {
-        this.startNextQueuedLine();
-      }
+      this.isProcessing = false;
+      this.startNextQueuedLine();
       this.smartInput?.refresh();
     }
   }
@@ -997,7 +997,6 @@ export class ReplService {
   }
 
   private async handleMessage(message: string): Promise<void> {
-    this.isProcessing = true;
     this.abortController = new AbortController();
     this.smartInput?.refresh();
 
@@ -1017,7 +1016,6 @@ export class ReplService {
         );
 
         if (!usePlan) {
-          this.isProcessing = false;
           this.smartInput?.refresh();
           return;
         }
@@ -1025,7 +1023,6 @@ export class ReplService {
         if (usePlan === 'y') {
           const plannedMessage = await this.runInteractivePlanMode(message);
           if (!plannedMessage) {
-            this.isProcessing = false;
             this.smartInput?.refresh();
             return;
           }
@@ -1168,12 +1165,10 @@ export class ReplService {
         this.writeInline(`\r\n  ${Colors.red}Error${Colors.reset}  ${Colors.dim}${msg}${Colors.reset}\r\n\r\n`);
       }
     } finally {
-      this.isProcessing = false;
       this.abortController = null;
       if (!separatorWritten) {
         this.smartInput?.writeOutputLine(this.buildSeparatorLine());
       }
-      this.startNextQueuedLine();
       this.smartInput?.refresh();
     }
   }

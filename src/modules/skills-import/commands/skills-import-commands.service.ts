@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { SkillRisk } from '../../skills/types';
-import { HermesSkillDiscoveryService } from '../services/hermes-skill-discovery.service';
+import { SkillPackageDiscoveryService } from '../services/skill-package-discovery.service';
 import { SkillConverterService } from '../services/skill-converter.service';
 import { SkillDuplicateDetectorService } from '../services/skill-duplicate-detector.service';
 import { SkillEnvironmentClassifierService } from '../services/skill-environment-classifier.service';
@@ -22,7 +22,7 @@ const RISK_ORDER: SkillRisk[] = ['low', 'medium', 'high', 'critical'];
 @Injectable()
 export class SkillsImportCommandsService {
   constructor(
-    private readonly discovery: HermesSkillDiscoveryService,
+    private readonly discovery: SkillPackageDiscoveryService,
     private readonly scanner: SkillRiskScannerService,
     private readonly classifier: SkillEnvironmentClassifierService,
     private readonly converter: SkillConverterService,
@@ -32,10 +32,10 @@ export class SkillsImportCommandsService {
 
   async handle(args: string[]): Promise<SkillsImportCommandResult> {
     const [subcommand, repoPath, ...flags] = args;
-    if (subcommand !== 'import-hermes' || !repoPath) {
+    if (subcommand !== 'import' || !repoPath) {
       return {
         ok: false,
-        message: 'Usage: /skills import-hermes {path} --dry-run | --approve {skillName}',
+        message: 'Usage: /skills import {path} --dry-run | --approve {skillName}',
       };
     }
 
@@ -91,7 +91,7 @@ export class SkillsImportCommandsService {
   private async approveSkill(report: SkillsImportReport, skillName: string): Promise<SkillsImportCommandResult> {
     const item = report.items.find((candidate) => candidate.skill.name === skillName);
     if (!item) {
-      return { ok: false, message: `Skill "${skillName}" was not found in Hermes import.`, report };
+      return { ok: false, message: `Skill "${skillName}" was not found in the import report.`, report };
     }
 
     if (item.risk === 'critical') {
@@ -123,7 +123,7 @@ export class SkillsImportCommandsService {
   private formatReport(report: SkillsImportReport): string {
     const counts = RISK_ORDER.map((risk) => `${risk}=${report.countsByRisk[risk]}`).join(' ');
     const lines = [
-      `Hermes import dry-run: discovered=${report.discovered} ${counts}`,
+      `Skill import dry-run: discovered=${report.discovered} ${counts}`,
       'Skills:',
       ...report.items.map((item) => {
         const duplicate = item.duplicate.status === 'none' ? 'none' : item.duplicate.status;
@@ -159,6 +159,6 @@ export class SkillsImportCommandsService {
   }
 
   private slugify(name: string): string {
-    return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'hermes-skill';
+    return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'skill';
   }
 }

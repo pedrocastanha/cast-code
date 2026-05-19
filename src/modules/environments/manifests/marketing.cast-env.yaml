@@ -9,6 +9,7 @@ agents:
     - coder
   optional:
     - reviewer
+    - docs-writer
 skills:
   required:
     - planning
@@ -21,6 +22,31 @@ skills:
     - ideation
     - youtube-content
     - blogwatcher
+profiles:
+  campaign:
+    description: Create campaign strategy and channel-ready launch assets.
+    agents:
+      required:
+        - coder
+      optional:
+        - reviewer
+        - docs-writer
+    skills:
+      required:
+        - planning
+        - search
+        - marketing-campaign
+        - brand-voice
+        - ideation
+      optional:
+        - performance-analysis
+        - youtube-content
+    permissions:
+      defaultMode: read-only
+      requireApproval:
+        - ad_spend
+        - campaign_publish
+        - external_post
 mcp:
   recommended:
     - meta-ads

@@ -168,6 +168,11 @@ export class LocalSessionStoreService {
     }
 
     const safeLimit = Math.max(1, Math.min(limit, 100));
+    const ftsQuery = this.toFtsQuery(trimmed);
+    if (!ftsQuery) {
+      return [];
+    }
+
     try {
       const db = await this.dbService.getDb();
       const rows = db.prepare(`
@@ -176,7 +181,7 @@ export class LocalSessionStoreService {
         where local_state_fts match ?
         order by rank
         limit ?
-      `).all(trimmed, safeLimit) as any[];
+      `).all(ftsQuery, safeLimit) as any[];
 
       return rows.map((row) => ({
         kind: row.kind,
@@ -187,11 +192,21 @@ export class LocalSessionStoreService {
         createdAt: row.created_at,
       }));
     } catch (error) {
-      if (/fts5|syntax|unterminated|malformed/i.test(error instanceof Error ? error.message : String(error))) {
+      if (/fts5|syntax|unterminated|malformed|no such column/i.test(error instanceof Error ? error.message : String(error))) {
         return [];
       }
       throw error;
     }
+  }
+
+  private toFtsQuery(query: string): string {
+    const terms = query
+      .toLowerCase()
+      .match(/[a-z0-9_]+/g);
+    if (!terms || terms.length === 0) {
+      return '';
+    }
+    return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(' ');
   }
 
   async getSession(id: string): Promise<LocalSessionSummary | null> {

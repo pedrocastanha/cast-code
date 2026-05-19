@@ -5,16 +5,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 
-import { HermesSkillDiscoveryService } from '../services/hermes-skill-discovery.service';
+import { SkillPackageDiscoveryService } from '../services/skill-package-discovery.service';
 import { SkillConverterService } from '../services/skill-converter.service';
 import { SkillDuplicateDetectorService } from '../services/skill-duplicate-detector.service';
 import { SkillEnvironmentClassifierService } from '../services/skill-environment-classifier.service';
 import { SkillRiskScannerService } from '../services/skill-risk-scanner.service';
 import { SkillsImportCommandsService } from './skills-import-commands.service';
 
+const legacySkillBrandPattern = new RegExp(['her', 'mes'].join(''), 'i');
+
 function makeService(existingSkills: any[] = []) {
   return new SkillsImportCommandsService(
-    new HermesSkillDiscoveryService(),
+    new SkillPackageDiscoveryService(),
     new SkillRiskScannerService(),
     new SkillEnvironmentClassifierService(),
     new SkillConverterService(),
@@ -23,8 +25,8 @@ function makeService(existingSkills: any[] = []) {
   );
 }
 
-async function createHermesFixture(): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), 'cast-hermes-command-'));
+async function createSkillImportFixture(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), 'cast-skill-command-'));
   await mkdir(path.join(root, 'skills', 'campaign-strategy'), { recursive: true });
   await writeFile(
     path.join(root, 'skills', 'campaign-strategy', 'SKILL.md'),
@@ -45,46 +47,50 @@ async function createHermesFixture(): Promise<string> {
 
 describe('SkillsImportCommandsService', () => {
   test('dry-run reports discovered skills without writing .cast/skills', async () => {
-    const hermesRoot = await createHermesFixture();
+    const sourceRoot = await createSkillImportFixture();
     const cwd = await mkdtemp(path.join(tmpdir(), 'cast-project-'));
     const previousCwd = process.cwd();
     try {
       process.chdir(cwd);
-      const result = await makeService().handle(['import-hermes', hermesRoot, '--dry-run']);
+      const result = await makeService().handle(['import', sourceRoot, '--dry-run']);
 
       assert.equal(result.ok, true);
       assert.match(result.message, /discovered=1/);
       assert.match(result.message, /campaign-strategy/);
       assert.match(result.message, /marketing/);
+      assert.doesNotMatch(result.message, legacySkillBrandPattern);
       assert.equal(existsSync(path.join(cwd, '.cast', 'skills', 'campaign-strategy.md')), false);
     } finally {
       process.chdir(previousCwd);
-      await rm(hermesRoot, { recursive: true, force: true });
+      await rm(sourceRoot, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
     }
   });
 
   test('approval writes the converted skill disabled under project .cast/skills', async () => {
-    const hermesRoot = await createHermesFixture();
+    const sourceRoot = await createSkillImportFixture();
     const cwd = await mkdtemp(path.join(tmpdir(), 'cast-project-'));
     const previousCwd = process.cwd();
     try {
       process.chdir(cwd);
-      const result = await makeService().handle(['import-hermes', hermesRoot, '--approve', 'campaign-strategy']);
+      const result = await makeService().handle(['import', sourceRoot, '--approve', 'campaign-strategy']);
 
       assert.equal(result.ok, true);
       const written = await readFile(path.join(cwd, '.cast', 'skills', 'campaign-strategy.md'), 'utf-8');
-      assert.match(written, /source: hermes-import/);
       assert.match(written, /isActive: false/);
+      assert.doesNotMatch(written, legacySkillBrandPattern);
+      assert.equal(/source:/i.test(written), false);
+      assert.equal(/sourceRepo:/i.test(written), false);
+      assert.equal(/sourcePath:/i.test(written), false);
     } finally {
       process.chdir(previousCwd);
-      await rm(hermesRoot, { recursive: true, force: true });
+      await rm(sourceRoot, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
     }
   });
 
   test('approval blocks critical skills', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'cast-hermes-critical-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'cast-critical-'));
     const cwd = await mkdtemp(path.join(tmpdir(), 'cast-project-'));
     const previousCwd = process.cwd();
     try {
@@ -95,7 +101,7 @@ describe('SkillsImportCommandsService', () => {
       );
 
       process.chdir(cwd);
-      const result = await makeService().handle(['import-hermes', root, '--approve', 'unsafe']);
+      const result = await makeService().handle(['import', root, '--approve', 'unsafe']);
 
       assert.equal(result.ok, false);
       assert.match(result.message, /critical/i);

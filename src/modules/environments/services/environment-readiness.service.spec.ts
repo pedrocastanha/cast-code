@@ -18,6 +18,7 @@ const manifest: ResolvedCastEnvironmentManifest = {
   rag: { recommendedSources: ['brand-guide'] },
   benchmarks: { smoke: ['marketing-campaign-brief'] },
   schedules: { suggested: [] },
+  profiles: {},
 };
 
 describe('EnvironmentReadinessService', () => {

@@ -3,7 +3,8 @@ import type Database from 'better-sqlite3';
 
 type Migration = {
   name: string;
-  statements: string[];
+  statements?: string[];
+  run?: (db: Database.Database) => void;
 };
 
 @Injectable()
@@ -211,6 +212,15 @@ export class StateMigrationService {
         'create index if not exists idx_local_memory_project_filename on local_memory_entries(project_hash, filename)',
       ],
     },
+    {
+      name: '0007_environment_profiles',
+      run: (db) => {
+        const columns = db.prepare('pragma table_info(environment_activations)').all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'profile_id')) {
+          db.exec('alter table environment_activations add column profile_id text');
+        }
+      },
+    },
   ];
 
   apply(db: Database.Database): void {
@@ -225,9 +235,10 @@ export class StateMigrationService {
       }
 
       const run = db.transaction(() => {
-        for (const statement of migration.statements) {
+        for (const statement of migration.statements ?? []) {
           db.exec(statement);
         }
+        migration.run?.(db);
         markMigration.run(migration.name, new Date().toISOString());
       });
       run();

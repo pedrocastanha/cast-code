@@ -12,6 +12,8 @@ agents:
     - reviewer
     - tester
     - architect
+    - api-engineer
+    - database-engineer
 skills:
   required:
     - file-operations
@@ -24,6 +26,44 @@ skills:
     - test-driven-development
     - github-code-review
     - writing-plans
+profiles:
+  api:
+    description: Design, implement, and test backend API workflows.
+    agents:
+      required:
+        - backend
+        - coder
+        - api-engineer
+      optional:
+        - tester
+        - reviewer
+    skills:
+      required:
+        - file-operations
+        - search
+        - api-design
+        - rest-graphql-debug
+        - test-driven-development
+      optional:
+        - systematic-debugging
+        - github-code-review
+  database:
+    description: Work on database schema, migrations, and query behavior.
+    agents:
+      required:
+        - backend
+        - database-engineer
+      optional:
+        - coder
+        - reviewer
+    skills:
+      required:
+        - database-operations
+        - file-operations
+        - search
+      optional:
+        - test-driven-development
+        - systematic-debugging
 mcp:
   recommended:
     - github

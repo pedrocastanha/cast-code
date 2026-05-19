@@ -122,13 +122,23 @@ export class PlatformConfigService {
     return manifest.project?.environment;
   }
 
-  async writeProjectEnvironment(projectRoot: string, environmentId: string): Promise<void> {
+  async getProjectEnvironmentProfile(projectRoot: string): Promise<string | undefined> {
+    const manifest = await this.readManifest(projectRoot);
+    return manifest.project?.environmentProfile;
+  }
+
+  async writeProjectEnvironment(projectRoot: string, environmentId: string, profileId?: string): Promise<void> {
     const manifest = await this.readManifest(projectRoot);
     manifest.version = manifest.version || 1;
     manifest.project = {
       ...(manifest.project || {}),
       environment: environmentId,
     };
+    if (profileId) {
+      manifest.project.environmentProfile = profileId;
+    } else {
+      delete manifest.project.environmentProfile;
+    }
     await this.writeManifest(projectRoot, manifest);
   }
 

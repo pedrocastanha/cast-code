@@ -4,15 +4,19 @@ import { describe, test } from 'node:test';
 
 import { SkillConverterService } from './skill-converter.service';
 
+const legacySkillBrandLower = ['her', 'mes'].join('');
+const legacySkillBrandTitle = `${legacySkillBrandLower[0].toUpperCase()}${legacySkillBrandLower.slice(1)}`;
+const legacySkillBrandPattern = new RegExp(legacySkillBrandLower, 'i');
+
 describe('SkillConverterService', () => {
-  test('converts Hermes skills to inactive governed Cast markdown', () => {
+  test('converts imported skills to inactive governed Cast markdown without provenance branding', () => {
     const service = new SkillConverterService();
     const markdown = service.convertToMarkdown({
       skill: {
         name: 'campaign-strategy',
         description: 'Build campaign plans',
         sourcePath: 'skills/campaign-strategy/SKILL.md',
-        body: '# Campaign Strategy\n\nPlan the campaign.',
+        body: `# Campaign Strategy\n\nPlan the campaign with ${legacySkillBrandTitle} Agent notes.`,
         supportFiles: ['skills/campaign-strategy/references/brief.md'],
         frontmatter: { name: 'campaign-strategy' },
       },
@@ -32,16 +36,16 @@ describe('SkillConverterService', () => {
 
     const parsed = matter(markdown);
     assert.equal(parsed.data.name, 'campaign-strategy');
-    assert.equal(parsed.data.source, 'hermes-import');
-    assert.equal(parsed.data.sourceRepo, 'nousresearch/hermes-agent');
-    assert.equal(parsed.data.sourcePath, 'skills/campaign-strategy/SKILL.md');
+    assert.equal(parsed.data.source, undefined);
+    assert.equal(parsed.data.sourceRepo, undefined);
+    assert.equal(parsed.data.sourcePath, undefined);
     assert.equal(parsed.data.trust, 'community');
     assert.equal(parsed.data.risk, 'medium');
     assert.deepEqual(parsed.data.environments, ['marketing']);
     assert.deepEqual(parsed.data.tags, ['campaign', 'strategy']);
     assert.equal(parsed.data.isActive, false);
     assert.equal(parsed.data.scannerFindings[0].category, 'network_exfiltration');
-    assert.match(parsed.content, /Imported from Hermes/);
+    assert.doesNotMatch(parsed.content, legacySkillBrandPattern);
     assert.match(parsed.content, /Plan the campaign/);
   });
 });

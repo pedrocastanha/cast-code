@@ -1,0 +1,12 @@
+{
+  "id": "frontend-vite-dashboard",
+  "environment": "frontend",
+  "profile": "ui-build",
+  "prompt": "Create a React/Vite task dashboard with responsive UI and tests.",
+  "expectedSkills": ["frontend-bootstrap", "react-patterns", "popular-web-designs"],
+  "forbiddenSkills": ["oss-forensics", "docker-management"],
+  "expectedAgents": ["frontend-ui-engineer"],
+  "expectedFiles": ["src/App.tsx", "src/App.test.tsx"],
+  "commands": ["npm test", "npm run build"],
+  "graders": ["environment-scope", "artifact-contract"]
+}
