@@ -45,6 +45,8 @@ const buildService = (overrides: Record<string, any> = {}) => {
       bootstrap: async () => {},
     },
     localSessionStore: undefined,
+    environmentResolver: undefined,
+    agentRunService: undefined,
     ...overrides,
   };
 
@@ -68,6 +70,8 @@ const buildService = (overrides: Record<string, any> = {}) => {
     deps.promptClassifier as any,
     deps.platformService as any,
     deps.localSessionStore as any,
+    deps.environmentResolver as any,
+    deps.agentRunService as any,
   );
 };
 
@@ -773,6 +777,321 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     assert.match(output, /agent reviewer/);
     assert.match(output, /Review plan-mode behavior/);
     assert.doesNotMatch(output, /subagent_type=reviewer/);
+  });
+
+  test('records delegated task tool calls as agent runs', async () => {
+    const calls: any[] = [];
+    const agentRunService = {
+      createRun: (input: any) => {
+        calls.push(['create', input]);
+        return {
+          id: 'agent-run-1',
+          parentRunId: 'root',
+          status: 'queued',
+          artifacts: [],
+          errors: [],
+          ...input,
+        };
+      },
+      startRun: (id: string) => calls.push(['start', id]),
+      completeRun: (id: string, artifacts: any[]) => calls.push(['complete', id, artifacts]),
+      failRun: (id: string, error: any) => calls.push(['fail', id, error]),
+    };
+    const service = buildService({ agentRunService });
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield {
+          event: 'on_tool_start',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: {
+            input: {
+              subagent_type: 'reviewer',
+              description: 'Review the proposed patch in parallel',
+            },
+          },
+        };
+        yield {
+          event: 'on_tool_end',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { output: 'Reviewer found no issues.' },
+        };
+        yield { event: 'on_chat_model_stream', data: { chunk: { content: 'Done.' } } };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    assert.match(chunks.join(''), /agent reviewer/);
+    assert.deepEqual(calls.map(([kind]) => kind), ['create', 'start', 'complete']);
+    assert.equal(calls[0][1].agentName, 'reviewer');
+    assert.equal(calls[0][1].task, 'Review the proposed patch in parallel');
+    assert.equal(calls[0][1].inputContract.prompt, 'Review the proposed patch in parallel');
+    assert.deepEqual(calls[0][1].inputContract.requiredSkills, []);
+    assert.equal(calls[1][1], 'agent-run-1');
+    assert.equal(calls[2][1], 'agent-run-1');
+    assert.equal(calls[2][2][0].kind, 'handoff');
+    assert.match(calls[2][2][0].content, /Reviewer found no issues/);
+  });
+
+  test('records wrapped delegated task tool inputs as named agent runs', async () => {
+    const calls: any[] = [];
+    const agentRunService = {
+      createRun: (input: any) => {
+        calls.push(['create', input]);
+        return {
+          id: 'agent-run-1',
+          parentRunId: 'root',
+          status: 'queued',
+          artifacts: [],
+          errors: [],
+          ...input,
+        };
+      },
+      startRun: (id: string) => calls.push(['start', id]),
+      completeRun: (id: string, artifacts: any[]) => calls.push(['complete', id, artifacts]),
+    };
+    const service = buildService({ agentRunService });
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield {
+          event: 'on_tool_start',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: {
+            input: {
+              input: JSON.stringify({
+                subagent_type: 'backend',
+                description: 'Inspect runtime implementation in parallel',
+              }),
+            },
+          },
+        };
+        yield {
+          event: 'on_tool_end',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { output: 'Backend runtime is covered.' },
+        };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    assert.match(chunks.join(''), /agent backend/);
+    assert.match(chunks.join(''), /Inspect runtime implementation/);
+    assert.equal(calls[0][1].agentName, 'backend');
+    assert.equal(calls[0][1].task, 'Inspect runtime implementation in parallel');
+    assert.match(calls[2][2][0].content, /Backend runtime is covered/);
+  });
+
+  test('hydrates delegated task runs from pending OpenAI tool call arguments', async () => {
+    const calls: any[] = [];
+    const agentRunService = {
+      createRun: (input: any) => {
+        calls.push(['create', input]);
+        return {
+          id: 'agent-run-1',
+          parentRunId: 'root',
+          status: 'queued',
+          artifacts: [],
+          errors: [],
+          ...input,
+        };
+      },
+      startRun: (id: string) => calls.push(['start', id]),
+      completeRun: (id: string, artifacts: any[]) => calls.push(['complete', id, artifacts]),
+    };
+    const service = buildService({ agentRunService });
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield {
+          event: 'on_chat_model_end',
+          data: {
+            output: {
+              kwargs: {
+                additional_kwargs: {
+                  tool_calls: [{
+                    type: 'function',
+                    function: {
+                      name: 'task',
+                      arguments: JSON.stringify({
+                        subagent_type: 'tester',
+                        description: 'Inspect observability and test gaps',
+                      }),
+                    },
+                  }],
+                },
+              },
+            },
+          },
+        };
+        yield {
+          event: 'on_tool_start',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { input: {} },
+        };
+        yield {
+          event: 'on_tool_end',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { output: 'Test coverage is acceptable.' },
+        };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    assert.match(chunks.join(''), /agent tester/);
+    assert.equal(calls[0][1].agentName, 'tester');
+    assert.equal(calls[0][1].task, 'Inspect observability and test gaps');
+    assert.match(calls[2][2][0].content, /Test coverage is acceptable/);
+  });
+
+  test('hydrates delegated task runs from pending LangChain parsed tool calls', async () => {
+    const calls: any[] = [];
+    const agentRunService = {
+      createRun: (input: any) => {
+        calls.push(['create', input]);
+        return {
+          id: 'agent-run-1',
+          parentRunId: 'root',
+          status: 'queued',
+          artifacts: [],
+          errors: [],
+          ...input,
+        };
+      },
+      startRun: (id: string) => calls.push(['start', id]),
+      completeRun: (id: string, artifacts: any[]) => calls.push(['complete', id, artifacts]),
+    };
+    const service = buildService({ agentRunService });
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield {
+          event: 'on_chat_model_end',
+          data: {
+            output: {
+              kwargs: {
+                tool_calls: [{
+                  id: 'call_1',
+                  type: 'tool_call',
+                  name: 'task',
+                  args: {
+                    subagent_type: 'architect',
+                    description: 'Inspect runtime orchestration boundaries',
+                  },
+                }],
+              },
+            },
+          },
+        };
+        yield {
+          event: 'on_tool_start',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { input: {} },
+        };
+        yield {
+          event: 'on_tool_end',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { output: 'Runtime boundaries are clear.' },
+        };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    for await (const _chunk of service.chat('run it')) {}
+
+    assert.equal(calls[0][1].agentName, 'architect');
+    assert.equal(calls[0][1].task, 'Inspect runtime orchestration boundaries');
+    assert.match(calls[2][2][0].content, /Runtime boundaries are clear/);
+  });
+
+  test('hydrates delegated task runs from pending legacy OpenAI tool call arguments', async () => {
+    const calls: any[] = [];
+    const agentRunService = {
+      createRun: (input: any) => {
+        calls.push(['create', input]);
+        return {
+          id: 'agent-run-1',
+          parentRunId: 'root',
+          status: 'queued',
+          artifacts: [],
+          errors: [],
+          ...input,
+        };
+      },
+      startRun: (id: string) => calls.push(['start', id]),
+      completeRun: (id: string, artifacts: any[]) => calls.push(['complete', id, artifacts]),
+    };
+    const service = buildService({ agentRunService });
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield {
+          event: 'on_chat_model_end',
+          data: {
+            output: {
+              additional_kwargs: {
+                tool_calls: [{
+                  type: 'function',
+                  function: {
+                    name: 'task',
+                    arguments: JSON.stringify({
+                      subagent_type: 'reviewer',
+                      description: 'Review fallback compatibility',
+                    }),
+                  },
+                }],
+              },
+            },
+          },
+        };
+        yield {
+          event: 'on_tool_start',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { input: {} },
+        };
+        yield {
+          event: 'on_tool_end',
+          name: 'task',
+          run_id: 'task-tool-run-1',
+          data: { output: 'Test coverage is acceptable.' },
+        };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    assert.match(chunks.join(''), /agent reviewer/);
+    assert.equal(calls[0][1].agentName, 'reviewer');
+    assert.equal(calls[0][1].task, 'Review fallback compatibility');
+    assert.match(calls[2][2][0].content, /Test coverage is acceptable/);
   });
 
   test('tool start output uses readable labels for skill discovery tools', () => {

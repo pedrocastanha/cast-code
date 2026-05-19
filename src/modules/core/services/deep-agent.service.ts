@@ -34,6 +34,8 @@ import { PromptClassifierService, PromptLayer } from './prompt-classifier.servic
 import { PlatformService } from '../../platform/services/platform.service';
 import { LocalSessionStoreService } from '../../state/services/local-session-store.service';
 import { EnvironmentResolverService } from '../../environments/services/environment-resolver.service';
+import { AgentRunService } from '../../agents/services/agent-run.service';
+import { AgentRun } from '../../agents/types/agent-runtime.types';
 import { ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT } from '../../../common/constants';
 
 const SUMMARIZE_THRESHOLD = 40;
@@ -231,6 +233,8 @@ export class DeepAgentService {
     private readonly localSessionStore?: LocalSessionStoreService,
     @Optional()
     private readonly environmentResolver?: EnvironmentResolverService,
+    @Optional()
+    private readonly agentRunService?: AgentRunService,
   ) {
     this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
       this.pendingContextRefresh = true;
@@ -1562,11 +1566,12 @@ export class DeepAgentService {
       if (input?.topK) detail += ` topK=${input.topK}`;
       break;
     case 'task': {
-      const agentName = input?.subagent_type || input?.agent || input?.name;
-      const description = input?.description || input?.task || input?.prompt;
+      const taskInput = this.normalizeDelegatedTaskInput(input);
+      const agentName = this.getDelegatedAgentName(taskInput);
+      const description = this.getDelegatedAgentTask(taskInput);
       detail = agentName ? ` agent ${agentName}` : '';
-      if (description) {
-        const text = String(description);
+      if (description && description !== 'Delegated sub-agent task') {
+        const text = description;
         detail += ` "${text.slice(0, 80)}${text.length > 80 ? '...' : ''}"`;
       }
       break;
@@ -1872,6 +1877,177 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     return value.length <= max ? value : `${value.slice(0, max)}...`;
   }
 
+  private isDelegationTool(toolName?: string): boolean {
+    return toolName === 'task';
+  }
+
+  private normalizeDelegatedTaskInput(input: any): any {
+    let current = input;
+    for (let i = 0; i < 4; i += 1) {
+      if (typeof current === 'string') {
+        const trimmed = current.trim();
+        if (!trimmed) {
+          return {};
+        }
+        try {
+          current = JSON.parse(trimmed);
+          continue;
+        } catch {
+          return { description: trimmed };
+        }
+      }
+
+      if (!current || typeof current !== 'object') {
+        return {};
+      }
+
+      if (
+        current.subagent_type
+        || current.subagentType
+        || current.subagent
+        || current.subagent_name
+        || current.agent
+        || current.name
+        || current.description
+        || current.task
+        || current.prompt
+      ) {
+        return current;
+      }
+
+      if (current.input !== undefined) {
+        current = current.input;
+        continue;
+      }
+      if (current.args !== undefined) {
+        current = current.args;
+        continue;
+      }
+      if (current.arguments !== undefined) {
+        current = current.arguments;
+        continue;
+      }
+
+      return current;
+    }
+
+    return current && typeof current === 'object' ? current : {};
+  }
+
+  private getDelegatedAgentName(input: any): string {
+    const normalized = this.normalizeDelegatedTaskInput(input);
+    const value = normalized?.subagent_type
+      || normalized?.subagentType
+      || normalized?.subagent
+      || normalized?.subagent_name
+      || normalized?.agent
+      || normalized?.name;
+    const name = String(value || 'subagent').trim();
+    return name || 'subagent';
+  }
+
+  private getDelegatedAgentTask(input: any): string {
+    const normalized = this.normalizeDelegatedTaskInput(input);
+    const value = normalized?.description || normalized?.task || normalized?.prompt;
+    const task = String(value || 'Delegated sub-agent task').trim();
+    return task || 'Delegated sub-agent task';
+  }
+
+  private startDelegatedAgentRun(input: any): AgentRun | undefined {
+    if (!this.agentRunService) {
+      return undefined;
+    }
+
+    const taskInput = this.normalizeDelegatedTaskInput(input);
+    const agentName = this.getDelegatedAgentName(taskInput);
+    const task = this.getDelegatedAgentTask(taskInput);
+    const run = this.agentRunService.createRun({
+      agentName,
+      task,
+      inputContract: {
+        prompt: task,
+        fileOwnership: [],
+        toolScope: [],
+        requiredSkills: [],
+        expectedOutput: {
+          kind: 'custom',
+          requiredSections: ['Result'],
+        },
+        acceptanceCriteria: ['Return a focused sub-agent result to the main agent.'],
+      },
+    });
+    this.agentRunService.startRun(run.id);
+    return run;
+  }
+
+  private completeDelegatedAgentRun(runId: string | undefined, output: string): void {
+    if (!runId || !this.agentRunService) {
+      return;
+    }
+
+    this.agentRunService.completeRun(runId, [{
+      kind: 'handoff',
+      title: 'Sub-agent result',
+      content: this.redactSensitiveText(this.truncateText(output || 'No output returned.', 4000)),
+    }]);
+  }
+
+  private failDelegatedAgentRun(runId: string | undefined, error: unknown): void {
+    if (!runId || !this.agentRunService) {
+      return;
+    }
+
+    const message = error instanceof Error
+      ? error.message
+      : String((error as any)?.message || 'Unknown error');
+    this.agentRunService.failRun(runId, {
+      message: this.redactSensitiveText(this.truncateText(message, 1200)),
+      recoverable: true,
+    });
+  }
+
+  private extractPendingToolCall(toolCall: any): { name: string; input: any } | undefined {
+    const rawName = toolCall?.name || toolCall?.function?.name || toolCall?.tool_name;
+    if (!rawName) {
+      return undefined;
+    }
+
+    const rawArgs = toolCall?.args
+      ?? toolCall?.arguments
+      ?? toolCall?.function?.arguments
+      ?? toolCall?.input;
+
+    if (typeof rawArgs === 'string') {
+      const trimmed = rawArgs.trim();
+      if (!trimmed) {
+        return { name: String(rawName), input: {} };
+      }
+      try {
+        return { name: String(rawName), input: JSON.parse(trimmed) };
+      } catch {
+        return undefined;
+      }
+    }
+
+    return {
+      name: String(rawName),
+      input: rawArgs && typeof rawArgs === 'object' ? rawArgs : {},
+    };
+  }
+
+  private getPendingToolCallsFromOutput(output: any): any[] {
+    const candidates = [
+      output?.tool_calls,
+      output?.additional_kwargs?.tool_calls,
+      output?.kwargs?.tool_calls,
+      output?.kwargs?.additional_kwargs?.tool_calls,
+      output?.lc_kwargs?.tool_calls,
+      output?.lc_kwargs?.additional_kwargs?.tool_calls,
+    ];
+
+    return candidates.flatMap((toolCalls) => Array.isArray(toolCalls) ? toolCalls : []);
+  }
+
   private redactSensitiveText(value: string): string {
     return value
       .replace(/\b(?:sk|csk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g, '[REDACTED_KEY]')
@@ -1965,6 +2141,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     let leanResponseBuffer = '';
     const pendingToolInputs: { name: string; input: any }[] = [];
     const activeLocalToolCalls = new Map<string, { name: string; input: unknown; startedAt: number }>();
+    const activeDelegatedAgentRuns = new Map<string, string>();
     let localToolSequence = 0;
     let lastLocalToolKey = '';
 
@@ -2003,13 +2180,10 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             interactionOutputTokens += extracted.output;
             interactionCachedInputTokens += extracted.cachedInput;
           }
-          const toolCalls = output?.tool_calls ?? output?.additional_kwargs?.tool_calls;
-          if (Array.isArray(toolCalls)) {
-            for (const tc of toolCalls) {
-              try {
-                const args = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args;
-                pendingToolInputs.push({ name: tc.name, input: args });
-              } catch {}
+          for (const tc of this.getPendingToolCallsFromOutput(output)) {
+            const pending = this.extractPendingToolCall(tc);
+            if (pending) {
+              pendingToolInputs.push(pending);
             }
           }
         }
@@ -2030,10 +2204,23 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             input: toolInput,
             startedAt: Date.now(),
           });
+          if (this.isDelegationTool(event.name)) {
+            const run = this.startDelegatedAgentRun(toolInput);
+            if (run) {
+              activeDelegatedAgentRuns.set(lastLocalToolKey, run.id);
+            }
+          }
           yield this.formatToolStart(event.name, toolInput);
         }
 
         if (event.event === 'on_tool_end') {
+          const localToolKey = String(event.run_id ?? lastLocalToolKey);
+          const localTool = activeLocalToolCalls.get(localToolKey) ?? {
+            name: event.name || lastToolName,
+            input: undefined,
+            startedAt: Date.now(),
+          };
+          const toolName = localTool.name || event.name || lastToolName || 'tool';
           const raw = event.data?.output;
           let output = '';
           if (typeof raw === 'string') {
@@ -2046,18 +2233,16 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             output = typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
           }
           if (output) {
-            this.lastToolOutputs.push({ tool: lastToolName, output });
-            yield this.formatToolEnd(lastToolName, output);
+            this.lastToolOutputs.push({ tool: toolName, output });
+            yield this.formatToolEnd(toolName, output);
           }
-          const localToolKey = String(event.run_id ?? lastLocalToolKey);
-          const localTool = activeLocalToolCalls.get(localToolKey) ?? {
-            name: event.name || lastToolName,
-            input: undefined,
-            startedAt: Date.now(),
-          };
           activeLocalToolCalls.delete(localToolKey);
+          if (this.isDelegationTool(toolName)) {
+            this.completeDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), output);
+            activeDelegatedAgentRuns.delete(localToolKey);
+          }
           this.recordLocalToolCall({
-            toolName: localTool.name || lastToolName || 'tool',
+            toolName,
             inputRedacted: this.serializeForLocalState(localTool.input),
             outputPreview: output,
             status: 'ok',
@@ -2073,9 +2258,14 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             input: undefined,
             startedAt: Date.now(),
           };
+          const toolName = localTool.name || event.name || lastToolName || 'tool';
           activeLocalToolCalls.delete(localToolKey);
+          if (this.isDelegationTool(toolName)) {
+            this.failDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), error);
+            activeDelegatedAgentRuns.delete(localToolKey);
+          }
           this.recordLocalToolCall({
-            toolName: localTool.name || lastToolName || 'tool',
+            toolName,
             inputRedacted: this.serializeForLocalState(localTool.input),
             outputPreview: error?.message || 'Unknown error',
             status: 'error',
