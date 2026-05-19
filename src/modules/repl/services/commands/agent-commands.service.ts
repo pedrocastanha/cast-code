@@ -6,6 +6,9 @@ import { SkillRegistryService } from '../../../skills/services/skill-registry.se
 import { SkillSearchService } from '../../../skills/services/skill-search.service';
 import { SkillsImportCommandsService } from '../../../skills-import/commands/skills-import-commands.service';
 import { ISmartInput } from '../smart-input';
+import { AgentRunService } from '../../../agents/services/agent-run.service';
+import { SkillReloadService } from '../../../skills/services/skill-reload.service';
+import { SkillScopeResolverService } from '../../../skills/services/skill-scope-resolver.service';
 
 @Injectable()
 export class AgentCommandsService {
@@ -16,6 +19,9 @@ export class AgentCommandsService {
     private readonly skillRegistry: SkillRegistryService,
     @Optional() private readonly skillsImportCommands?: SkillsImportCommandsService,
     @Optional() private readonly skillSearch?: SkillSearchService,
+    @Optional() private readonly agentRunService?: AgentRunService,
+    @Optional() private readonly skillReloadService?: SkillReloadService,
+    @Optional() private readonly skillScopeResolver?: SkillScopeResolverService,
   ) {}
 
   async cmdAgents(args: string[], smartInput: ISmartInput): Promise<void> {
@@ -54,6 +60,81 @@ export class AgentCommandsService {
 
     if (sub === 'create') {
       await this.createAgentWizard(smartInput);
+      return;
+    }
+
+    if (sub === 'runs') {
+      const runs = this.agentRunService?.listRuns() || [];
+      w(this.ui.panel({
+        title: 'Agent Runs',
+        subtitle: `${runs.length} recorded`,
+        sections: [
+          {
+            lines: runs.length === 0
+              ? [colorize('No agent runs recorded in this session.', 'muted')]
+              : runs.map((run) => `${colorize(Icons.bullet, 'primary')} ${colorize(run.id, 'cyan')}  ${run.agentName}  ${colorize(run.status, run.status === 'completed' ? 'success' : 'muted')}  ${colorize(run.task, 'muted')}`),
+          },
+        ],
+        footer: '/agents show <run-id> shows details.',
+      }));
+      return;
+    }
+
+    if (sub === 'show') {
+      const runId = args[1];
+      if (!runId) {
+        w(this.ui.error('Usage: /agents show <run-id>'));
+        return;
+      }
+      const run = this.agentRunService?.getRun(runId);
+      if (!run) {
+        w(this.ui.error(`Agent run "${runId}" not found.`));
+        return;
+      }
+      w(this.ui.panel({
+        title: 'Agent Run',
+        subtitle: run.id,
+        sections: [
+          {
+            rows: [
+              { label: 'Agent', value: colorize(run.agentName, 'cyan') },
+              { label: 'Status', value: colorize(run.status, run.status === 'completed' ? 'success' : 'muted') },
+              { label: 'Task', value: run.task },
+              { label: 'Parent', value: colorize(run.parentRunId, 'subtle') },
+              { label: 'Duration', value: run.durationMs != null ? `${run.durationMs}ms` : colorize('n/a', 'subtle') },
+            ],
+          },
+          {
+            title: 'Skills',
+            lines: run.skills.length
+              ? run.skills.map((skill) => `${colorize(Icons.bullet, 'accent')} ${skill.name} ${colorize(`[${skill.scope}@${skill.version}]`, 'subtle')}`)
+              : [colorize('No skills recorded.', 'muted')],
+          },
+          {
+            title: 'Tools',
+            lines: run.tools.length
+              ? run.tools.map((tool) => `${colorize(Icons.bullet, 'primary')} ${tool.name} ${colorize(`[${tool.reason}]`, 'subtle')}`)
+              : [colorize('No tools recorded.', 'muted')],
+          },
+          {
+            title: 'Artifacts',
+            lines: run.artifacts.length
+              ? run.artifacts.map((artifact) => `${colorize(Icons.bullet, 'success')} ${artifact.title}: ${artifact.content}`)
+              : [colorize('No artifacts recorded.', 'muted')],
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (sub === 'cancel') {
+      const runId = args[1];
+      if (!runId) {
+        w(this.ui.error('Usage: /agents cancel <run-id>'));
+        return;
+      }
+      const run = this.agentRunService?.cancelRun(runId);
+      w(run ? this.ui.success(`Agent run ${run.id} is ${run.status}.`) : this.ui.error(`Agent run "${runId}" not found.`));
       return;
     }
 
@@ -132,6 +213,43 @@ export class AgentCommandsService {
       return;
     }
 
+    if (sub === 'reload') {
+      if (!this.skillReloadService) {
+        w(this.ui.error('Skill reload is not available in this build.'));
+        return;
+      }
+      const result = args.includes('--all')
+        ? await this.skillReloadService.reloadAll({ projectRoot: process.cwd() })
+        : await this.skillReloadService.reloadSkill(args[1], { projectRoot: process.cwd() });
+      const lines = [
+        result.message,
+        ...result.records.slice(0, 10).map((record) => `${record.name} ${record.scope}@${record.version} ${record.status}`),
+        ...result.warnings.map((warning) => `Warning: ${warning}`),
+        ...result.errors.map((error) => `Error: ${error}`),
+      ];
+      w(result.ok
+        ? this.ui.panel({ title: 'Skill Reload', sections: [{ lines }] })
+        : this.ui.error(lines.join('\n')));
+      return;
+    }
+
+    if (sub === 'conflicts') {
+      const skills = this.skillRegistry.getAllUnscopedSkills?.() || this.skillRegistry.getAllSkills();
+      const conflicts = this.skillScopeResolver?.getConflicts(skills, { projectRoot: process.cwd() }) || [];
+      w(this.ui.panel({
+        title: 'Skill Conflicts',
+        subtitle: `${conflicts.length} found`,
+        sections: [
+          {
+            lines: conflicts.length === 0
+              ? [colorize('No skill name or alias conflicts found.', 'muted')]
+              : conflicts.map((conflict) => `${colorize(Icons.bullet, 'warning')} ${conflict.alias}: ${conflict.records.map((record) => `${record.name} (${record.scope})`).join(', ')}`),
+          },
+        ],
+      }));
+      return;
+    }
+
     if (sub === 'create') {
       await this.createSkillWizard(smartInput);
       return;
@@ -146,6 +264,33 @@ export class AgentCommandsService {
       const skill = this.skillRegistry.getSkillDefinition(name, { includeInactive: true });
       if (!skill) {
         w(this.ui.error(`Skill "${name}" not found. Run /skills to see available skills.`));
+        return;
+      }
+
+      if (args.includes('--effective')) {
+        const skills = this.skillRegistry.getAllUnscopedSkills?.() || this.skillRegistry.getAllSkills();
+        const record = this.skillScopeResolver?.resolveSkill(name, skills, { projectRoot: process.cwd() });
+        if (!record) {
+          w(this.ui.error(`Effective skill "${name}" not found.`));
+          return;
+        }
+        w(this.ui.panel({
+          title: 'Skill Effective',
+          subtitle: record.name,
+          sections: [
+            {
+              rows: [
+                { label: 'Description', value: record.description || colorize('none', 'subtle') },
+                { label: 'Scope', value: colorize(record.scope, 'cyan') },
+                { label: 'Status', value: colorize(record.status, record.status === 'active' ? 'success' : 'warning') },
+                { label: 'Version', value: colorize(record.version, 'cyan') },
+                { label: 'Source', value: record.sourcePath || colorize('none', 'subtle') },
+                { label: 'Aliases', value: record.aliases.length ? record.aliases.join(', ') : colorize('none', 'subtle') },
+                { label: 'Shadows', value: record.shadows.length ? record.shadows.map((item) => `${item.name} (${item.scope})`).join(', ') : colorize('none', 'subtle') },
+              ],
+            },
+          ],
+        }));
         return;
       }
 

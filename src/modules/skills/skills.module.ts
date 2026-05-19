@@ -5,10 +5,15 @@ import { SkillAssetService } from './services/skill-asset.service';
 import { SkillRuntimeToolsService } from './services/skill-runtime-tools.service';
 import { SkillMetadataIndexService } from './services/skill-metadata-index.service';
 import { SkillSearchService } from './services/skill-search.service';
+import { SkillReloadService } from './services/skill-reload.service';
+import { SkillScopeResolverService } from './services/skill-scope-resolver.service';
+import { SkillValidationService } from './services/skill-validation.service';
+import { SkillVersionService } from './services/skill-version.service';
 import { ToolsModule } from '../tools/tools.module';
+import { TraceModule } from '../trace/trace.module';
 
 @Module({
-  imports: [forwardRef(() => ToolsModule)],
+  imports: [forwardRef(() => ToolsModule), TraceModule],
   providers: [
     SkillLoaderService,
     SkillRegistryService,
@@ -16,6 +21,10 @@ import { ToolsModule } from '../tools/tools.module';
     SkillRuntimeToolsService,
     SkillMetadataIndexService,
     SkillSearchService,
+    SkillVersionService,
+    SkillScopeResolverService,
+    SkillValidationService,
+    SkillReloadService,
   ],
   exports: [
     SkillLoaderService,
@@ -24,6 +33,10 @@ import { ToolsModule } from '../tools/tools.module';
     SkillRuntimeToolsService,
     SkillMetadataIndexService,
     SkillSearchService,
+    SkillVersionService,
+    SkillScopeResolverService,
+    SkillValidationService,
+    SkillReloadService,
   ],
 })
 export class SkillsModule {}

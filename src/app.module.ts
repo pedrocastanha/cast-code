@@ -20,6 +20,7 @@ import { EnvironmentModule } from './modules/environments/environment.module';
 import { SkillsImportModule } from './modules/skills-import/skills-import.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SandboxModule } from './modules/sandbox/sandbox.module';
+import { TraceModule } from './modules/trace/trace.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { SandboxModule } from './modules/sandbox/sandbox.module';
     SkillsImportModule,
     SchedulerModule,
     SandboxModule,
+    TraceModule,
   ],
 })
 export class AppModule {}
