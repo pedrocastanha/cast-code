@@ -34,7 +34,16 @@ export type TraceEventType =
   | 'memory.read'
   | 'memory.written'
   | 'error.raised'
-  | 'eval.observed';
+  | 'eval.observed'
+  | 'swarm.plan.created'
+  | 'swarm.plan.approved'
+  | 'swarm.run.started'
+  | 'swarm.task.started'
+  | 'swarm.task.completed'
+  | 'swarm.task.failed'
+  | 'swarm.integration.applied'
+  | 'swarm.integration.manual_review_required'
+  | 'swarm.run.completed';
 
 export interface TraceContext {
   sessionId: string;
