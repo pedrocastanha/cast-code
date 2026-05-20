@@ -44,6 +44,7 @@ import { EnvironmentCommandsService } from '../../environments/commands/environm
 import { ScheduleCommandsService } from '../../scheduler/commands/schedule-commands.service';
 import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.service';
 import { BridgeCommandsService } from '../../bridge/commands/bridge-commands.service';
+import { SwarmCommandsService } from '../../swarm/commands/swarm-commands.service';
 import type { BridgeToolCall, BridgeToolResult } from '../../bridge/types/bridge.types';
 import { CommandUiService } from './command-ui.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
@@ -111,6 +112,8 @@ export class ReplService {
     private readonly sessionsCommands?: SessionsCommandsService,
     @Optional()
     private readonly bridgeCommands?: BridgeCommandsService,
+    @Optional()
+    private readonly swarmCommands?: SwarmCommandsService,
   ) {
     this.benchmarkCommands?.setAgentExecutor?.(this.deepAgent as any);
     this.environmentCommands?.setAgentRefresh?.(this.deepAgent as any);
@@ -353,6 +356,7 @@ export class ReplService {
       benchmark: 'Run local Benchmark Lab commands',
       env: 'List, activate, or inspect Cast environments',
       schedule: 'Manage local scheduled benchmark and environment jobs',
+      swarm: 'Plan and run multi-agent Agent Swarm work',
       sandbox: 'Manage sandbox checkpoints and rollbacks',
     };
     return descriptions[cmd] || 'Run an existing Cast slash command';
@@ -449,6 +453,11 @@ export class ReplService {
       { text: '/benchmark', display: '/benchmark', description: 'Local Benchmark Lab' },
       { text: '/env', display: '/env', description: 'Cast environments' },
       { text: '/schedule', display: '/schedule', description: 'Local schedulers' },
+      { text: '/swarm', display: '/swarm', description: 'Agent Swarm plans' },
+      { text: '/swarm plan', display: '/swarm plan', description: 'Generate swarm plan' },
+      { text: '/swarm run', display: '/swarm run', description: 'Execute swarm run' },
+      { text: '/swarm run --dry-run', display: '/swarm run --dry-run', description: 'Dry-run swarm workers' },
+      { text: '/swarm integrate', display: '/swarm integrate', description: 'Integrate swarm patches' },
       { text: '/sandbox', display: '/sandbox', description: 'Sandbox checkpoints' },
       { text: '/bridge', display: '/bridge', description: 'Control provider bridge' },
     ];
@@ -776,6 +785,8 @@ export class ReplService {
     try {
       if (line.startsWith('/')) {
         await this.handleCommand(line);
+      } else if (await this.maybeOfferSwarm(line)) {
+        return;
       } else if (this.bridgeCommands?.isConnected()) {
         await this.handleBridgePrompt(line);
       } else {
@@ -786,6 +797,20 @@ export class ReplService {
       this.isProcessing = false;
       this.startNextQueuedLine();
       this.smartInput?.refresh();
+    }
+  }
+
+  private async maybeOfferSwarm(message: string): Promise<boolean> {
+    if (!this.swarmCommands?.offerForPrompt) {
+      return false;
+    }
+
+    try {
+      return await this.swarmCommands.offerForPrompt(message, this.smartInput ?? undefined);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      process.stdout.write(this.ui.warning(`Agent Swarm suggestion skipped: ${msg}`));
+      return false;
     }
   }
 
@@ -988,6 +1013,13 @@ export class ReplService {
       }
       const bridgeOutput = await this.bridgeCommands.cmdBridge(args, process.cwd(), this.smartInput!);
       this.writeExternalBlock(bridgeOutput);
+      break;
+    case 'swarm':
+      if (!this.swarmCommands?.cmdSwarm) {
+        process.stdout.write(this.ui.error('Agent Swarm is not available in this runtime.'));
+        break;
+      }
+      await this.swarmCommands.cmdSwarm(args, this.smartInput!);
       break;
 
     default:

@@ -36,6 +36,7 @@ import { SkillsImportModule } from '../skills-import/skills-import.module';
 import { SchedulerModule } from '../scheduler/scheduler.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
 import { BridgeModule } from '../bridge/bridge.module';
+import { SwarmModule } from '../swarm/swarm.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { BridgeModule } from '../bridge/bridge.module';
     SchedulerModule,
     SandboxModule,
     BridgeModule,
+    SwarmModule,
   ],
   providers: [
     ReplService,

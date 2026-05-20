@@ -22,6 +22,7 @@ import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SandboxModule } from './modules/sandbox/sandbox.module';
 import { TraceModule } from './modules/trace/trace.module';
 import { BridgeModule } from './modules/bridge/bridge.module';
+import { SwarmModule } from './modules/swarm/swarm.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { BridgeModule } from './modules/bridge/bridge.module';
     SandboxModule,
     TraceModule,
     BridgeModule,
+    SwarmModule,
   ],
 })
 export class AppModule {}

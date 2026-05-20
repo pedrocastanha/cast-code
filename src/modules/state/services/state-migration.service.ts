@@ -221,6 +221,59 @@ export class StateMigrationService {
         }
       },
     },
+    {
+      name: '0008_swarm_core',
+      statements: [
+        `create table if not exists swarm_plans (
+          id text primary key,
+          project_root text not null,
+          workspace_root text not null,
+          goal text not null,
+          reason_for_swarm text not null,
+          status text not null check (status in ('draft', 'approved', 'rejected', 'superseded')),
+          integration_mode text not null check (integration_mode in ('manual', 'apply_safe', 'apply_all')),
+          runtime_policy_json text not null,
+          global_constraints_json text not null,
+          tasks_json text not null,
+          final_verification_json text not null,
+          plan_json text not null,
+          created_at text not null,
+          approved_at text
+        )`,
+        `create table if not exists swarm_runs (
+          id text primary key,
+          plan_id text not null,
+          project_root text not null,
+          workspace_root text not null,
+          status text not null check (status in ('planned', 'approved', 'preparing', 'running', 'integrating', 'verifying', 'completed', 'failed', 'cancelled')),
+          integration_mode text not null check (integration_mode in ('manual', 'apply_safe', 'apply_all')),
+          runtime_policy_json text not null,
+          run_json text not null,
+          created_at text not null,
+          started_at text,
+          ended_at text,
+          foreign key (plan_id) references swarm_plans(id) on delete cascade
+        )`,
+        `create table if not exists swarm_task_runs (
+          id text primary key,
+          run_id text not null,
+          plan_task_id text not null,
+          worker_id text not null,
+          status text not null check (status in ('queued', 'preparing', 'running', 'waiting_permission', 'blocked', 'completed', 'failed', 'integrated', 'cancelled')),
+          worktree_path text not null,
+          branch_name text not null,
+          handoff_json text,
+          integration_json text,
+          task_run_json text not null,
+          started_at text,
+          ended_at text,
+          foreign key (run_id) references swarm_runs(id) on delete cascade
+        )`,
+        'create index if not exists idx_swarm_plans_project_created on swarm_plans(project_root, created_at)',
+        'create index if not exists idx_swarm_runs_project_created on swarm_runs(project_root, created_at)',
+        'create index if not exists idx_swarm_task_runs_run on swarm_task_runs(run_id, started_at)',
+      ],
+    },
   ];
 
   apply(db: Database.Database): void {

@@ -96,6 +96,7 @@ export class ReplCommandsService {
           ['/bridge status', 'show provider bridge status'],
           ['/bridge autostart', 'persist bridge startup for this project'],
           ['/bridge stop', 'return prompts to normal Cast runtime'],
+          ['/swarm', 'multi-agent swarm plans and runs'],
           ['/benchmark', 'local benchmark lab'],
           ['/rollback [file]', 'restore file from snapshot'],
           ['/stats', 'show token and cost stats'],

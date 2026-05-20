@@ -113,6 +113,7 @@ Each top-level module under `src/modules` has a local memory file. Read the rele
 - `src/modules/skills-import/MEMORY.md`: Hermes skill discovery, conversion, duplicate detection, classification, and risk scanning.
 - `src/modules/snapshots/MEMORY.md`: file/project checkpoints and rollback support.
 - `src/modules/state/MEMORY.md`: local SQLite state, migrations, sessions, FTS, and redaction.
+- `src/modules/swarm/MEMORY.md`: Agent Swarm plans, runs, worktree workers, bridge-aware runtime, and `/swarm`.
 - `src/modules/stats/MEMORY.md`: token/cost tracking, local stats persistence, and usage listeners.
 - `src/modules/tasks/MEMORY.md`: in-session task/plan management, approval, persistence, execution, and task tools.
 - `src/modules/tools/MEMORY.md`: filesystem, shell, discovery, search, and impact-analysis tools.
