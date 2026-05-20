@@ -146,8 +146,9 @@ describe('BridgeCommandsService', () => {
       askChoice: async (message: string, choices: ChoiceOption[]) => {
         asked = true;
         assert.equal(message, 'Bridge provider');
-        assert.deepEqual(choices.map((choice) => choice.key), ['claude', 'codex', 'copilot', 'qwen', 'kimi', 'openrouter']);
-        assert.equal(choices.every((choice) => choice.tabKey?.startsWith('autostart:')), true);
+        assert.deepEqual(choices.map((choice) => choice.key), ['claude', 'codex', 'copilot', 'qwen', 'kimi', 'openrouter', 'stop']);
+        assert.equal(choices.filter((choice) => choice.key !== 'stop').every((choice) => choice.tabKey?.startsWith('autostart:')), true);
+        assert.equal(choices.find((choice) => choice.key === 'stop')?.label, 'Stop bridge');
         return 'codex';
       },
     } as any);
@@ -155,6 +156,48 @@ describe('BridgeCommandsService', () => {
     assert.equal(asked, true);
     assert.equal(provider, 'codex');
     assert.match(output, /Codex CLI bridge connected/);
+  });
+
+  test('provider picker can stop bridge and restore API-key runtime', async () => {
+    let provider = 'claude';
+    let stopped = false;
+    let status = 'idle';
+    const service = new BridgeCommandsService(
+      {
+        setAdapter: (adapter: any) => {
+          provider = adapter.id;
+        },
+        start: async () => {
+          status = 'connected';
+        },
+        stop: () => {
+          stopped = true;
+          status = 'disconnected';
+        },
+        getStatus: () => status,
+        getProviderId: () => provider,
+        getProviderLabel: () => 'Claude CLI',
+        write: async () => {},
+      } as any,
+      { getManifest: () => ({ tools: [] }) } as any,
+      {} as any,
+      {} as any,
+    );
+
+    await service.cmdBridge(['claude'], process.cwd());
+    assert.equal(service.isConnected(), true);
+
+    const output = await service.cmdBridge([], process.cwd(), {
+      askChoice: async (_message: string, choices: ChoiceOption[]) => {
+        assert.equal(choices.some((choice) => choice.key === 'stop'), true);
+        return 'stop';
+      },
+    } as any);
+
+    assert.equal(stopped, true);
+    assert.equal(service.isConnected(), false);
+    assert.match(output, /Bridge disconnected\. Cast runtime restored\./);
+    assert.match(stripAnsi(output), /Status\s+disconnected/);
   });
 
   test('tab action enables project autostart and connects selected provider', async () => {
