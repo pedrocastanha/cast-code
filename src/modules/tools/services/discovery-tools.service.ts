@@ -250,8 +250,10 @@ export class DiscoveryToolsService {
           { name: '/mcp help', desc: 'MCP setup guide' },
           { name: '/kanban', desc: 'open kanban task board' },
           { name: '/remote', desc: 'start remote web interface via ngrok' },
+          { name: '/bridge', desc: 'open provider picker; Enter connects, Tab connects and enables project autostart' },
           { name: '/bridge <provider>', desc: 'run Cast through an authenticated provider CLI without a Cast API key' },
           { name: '/bridge status', desc: 'show current bridge provider status, tools, and raw-output mode' },
+          { name: '/bridge autostart <provider>|off', desc: 'persist or disable bridge autostart for this project' },
           { name: '/bridge stop', desc: 'disconnect bridge and return prompts to the normal Cast runtime' },
         ],
       },
@@ -273,9 +275,11 @@ export class DiscoveryToolsService {
         if (query) {
           if (query === 'bridge') {
             return [
+              '**/bridge** - open a provider picker. Enter connects the selected CLI; Tab connects it and enables project autostart.',
               '**/bridge <provider>** - run Cast through an authenticated provider CLI.',
               `Providers: ${BRIDGE_PROVIDER_IDS.join(', ')}.`,
               'After /bridge <provider> connects, normal non-slash prompts are sent to that provider CLI until /bridge stop.',
+              'Use /bridge autostart <provider>|off to persist or disable project autostart in .cast/bridge.json.',
               'Use /bridge status, /bridge stop, /bridge reset, /bridge raw on|off, and /bridge tools for bridge control.',
               'Bridge is different from /remote: bridge swaps the model runtime; remote exposes the Cast UI over the web.',
               'Cast still owns local tools, permissions, transcripts, and file/shell guards.',
