@@ -150,6 +150,49 @@ describe('SmartInput choice menu', () => {
     }
   });
 
+  test('tab resolves the highlighted choice alternate action', async () => {
+    const input = buildInput();
+    const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const originalWrite = process.stdout.write;
+    const originalCi = process.env.CI;
+    const writes: string[] = [];
+
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    delete process.env.CI;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const selected = input.askChoice('Bridge provider', [
+        { key: 'claude', label: 'Claude CLI', tabKey: 'autostart:claude', tabLabel: 'connect + autostart' },
+        { key: 'codex', label: 'Codex CLI', tabKey: 'autostart:codex', tabLabel: 'connect + autostart' },
+      ]);
+
+      (input as any).handleData('\x1b[B');
+      (input as any).handleData('\t');
+
+      assert.equal(await selected, 'autostart:codex');
+      const plain = stripAnsi(writes.join(''));
+      assert.match(plain, /Tab connect \+ autostart/);
+      assert.match(plain, /Codex CLI · connect \+ autostart/);
+    } finally {
+      input.destroy();
+      process.stdin.pause();
+      process.stdout.write = originalWrite;
+      if (originalStdinTty) Object.defineProperty(process.stdin, 'isTTY', originalStdinTty);
+      if (originalStdoutTty) Object.defineProperty(process.stdout, 'isTTY', originalStdoutTty);
+      if (originalCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = originalCi;
+      }
+    }
+  });
+
   test('accepts choices after input was paused for an external prompt', async () => {
     const input = buildInput();
     const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');

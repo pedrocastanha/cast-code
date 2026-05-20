@@ -267,6 +267,47 @@ describe('ReplService', () => {
     assert(outputLines.some((line) => line.includes('─')), 'bridge output should finish with a separator');
   });
 
+  test('prints bridge tool activity while a provider prompt is running', async () => {
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (_message: string, _projectRoot: string, callbacks: any) => {
+          callbacks.onToolCall({
+            id: 'call_1',
+            name: 'read_file',
+            arguments: { path: 'package.json' },
+            raw: '',
+          });
+          callbacks.onToolResult({
+            id: 'call_1',
+            name: 'read_file',
+            status: 'ok',
+            content: '1: package content\n2: more',
+          });
+          return 'Bridge final answer';
+        },
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => {},
+      endExternalOutput: () => {},
+      writeOutputLine: () => {},
+    };
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('le package');
+    });
+
+    const plain = stripAnsi(output);
+    assert.match(plain, /Claude CLI/);
+    assert.match(plain, /▶ read file package\.json/);
+    assert.match(plain, /✓ read_file ok - 2 lines,/);
+    assert.match(plain, /Bridge final answer/);
+  });
+
   test('keeps slash commands local while a bridge provider is connected', async () => {
     const commandArgs: string[][] = [];
     const prompts: string[] = [];
