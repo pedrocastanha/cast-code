@@ -10,7 +10,7 @@ The tools module owns local tools exposed to the agent: filesystem read/write/ed
 
 ## Key Files
 
-- `tools.module.ts`: imports config, permissions, memory, platform, benchmark, skills, agents, MCP, vault, scheduler, sandbox, and trace modules; exports registry, discovery, impact, and filesystem services.
+- `tools.module.ts`: imports config, permissions, memory, platform, benchmark, skills, agents, MCP, vault, scheduler, sandbox, and trace modules; exports registry, discovery, impact, filesystem, and shell services.
 - `services/tools-registry.service.ts`: central tool registry and root/workspace propagation.
 - `services/filesystem-tools.service.ts`: read/write/edit/glob/grep/ls tools with path guards, read-before-write behavior, and diffs.
 - `services/shell-tools.service.ts`: shell and background shell tools with permission checks and cwd guards.
