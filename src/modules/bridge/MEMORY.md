@@ -29,7 +29,7 @@ Core product rule: the provider model thinks, Cast executes tools.
 - Assertive fake-provider smoke: `/usr/bin/zsh -lc 'source scripts/bridge-claude-smoke.zsh'`
 - REPL: `/bridge` picker, `/bridge claude`, `/bridge codex`, `/bridge copilot`, `/bridge qwen`, `/bridge kimi`, `/bridge openrouter`, `/bridge status`, `/bridge stop`, `/bridge reset`, `/bridge autostart <provider>|off`, `/bridge raw on|off`, `/bridge tools`, `/bridge help`
 
-Bridge mode intentionally skips normal model API-key setup. It uses the user's authenticated provider CLI account when the real provider is used. In the REPL, bridge sessions are sticky for normal non-slash prompts until `/bridge stop`; slash commands remain Cast-local. `BridgeCommandsService` owns the active bridge routing flag, while `BridgeSessionService` owns only the provider child process. Do not use provider process status alone for REPL routing: one-shot providers such as Claude stream-json and Codex JSONL may be disconnected between turns and must be reopened by `runPrompt`. Project autostart can be persisted in `.cast/bridge.json` through `/bridge autostart <provider>` or Tab in the bare `/bridge` picker. Claude CLI and Codex CLI are validated against live accounts.
+Bridge mode intentionally skips normal model API-key setup. It uses the user's authenticated provider CLI account when the real provider is used. In the REPL, bridge sessions are sticky for normal non-slash prompts until `/bridge stop` or `Stop bridge` in the bare `/bridge` picker; slash commands remain Cast-local. `BridgeCommandsService` owns the active bridge routing flag, while `BridgeSessionService` owns only the provider child process. Do not use provider process status alone for REPL routing: one-shot providers such as Claude stream-json and Codex JSONL may be disconnected between turns and must be reopened by `runPrompt`. Project autostart can be persisted in `.cast/bridge.json` through `/bridge autostart <provider>` or Tab in the bare `/bridge` picker. Claude CLI and Codex CLI are validated against live accounts.
 
 ## Environment Overrides
 
@@ -49,6 +49,7 @@ Bridge mode intentionally skips normal model API-key setup. It uses the user's a
 ## Decisions To Preserve
 
 - Keep `/remote` separate. Bridge is provider runtime substitution; remote is browser/mobile access to a Cast session.
+- Keep `Stop bridge` in the bare `/bridge` picker as the interactive path back to the normal API-key runtime.
 - Do not expose raw provider output by default. Store redacted transcript events.
 - Bridge tools are allowlisted through `BridgeToolExecutorService`; do not pass arbitrary tool names directly to the registry.
 - `node-pty` is optional because native compilation can fail on some systems. Runtime must continue to build and test with the pipe fallback.

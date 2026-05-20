@@ -47,7 +47,7 @@ The long-term direction is inspired partly by Nous Hermes Agent, but Cast should
 Active bridge implementation:
 
 - `cast bridge <provider>` starts a provider bridge where Cast uses a user-authenticated provider CLI as the local model runtime. Supported provider IDs are `claude`, `codex`, `copilot`, `qwen`, `kimi`, and `openrouter`.
-- In the REPL, bare `/bridge` opens a SmartInput provider picker. Enter connects the selected provider; Tab connects it and enables project autostart. `/bridge <provider>` connects directly and then routes normal non-slash prompts through that bridge until `/bridge stop`, `/bridge disconnect`, or `/bridge off` is used. Slash commands remain local Cast commands.
+- In the REPL, bare `/bridge` opens a SmartInput provider picker. Enter connects the selected provider; Tab connects it and enables project autostart; `Stop bridge` restores the normal API-key runtime. `/bridge <provider>` connects directly and then routes normal non-slash prompts through that bridge until `/bridge stop`, `/bridge disconnect`, `/bridge off`, or `Stop bridge` is used. Slash commands remain local Cast commands.
 - Product rule: the provider model thinks, Cast executes tools. Cast keeps ownership of tool allowlists, permissions, transcripts, and file/shell guards.
 - Claude CLI is the first real validated provider and uses `stream-json` by default. Other provider IDs are raw CLI adapters that can be pointed at concrete commands with `CAST_BRIDGE_<PROVIDER>_COMMAND` and `CAST_BRIDGE_<PROVIDER>_ARGS`.
 - Codex CLI defaults to `codex exec --json --ignore-user-config --ignore-rules ... -` rather than the interactive TUI. It is a one-shot provider: Cast writes the prompt, closes stdin, parses JSONL `agent_message` events, and restarts Codex for follow-up turns.
@@ -157,7 +157,7 @@ Important services:
 Important command rules:
 
 - `/platform` is the only advertised Platform setup command.
-- `/bridge` controls the active provider bridge session from the REPL. Bare `/bridge` is an interactive provider picker; connected bridge sessions consume normal prompts until `/bridge stop`; project autostart is opt-in via `.cast/bridge.json`. Keep help, suggestions, discovery command metadata, README, and memory in sync with bridge command handlers.
+- `/bridge` controls the active provider bridge session from the REPL. Bare `/bridge` is an interactive provider picker with a `Stop bridge` option; connected bridge sessions consume normal prompts until `/bridge stop` or the picker stop option; project autostart is opt-in via `.cast/bridge.json`. Keep help, suggestions, discovery command metadata, README, and memory in sync with bridge command handlers.
 - Active bridge prompts display tool-call progress through SmartInput external output blocks. Preserve the compact format and do not stream full file/shell payloads into the prompt area.
 - `/link` is removed from help/suggestions. If invoked, it prints a warning and points to `/platform`.
 - `/config` should not manage Cast Platform anymore. It remains for model/provider/prompt config.
