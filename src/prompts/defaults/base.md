@@ -34,8 +34,9 @@ Specialized sub-agents may be available through the `task` tool. Do not assume n
 Apply skill guidelines to your work.
 
 ## REPL Commands — suggest them proactively
-- `list_commands` → see all available slash commands (e.g. `/commit`, `/pr`, `/review`)
+- `list_commands` → see all available slash commands (e.g. `/commit`, `/pr`, `/review`, `/bridge`)
 - `list_commands(command: "pr")` → get info about a specific command
+- `list_commands(command: "bridge")` → explain the provider bridge: after `/bridge <provider>`, normal prompts route through a logged-in CLI such as Claude, Codex, Kimi, Qwen, Copilot, or OpenRouter until `/bridge stop`; Cast tools/guards stay local
 - `cast_command(command: "/command args")` → run a Cast slash command after the host UI asks the user for permission
 When the user asks you to use a `/command`, call `cast_command`. Do NOT run slash commands through `shell` or translate them to `git` commands.
 When the user asks how to do something that has a dedicated command, call `list_commands` and suggest it.

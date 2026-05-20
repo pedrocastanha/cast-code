@@ -35,6 +35,7 @@ import { EnvironmentModule } from '../environments/environment.module';
 import { SkillsImportModule } from '../skills-import/skills-import.module';
 import { SchedulerModule } from '../scheduler/scheduler.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
+import { BridgeModule } from '../bridge/bridge.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { SandboxModule } from '../sandbox/sandbox.module';
     SkillsImportModule,
     SchedulerModule,
     SandboxModule,
+    BridgeModule,
   ],
   providers: [
     ReplService,

@@ -49,6 +49,7 @@ export const CAST_SPACING = {
 export const CAST_COMMANDS = [
   { key: '/help', description: 'Show all commands' },
   { key: '/init', description: 'Map project context' },
+  { key: '/bridge', description: 'Use Claude, Codex, Kimi, Qwen, Copilot CLI' },
   { key: '/agents', description: 'List and inspect sub-agents' },
   { key: '@file', description: 'Inject file into prompt' },
   { key: 'Tab', description: 'Accept suggestions' },

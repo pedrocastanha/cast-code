@@ -1,8 +1,17 @@
 # Cast Code Memory
 
-Updated: 2026-05-13
+Updated: 2026-05-20
 
 This file is intended to be read by future assistant sessions before changing the Cast CLI. It summarizes what the system does, how the main modules fit together, and what decisions are important to preserve.
+
+## Memory Maintenance Rule
+
+After completing any task in this repository, update memory before the final response when the task changed behavior, architecture, public commands, setup flow, data contracts, security/privacy policy, test expectations, or module ownership.
+
+- Update the relevant `src/modules/<module>/MEMORY.md` file for module-local changes.
+- Update this root `MEMORY.md` for project-wide decisions, cross-module flows, validated states, or rules future agents must preserve.
+- If the change affects the broader Cast workspace (`cast-code`, `backend`, `web`, or `memory` together), also update the appropriate workspace-level memory document referenced by `/home/pedro-castanheira/.codex/memories/cast-system-memory.md`.
+- Do not update memory for purely mechanical formatting unless it changes a convention future agents need to know.
 
 ## Workspace Map
 
@@ -35,6 +44,21 @@ The long-term direction is inspired partly by Nous Hermes Agent, but Cast should
 - Governed MCP catalog with risk and mutation policies.
 - Strong local safety boundaries: no raw secret leaks, no project prompts persisted to platform events, and writes gated by permissions/sandbox decisions.
 
+Active bridge implementation:
+
+- `cast bridge <provider>` starts a provider bridge where Cast uses a user-authenticated provider CLI as the local model runtime. Supported provider IDs are `claude`, `codex`, `copilot`, `qwen`, `kimi`, and `openrouter`.
+- In the REPL, `/bridge <provider>` connects the provider and then routes normal non-slash prompts through that bridge until `/bridge stop`, `/bridge disconnect`, or `/bridge off` is used. Slash commands remain local Cast commands.
+- Product rule: the provider model thinks, Cast executes tools. Cast keeps ownership of tool allowlists, permissions, transcripts, and file/shell guards.
+- Claude CLI is the first real validated provider and uses `stream-json` by default. Other provider IDs are raw CLI adapters that can be pointed at concrete commands with `CAST_BRIDGE_<PROVIDER>_COMMAND` and `CAST_BRIDGE_<PROVIDER>_ARGS`.
+- Codex CLI defaults to `codex exec --json --ignore-user-config --ignore-rules ... -` rather than the interactive TUI. It is a one-shot provider: Cast writes the prompt, closes stdin, parses JSONL `agent_message` events, and restarts Codex for follow-up turns.
+- The bridge is separate from `/remote`. Bridge substitutes the local model runtime; remote exposes a Cast session to a browser/mobile client.
+- If a provider invents `<cast_tool_result>` data or refuses to answer after Cast returns real tool output, the bridge runtime must prefer the real Cast tool result. For `package.json` script requests, the fallback extracts scripts from the actual JSON returned by Cast instead of trusting provider memory.
+- Bridge runtime has separate first-non-empty-byte and idle timeouts. Keep the first-byte timeout longer than idle because real provider CLIs can have slow cold starts and stream-json metadata before visible output.
+- Stream-json bridge adapters force pipe transport even when `node-pty` exists; real `claude -p --input-format stream-json` should not run behind a PTY.
+- JSON bridge adapters such as Codex also force pipe transport. Do not run one-shot JSON providers behind PTY.
+- `docs/superpowers/specs/2026-05-19-cast-bridge-claude-design.md` is the design record for the bridge.
+- `docs/superpowers/plans/2026-05-19-cast-bridge-claude.md` is the approved implementation plan that led to the current module.
+
 ## Main CLI Runtime
 
 Entry point: `src/main.ts`
@@ -43,6 +67,7 @@ Important startup behavior:
 
 - Loads `.env` for local development only. Global npm users do not need a project `.env`.
 - Supports direct `cast platform ...` command before entering REPL.
+- Supports direct `cast bridge <claude|codex|copilot|qwen|kimi|openrouter>` command before entering REPL. Bridge mode intentionally skips normal model API-key setup because the provider CLI owns authentication.
 - Keeps legacy `cast link` as a warning/delegation path, but `/link` should not be advertised anymore.
 - Runs initial config setup if `~/.cast/config.yaml` does not exist.
 - Starts `ReplService` for the interactive loop.
@@ -57,6 +82,42 @@ Core commands:
 - `npm run start`: runs `node dist/main.js`.
 - `npm test`: Node test runner over `src/**/*.spec.ts`.
 - `npm run typecheck`: TypeScript build config check.
+
+## Module Memory Index
+
+Each top-level module under `src/modules` has a local memory file. Read the relevant module memory before editing that module.
+
+- `src/modules/agents/MEMORY.md`: sub-agent definitions, validation, registry resolution, and delegated run tracking.
+- `src/modules/benchmark/MEMORY.md`: Benchmark Lab discovery, definitions, graders, sandbox execution, artifacts, and platform sync.
+- `src/modules/bridge/MEMORY.md`: provider CLI bridge runtime, provider adapters, bridge protocol, tool allowlist, transcripts, and `/bridge`.
+- `src/modules/config/MEMORY.md`: global CLI config, providers, model routing, effort, and `/config`.
+- `src/modules/core/MEMORY.md`: DeepAgent runtime, prompts, tool/subagent selection, compact chat, stats, replay, local state, platform context, and task execution.
+- `src/modules/diff/MEMORY.md`: pure diff generation and terminal display formatting.
+- `src/modules/environments/MEMORY.md`: domain environments, activation, readiness, default benchmarks, and `/env`.
+- `src/modules/git/MEMORY.md`: commit/PR/review/fix/release/unit-test git workflows.
+- `src/modules/i18n/MEMORY.md`: language selection, locales, and agent language instructions.
+- `src/modules/kanban/MEMORY.md`: local Kanban task board server and SSE UI.
+- `src/modules/mcp/MEMORY.md`: MCP clients, registry, OAuth, catalog, risk scanning, and mutation policy.
+- `src/modules/memory/MEMORY.md`: CLI-local memory tools and platform RAG tool facade.
+- `src/modules/mentions/MEMORY.md`: `@` mention parsing and context expansion.
+- `src/modules/permissions/MEMORY.md`: command approval, rules, prompts, and danger classification.
+- `src/modules/platform/MEMORY.md`: Cast Platform linking, config, cache, project payload, RAG, benchmark/schedule APIs, and sanitized sessions.
+- `src/modules/project/MEMORY.md`: project/workspace detection, context storage, and project analysis.
+- `src/modules/remote/MEMORY.md`: remote web UI, stdout streaming, inbound browser/mobile prompts, and ngrok exposure.
+- `src/modules/repl/MEMORY.md`: terminal loop, SmartInput, slash commands, streaming display, and command UX.
+- `src/modules/replay/MEMORY.md`: local replay timelines and trace export integration.
+- `src/modules/sandbox/MEMORY.md`: Docker/worktree/snapshot/noop sandbox backends, rollback, and artifacts.
+- `src/modules/scheduler/MEMORY.md`: recurring schedules, cron, policy, execution, worker, suggestions, and platform sync.
+- `src/modules/skills/MEMORY.md`: built-in/project/user/session/remote skill loading, registry, metadata, runtime tools, search, and scoping.
+- `src/modules/skills-import/MEMORY.md`: Hermes skill discovery, conversion, duplicate detection, classification, and risk scanning.
+- `src/modules/snapshots/MEMORY.md`: file/project checkpoints and rollback support.
+- `src/modules/state/MEMORY.md`: local SQLite state, migrations, sessions, FTS, and redaction.
+- `src/modules/stats/MEMORY.md`: token/cost tracking, local stats persistence, and usage listeners.
+- `src/modules/tasks/MEMORY.md`: in-session task/plan management, approval, persistence, execution, and task tools.
+- `src/modules/tools/MEMORY.md`: filesystem, shell, discovery, search, and impact-analysis tools.
+- `src/modules/trace/MEMORY.md`: structured local traces, redaction, reading, writing, and export.
+- `src/modules/vault/MEMORY.md`: local snippets and snippet-to-skill promotion.
+- `src/modules/watcher/MEMORY.md`: debounced source file-change events.
 
 ## Module Responsibilities
 
@@ -95,10 +156,34 @@ Important services:
 Important command rules:
 
 - `/platform` is the only advertised Platform setup command.
+- `/bridge` controls the active provider bridge session from the REPL. Connected bridge sessions consume normal prompts until `/bridge stop`; keep help, suggestions, discovery command metadata, README, and memory in sync with bridge command handlers.
 - `/link` is removed from help/suggestions. If invoked, it prints a warning and points to `/platform`.
 - `/config` should not manage Cast Platform anymore. It remains for model/provider/prompt config.
 - `/help` should show `/platform` under "AGENTS, PROJECT, CONFIG".
 - After successful `/platform`, `DeepAgentService.initialize()` is called again so remote skills/agents/RAG become available immediately.
+
+### `src/modules/bridge`
+
+Owns provider CLI bridge sessions.
+
+Key services:
+
+- `BridgeCommandsService`: direct command and `/bridge` command surface for all supported provider IDs, including connection status and stop/disconnect helpers for REPL routing.
+- `CliBridgeAdapter`/`ClaudeBridgeAdapter`: provider command, environment overrides, stream/raw input formatting, and protocol handshake.
+- `BridgeSessionService`: PTY/pipe process lifecycle.
+- `BridgeRuntimeService`: turn loop, provider output parsing, Cast tool execution, and result return.
+- `BridgeToolExecutorService`: allowlisted Cast tools exposed to the provider.
+- `BridgeTranscriptService`: redacted local transcript events.
+
+Important behavior:
+
+- `cast bridge <provider>` uses the user's authenticated provider CLI account instead of requiring a Cast/OpenAI API key.
+- REPL `/bridge <provider>` is sticky for normal prompts; `/bridge stop` restores the normal Cast/OpenAI runtime without restarting the CLI.
+- Provider models can request tool calls with the bridge protocol, but Cast executes them through existing tool, permission, and filesystem guards.
+- One-shot providers such as real `claude -p` can emit a tool call and exit; the runtime must reopen a provider turn and answer from the real Cast tool result instead of trusting provider-invented `<cast_tool_result>` text.
+- The Claude stream-json adapter should use assistant text first and only fall back to result text when no assistant text was emitted for that provider start.
+- `node-pty` is optional; the bridge must keep working through the child-process pipe fallback when native installation fails or `CAST_BRIDGE_DISABLE_PTY=1` is set for CI/smoke runs.
+- Do not merge bridge with `/remote`; they solve different problems.
 
 ### `src/modules/platform`
 
@@ -488,4 +573,3 @@ Current validated state after recent fixes:
 - The `memory` package has a reusable MemoryService, but backend currently has the HTTP integration and database persistence.
 - Generated build metadata such as `web/tsconfig.tsbuildinfo` should not be kept in diffs unless intentionally tracked.
 - Do not commit unless the user explicitly asks.
-

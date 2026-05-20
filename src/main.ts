@@ -11,6 +11,11 @@ import { PlatformCommandsService } from './modules/repl/services/commands/platfo
 import { BenchmarkCommandsService } from './modules/benchmark/commands/benchmark-commands.service';
 import { DeepAgentService } from './modules/core/services/deep-agent.service';
 import { ScheduleCommandsService } from './modules/scheduler/commands/schedule-commands.service';
+import { BridgeCommandsService } from './modules/bridge/commands/bridge-commands.service';
+import {
+  formatBridgeProviderList,
+  isBridgeProviderId,
+} from './modules/bridge/providers/claude-bridge-adapter';
 
 config({ quiet: true });
 
@@ -95,9 +100,107 @@ async function configureDirectScheduleRuntime(
   app.get(BenchmarkCommandsService).setAgentExecutor(deepAgent as any);
 }
 
+async function runBridgeLoop(bridgeCommands: BridgeCommandsService): Promise<void> {
+  const handleBridgeLine = async (line: string): Promise<boolean> => {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      return true;
+    }
+
+    if (trimmed === '/exit' || trimmed === '/quit') {
+      return false;
+    }
+
+    if (trimmed.startsWith('/bridge')) {
+      const args = trimmed
+        .slice('/bridge'.length)
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      writeBridgeOutput(await bridgeCommands.cmdBridge(args, process.cwd()));
+      return true;
+    }
+
+    writeBridgeOutput(await bridgeCommands.runPrompt(trimmed, process.cwd()));
+    return true;
+  };
+
+  if (process.env.CAST_BRIDGE_SCRIPTED_INPUT) {
+    const lines = JSON.parse(process.env.CAST_BRIDGE_SCRIPTED_INPUT) as string[];
+    for (const line of lines) {
+      const keepGoing = await handleBridgeLine(line);
+      if (!keepGoing) {
+        break;
+      }
+    }
+    return;
+  }
+
+  const readline = await import('node:readline');
+  process.stdin.resume();
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    prompt: '> ',
+  });
+
+  try {
+    rl.prompt();
+    for await (const line of rl) {
+      const keepGoing = await handleBridgeLine(line);
+      if (!keepGoing) {
+        break;
+      }
+      rl.prompt();
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+function writeBridgeOutput(output: string): void {
+  if (!output) {
+    return;
+  }
+  process.stdout.write(output.endsWith('\n') || output.endsWith('\r\n') ? output : `${output}\r\n`);
+}
+
 async function bootstrap() {
   const args = process.argv.slice(2);
   const command = args[0];
+
+  if (command === 'bridge') {
+    const provider = args[1];
+    if (!isBridgeProviderId(provider)) {
+      console.error(`Usage: cast bridge <${formatBridgeProviderList()}>`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const scriptIndex = args.indexOf('--script');
+    if (scriptIndex >= 0 && args[scriptIndex + 1]) {
+      process.env.CAST_BRIDGE_SCRIPTED_INPUT = args[scriptIndex + 1];
+    }
+
+    const app = await NestFactory.createApplicationContext(AppModule, {
+      logger: false,
+    });
+
+    try {
+      const bridgeCommands = app.get(BridgeCommandsService);
+      await bridgeCommands.startProvider(provider, process.cwd());
+      await runBridgeLoop(bridgeCommands);
+    } catch (error) {
+      const message = error instanceof Error ? error.stack || error.message : String(error);
+      console.error('\nFailed to run bridge command:\n', message);
+      process.exitCode = 1;
+    } finally {
+      await app.close();
+    }
+    return;
+  }
 
   if (command === 'platform' || command === 'link') {
     const app = await NestFactory.createApplicationContext(AppModule, {

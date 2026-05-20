@@ -43,6 +43,7 @@ import { BenchmarkCommandsService } from '../../benchmark/commands/benchmark-com
 import { EnvironmentCommandsService } from '../../environments/commands/environment-commands.service';
 import { ScheduleCommandsService } from '../../scheduler/commands/schedule-commands.service';
 import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.service';
+import { BridgeCommandsService } from '../../bridge/commands/bridge-commands.service';
 import { CommandUiService } from './command-ui.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
@@ -107,6 +108,8 @@ export class ReplService {
     private readonly sandboxCommands?: SandboxCommandsService,
     @Optional()
     private readonly sessionsCommands?: SessionsCommandsService,
+    @Optional()
+    private readonly bridgeCommands?: BridgeCommandsService,
   ) {
     this.benchmarkCommands?.setAgentExecutor?.(this.deepAgent as any);
     this.environmentCommands?.setAgentRefresh?.(this.deepAgent as any);
@@ -344,6 +347,7 @@ export class ReplService {
       skills: 'List or manage Cast skills',
       tools: 'List available tools',
       platform: 'Configure Cast Platform',
+      bridge: 'Run Cast through an authenticated provider CLI',
       benchmark: 'Run local Benchmark Lab commands',
       env: 'List, activate, or inspect Cast environments',
       schedule: 'Manage local scheduled benchmark and environment jobs',
@@ -444,6 +448,7 @@ export class ReplService {
       { text: '/env', display: '/env', description: 'Cast environments' },
       { text: '/schedule', display: '/schedule', description: 'Local schedulers' },
       { text: '/sandbox', display: '/sandbox', description: 'Sandbox checkpoints' },
+      { text: '/bridge', display: '/bridge', description: 'Control provider bridge' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
@@ -769,6 +774,8 @@ export class ReplService {
     try {
       if (line.startsWith('/')) {
         await this.handleCommand(line);
+      } else if (this.bridgeCommands?.isConnected()) {
+        await this.handleBridgePrompt(line);
       } else {
         await this.handleMessage(line);
       }
@@ -972,6 +979,14 @@ export class ReplService {
       }
       await this.sandboxCommands.cmdSandbox(args);
       break;
+    case 'bridge':
+      if (!this.bridgeCommands?.cmdBridge) {
+        process.stdout.write(this.ui.error('Bridge commands are not available in this runtime.'));
+        break;
+      }
+      const bridgeOutput = await this.bridgeCommands.cmdBridge(args, process.cwd());
+      this.writeExternalBlock(bridgeOutput);
+      break;
 
     default:
       process.stdout.write(this.ui.error(`Unknown command: /${cmd}. Run /help for reference.`));
@@ -994,6 +1009,92 @@ export class ReplService {
     } else {
       process.stdout.write(this.ui.warning('Could not compact - summarization failed.'));
     }
+  }
+
+  private async handleBridgePrompt(message: string): Promise<void> {
+    this.abortController = new AbortController();
+    this.smartInput?.refresh();
+
+    let externalStarted = false;
+    let hasHeader = false;
+    let streamed = false;
+    let outputBuffer = '';
+    const providerLabel = this.bridgeCommands?.getProviderLabel() || 'Bridge';
+
+    const startExternal = () => {
+      if (!externalStarted) {
+        this.smartInput?.beginExternalOutput?.();
+        externalStarted = true;
+      }
+    };
+
+    const writeHeader = () => {
+      if (!hasHeader) {
+        startExternal();
+        process.stdout.write(`\r\n${Colors.bold}${providerLabel}${Colors.reset}\r\n`);
+        hasHeader = true;
+      }
+    };
+
+    const flushOutput = () => {
+      if (!outputBuffer) return;
+      writeHeader();
+      process.stdout.write(outputBuffer);
+      outputBuffer = '';
+    };
+
+    try {
+      this.startSpinner(`${providerLabel} thinking`);
+      const bridgeOutput = await this.bridgeCommands!.runPrompt(message, process.cwd(), {
+        onOutputChunk: (chunk) => {
+          streamed = true;
+          this.stopSpinner();
+          outputBuffer += chunk;
+          if (this.shouldFlushStreamText(outputBuffer)) {
+            flushOutput();
+          }
+        },
+        onToolCall: (call) => {
+          this.updateSpinner(`Bridge tool ${call.name}`);
+        },
+        onToolResult: () => {
+          this.updateSpinner(`${providerLabel} thinking`);
+        },
+      });
+      this.stopSpinner();
+      flushOutput();
+
+      if (!streamed && bridgeOutput) {
+        writeHeader();
+        process.stdout.write(bridgeOutput);
+      }
+
+      if (hasHeader) {
+        const finalText = streamed ? bridgeOutput : '';
+        if (!finalText.endsWith('\n') && !finalText.endsWith('\r\n')) {
+          process.stdout.write('\r\n');
+        }
+        this.smartInput?.writeOutputLine(this.buildSeparatorLine());
+      }
+    } catch (error) {
+      this.stopSpinner();
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.writeExternalBlock(this.ui.error(`Bridge prompt failed: ${errorMessage}`));
+    } finally {
+      if (externalStarted) {
+        this.smartInput?.endExternalOutput?.();
+      }
+    }
+  }
+
+  private writeExternalBlock(output: string): void {
+    if (!output) {
+      return;
+    }
+    const formatted = output.endsWith('\n') || output.endsWith('\r\n') ? output : `${output}\r\n`;
+    this.smartInput?.beginExternalOutput?.();
+    process.stdout.write(formatted);
+    this.smartInput?.endExternalOutput?.();
   }
 
   private async handleMessage(message: string): Promise<void> {
@@ -1402,13 +1503,21 @@ export class ReplService {
       `${Colors.subtle}out${Colors.reset} ${Colors.cyan}${outputLabel}${Colors.reset}`,
       ...(costLabel ? [`${Colors.subtle}cost${Colors.reset} ${Colors.success}${costLabel}${Colors.reset}`] : []),
       `${Colors.subtle}effort${Colors.reset} ${Colors.accent}${this.getEffortLabel()}${Colors.reset}`,
-      `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getModelDisplayName()}${Colors.reset}`,
+      `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getActiveRuntimeDisplayName()}${Colors.reset}`,
     );
 
     return [
       `${Colors.subtle}${'─'.repeat(Math.max(24, Math.min(terminalWidth - 4, 96)))}${Colors.reset}`,
       ...this.wrapFooterParts(parts, Math.max(24, terminalWidth - 1)),
     ];
+  }
+
+  private getActiveRuntimeDisplayName(): string {
+    if (this.bridgeCommands?.isConnected()) {
+      return `bridge/${this.bridgeCommands.getProviderLabel()}`;
+    }
+
+    return this.getModelDisplayName();
   }
 
   private wrapFooterParts(parts: string[], maxWidth: number): string[] {

@@ -5,6 +5,7 @@ import { AgentLoaderService } from '../../agents/services/agent-loader.service';
 import { SkillLoaderService } from '../../skills/services/skill-loader.service';
 import { VaultService } from '../../vault/services/vault.service';
 import { ImpactAnalysisService } from './impact-analysis.service';
+import { BRIDGE_PROVIDER_IDS } from '../../bridge/types/bridge.types';
 
 type CastCommandHandler = (command: string) => Promise<string> | string;
 
@@ -249,6 +250,9 @@ export class DiscoveryToolsService {
           { name: '/mcp help', desc: 'MCP setup guide' },
           { name: '/kanban', desc: 'open kanban task board' },
           { name: '/remote', desc: 'start remote web interface via ngrok' },
+          { name: '/bridge <provider>', desc: 'run Cast through an authenticated provider CLI without a Cast API key' },
+          { name: '/bridge status', desc: 'show current bridge provider status, tools, and raw-output mode' },
+          { name: '/bridge stop', desc: 'disconnect bridge and return prompts to the normal Cast runtime' },
         ],
       },
       {
@@ -267,6 +271,17 @@ export class DiscoveryToolsService {
         const query = input.command?.trim().toLowerCase().replace(/^\//, '');
 
         if (query) {
+          if (query === 'bridge') {
+            return [
+              '**/bridge <provider>** - run Cast through an authenticated provider CLI.',
+              `Providers: ${BRIDGE_PROVIDER_IDS.join(', ')}.`,
+              'After /bridge <provider> connects, normal non-slash prompts are sent to that provider CLI until /bridge stop.',
+              'Use /bridge status, /bridge stop, /bridge reset, /bridge raw on|off, and /bridge tools for bridge control.',
+              'Bridge is different from /remote: bridge swaps the model runtime; remote exposes the Cast UI over the web.',
+              'Cast still owns local tools, permissions, transcripts, and file/shell guards.',
+            ].join('\n');
+          }
+
           for (const section of COMMANDS) {
             for (const item of section.items) {
               const itemName = item.name.toLowerCase().replace(/^\//, '').split(' ')[0];
@@ -288,7 +303,7 @@ export class DiscoveryToolsService {
       {
         name: 'list_commands',
         description:
-          'List available REPL slash commands (e.g. /commit, /pr, /review, /kanban). Call this when the user mentions a /command or asks what commands are available in cast. Optionally pass a command name to get info about a specific one.',
+          'List available REPL slash commands (e.g. /commit, /pr, /review, /kanban, /bridge). Call this when the user mentions a /command or asks what commands are available in cast. Optionally pass a command name to get info about a specific one.',
         schema: z.object({
           command: z.string().optional().describe('Specific command to look up, e.g. "pr" or "/commit". Omit to list all.'),
         }),
@@ -326,7 +341,7 @@ export class DiscoveryToolsService {
       {
         name: 'cast_command',
         description:
-          'Run a Cast REPL slash command such as /status, /diff, /up, /pr, /review, /agents, or /skills. The host UI always asks the user for permission before executing. Use this instead of shell when the user mentions a Cast /command.',
+          'Run a Cast REPL slash command such as /status, /diff, /up, /pr, /review, /agents, /skills, or /bridge. The host UI always asks the user for permission before executing. Use this instead of shell when the user mentions a Cast /command.',
         schema: z.object({
           command: z.string().describe('The Cast slash command to run, including arguments, e.g. "/up" or "/review src/app.ts".'),
         }),

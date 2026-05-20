@@ -27,6 +27,7 @@ import {
 } from '../../../config/types/config.types';
 import { getModelContextUsage } from '../../../config/utils/model-context';
 import { ISmartInput } from '../smart-input';
+import { formatBridgeProviderList } from '../../../bridge/providers/claude-bridge-adapter';
 
 @Injectable()
 export class ReplCommandsService {
@@ -90,6 +91,9 @@ export class ReplCommandsService {
           ['/mcp', 'MCP servers and tools'],
           ['/kanban', 'open task board'],
           ['/remote', 'start remote web interface'],
+          ['/bridge <provider>', 'run Cast through a logged-in provider CLI'],
+          ['/bridge status', 'show provider bridge status'],
+          ['/bridge stop', 'return prompts to normal Cast runtime'],
           ['/benchmark', 'local benchmark lab'],
           ['/rollback [file]', 'restore file from snapshot'],
           ['/stats', 'show token and cost stats'],
@@ -105,7 +109,7 @@ export class ReplCommandsService {
           ['Ctrl+C', 'cancel current operation'],
         ]),
       ],
-      footer: 'Use /effort for fast, balanced, deep, or max execution modes.',
+      footer: `Bridge providers: ${formatBridgeProviderList().replace(/\|/g, ', ')}. Use /effort for runtime budget.`,
     }));
   }
 

@@ -21,6 +21,7 @@ import { SkillsImportModule } from './modules/skills-import/skills-import.module
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SandboxModule } from './modules/sandbox/sandbox.module';
 import { TraceModule } from './modules/trace/trace.module';
+import { BridgeModule } from './modules/bridge/bridge.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { TraceModule } from './modules/trace/trace.module';
     SchedulerModule,
     SandboxModule,
     TraceModule,
+    BridgeModule,
   ],
 })
 export class AppModule {}

@@ -93,5 +93,8 @@
   },
   "overrides": {
     "uuid": "^10.0.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
   }
 }

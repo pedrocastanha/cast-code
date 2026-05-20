@@ -67,6 +67,12 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     environmentCommands: undefined,
     scheduleCommands: undefined,
     sandboxCommands: { cmdSandbox: async () => {} },
+    bridgeCommands: {
+      cmdBridge: async () => '',
+      isConnected: () => false,
+      getProviderLabel: () => 'Claude CLI',
+      runPrompt: async () => '',
+    },
   };
 
   const deps = { ...defaults, ...overrides };
@@ -104,6 +110,8 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deps.environmentCommands as any,
     deps.scheduleCommands as any,
     deps.sandboxCommands as any,
+    undefined as any,
+    deps.bridgeCommands as any,
   );
 };
 
@@ -189,6 +197,101 @@ describe('ReplService', () => {
       ['/sandbox'],
       'only the /sandbox command starts with /sand',
     );
+  });
+
+  test('filters command suggestions and exposes the /bridge option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/bri');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/bridge'],
+      'only the /bridge command starts with /bri',
+    );
+  });
+
+  test('routes regular prompts through the connected bridge provider', async () => {
+    const prompts: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (message: string, projectRoot: string) => {
+          prompts.push(message);
+          assert.equal(projectRoot, process.cwd());
+          return 'Claude bridge response';
+        },
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('qual modelo voce esta usando?');
+    });
+
+    assert.deepEqual(prompts, ['qual modelo voce esta usando?']);
+    assert.match(output, /Claude bridge response/);
+  });
+
+  test('streams connected bridge output through a SmartInput external block', async () => {
+    let beginCalls = 0;
+    let endCalls = 0;
+    const outputLines: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (_message: string, _projectRoot: string, callbacks: any) => {
+          callbacks.onOutputChunk('streamed ');
+          callbacks.onOutputChunk('bridge response');
+          return 'streamed bridge response';
+        },
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => { beginCalls += 1; },
+      endExternalOutput: () => { endCalls += 1; },
+      writeOutputLine: (line: string) => outputLines.push(stripAnsi(line)),
+    };
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('stream isso');
+    });
+
+    assert.equal(beginCalls, 1);
+    assert.equal(endCalls, 1);
+    assert.match(stripAnsi(output), /Claude CLI/);
+    assert.match(stripAnsi(output), /streamed bridge response/);
+    assert(outputLines.some((line) => line.includes('─')), 'bridge output should finish with a separator');
+  });
+
+  test('keeps slash commands local while a bridge provider is connected', async () => {
+    const commandArgs: string[][] = [];
+    const prompts: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async (args: string[]) => {
+          commandArgs.push(args);
+          return 'bridge status panel';
+        },
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (message: string) => {
+          prompts.push(message);
+          return 'unexpected bridge prompt';
+        },
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('/bridge status');
+    });
+
+    assert.deepEqual(commandArgs, [['status']]);
+    assert.deepEqual(prompts, []);
+    assert.match(output, /bridge status panel/);
   });
 
   test('lists agents and skills as dollar-reference suggestions with type labels', () => {
@@ -852,6 +955,21 @@ describe('ReplService', () => {
     assert.match(combined, /balanced/i);
     assert.match(combined, /model/i);
     assert.match(combined, /gpt-4\.1-mini/);
+  });
+
+  test('input footer shows active bridge provider when bridge is connected', () => {
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Codex CLI',
+        runPrompt: async () => '',
+      },
+    });
+
+    const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
+
+    assert.match(combined, /model bridge\/Codex CLI/);
   });
 
   test('input footer includes estimated session cost when available', () => {
