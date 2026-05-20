@@ -189,7 +189,7 @@ export class BridgeCommandsService {
     const autostartProvider = settings.autostart?.enabled ? settings.autostart.provider : undefined;
     const activeProvider = this.bridgeActive ? this.session.getProviderId() : undefined;
 
-    const selected = await smartInput.askChoice('Bridge provider', BRIDGE_PROVIDER_IDS.map((provider) => {
+    const providerChoices = BRIDGE_PROVIDER_IDS.map((provider) => {
       const adapter = createBridgeProviderAdapter(provider);
       const notes = [
         activeProvider === provider ? 'connected' : '',
@@ -203,7 +203,18 @@ export class BridgeCommandsService {
         tabKey: `autostart:${provider}`,
         tabLabel: 'connect + autostart',
       };
-    }));
+    });
+
+    const selected = await smartInput.askChoice('Bridge provider', [
+      ...providerChoices,
+      {
+        key: 'stop',
+        label: 'Stop bridge',
+        description: this.bridgeActive
+          ? 'restore Cast API-key runtime'
+          : 'Cast API-key runtime already active',
+      },
+    ]);
 
     if (!selected) {
       return this.getStatusPanel('Bridge selection cancelled.', await this.getAutostartLabel(projectRoot));
@@ -217,6 +228,12 @@ export class BridgeCommandsService {
       await this.startProvider(provider, projectRoot);
       await this.writeSettings(projectRoot, { autostart: { enabled: true, provider } });
       return this.getStatusPanel(`${this.session.getProviderLabel()} bridge connected. Autostart enabled for this project.`, await this.getAutostartLabel(projectRoot));
+    }
+
+    if (selected === 'stop') {
+      this.session.stop();
+      this.bridgeActive = false;
+      return this.getStatusPanel('Bridge disconnected. Cast runtime restored.', await this.getAutostartLabel(projectRoot));
     }
 
     if (!isBridgeProviderId(selected)) {
