@@ -31,7 +31,7 @@ The tools module owns local tools exposed to the agent: filesystem read/write/ed
 - Shell cwd must resolve inside the allowed project/workspace boundary.
 - File edits should track read files and produce diffs.
 - `cast_command` must route through a host handler; tools should not directly duplicate slash command business logic.
-- Command discovery should include detailed `/bridge` context so bridged providers and local agents understand that bridge swaps the provider runtime while Cast still owns tools, permissions, transcripts, and file/shell guards. It should mention that normal prompts route to the bridge until `/bridge stop`.
+- Command discovery should include detailed `/bridge` context so bridged providers and local agents understand that bridge swaps the provider runtime while Cast still owns tools, permissions, transcripts, and file/shell guards. It should mention the bare `/bridge` picker, Tab autostart, and that normal prompts route to the bridge until `/bridge stop`.
 - Keep isolated tool sets separate from full-session tool sets when used by subagents or controlled runs.
 
 ## Tests
