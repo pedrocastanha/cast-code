@@ -91,7 +91,7 @@ export class ReplCommandsService {
           ['/mcp', 'MCP servers and tools'],
           ['/kanban', 'open task board'],
           ['/remote', 'start remote web interface'],
-          ['/bridge', 'choose a provider CLI bridge'],
+          ['/bridge', 'choose provider or stop bridge'],
           ['/bridge <provider>', 'run Cast through a logged-in provider CLI'],
           ['/bridge status', 'show provider bridge status'],
           ['/bridge autostart', 'persist bridge startup for this project'],
