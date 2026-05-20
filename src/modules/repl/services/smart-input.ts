@@ -33,6 +33,8 @@ export interface ChoiceOption {
   key: string;
   label: string;
   description?: string;
+  tabKey?: string;
+  tabLabel?: string;
 }
 
 export interface ISmartInput {
@@ -383,6 +385,14 @@ export class SmartInput implements ISmartInput {
       }
 
       const code = data.charCodeAt(i);
+      if (code === 0x09) {
+        const selected = this.choiceOptions[this.choiceSelectedIndex];
+        if (selected?.tabKey) {
+          this.resolveChoice(selected.tabKey);
+          return;
+        }
+      }
+
       if (code === 0x0d || code === 0x0a) {
         this.resolveChoice(this.choiceOptions[this.choiceSelectedIndex]?.key || this.choiceOptions[0].key);
         return;
@@ -428,10 +438,13 @@ export class SmartInput implements ISmartInput {
   }
 
   private resolveChoice(answer: string) {
-    const selected = this.choiceOptions.find((choice) => choice.key === answer);
+    const selected = this.choiceOptions.find((choice) => choice.key === answer || choice.tabKey === answer);
     this.clearChoiceMenu();
     if (selected) {
-      process.stdout.write(`\r\n  ${Colors.green}✓${Colors.reset} ${Colors.dim}${selected.label}${Colors.reset}\r\n`);
+      const tabAction = selected.tabKey === answer && selected.tabLabel
+        ? `${selected.label} · ${selected.tabLabel}`
+        : selected.label;
+      process.stdout.write(`\r\n  ${Colors.green}✓${Colors.reset} ${Colors.dim}${tabAction}${Colors.reset}\r\n`);
     } else {
       process.stdout.write('\r\n');
     }
@@ -1004,6 +1017,10 @@ export class SmartInput implements ISmartInput {
   private renderChoiceMenu() {
     this.clearChoiceMenu();
 
+    const selected = this.choiceOptions[this.choiceSelectedIndex];
+    const tabHint = selected?.tabKey
+      ? ` · Tab ${selected.tabLabel || 'alternate action'}`
+      : '';
     const lines = [
       `${Colors.cyan}${this.choiceMessage}${Colors.reset}`,
       '',
@@ -1017,7 +1034,7 @@ export class SmartInput implements ISmartInput {
         return `  ${marker} ${label}${desc}`;
       }),
       '',
-      `${Colors.dim}  ↑/↓ move · Enter select · number shortcuts · Ctrl+C cancel${Colors.reset}`,
+      `${Colors.dim}  ↑/↓ move · Enter select${tabHint} · number shortcuts · Ctrl+C cancel${Colors.reset}`,
     ];
 
     let totalRows = 0;

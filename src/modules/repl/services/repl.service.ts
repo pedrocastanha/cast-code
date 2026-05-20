@@ -44,6 +44,7 @@ import { EnvironmentCommandsService } from '../../environments/commands/environm
 import { ScheduleCommandsService } from '../../scheduler/commands/schedule-commands.service';
 import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.service';
 import { BridgeCommandsService } from '../../bridge/commands/bridge-commands.service';
+import type { BridgeToolCall, BridgeToolResult } from '../../bridge/types/bridge.types';
 import { CommandUiService } from './command-ui.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
@@ -175,6 +176,7 @@ export class ReplService {
     );
 
     process.stdout.write(this.buildSeparatorLine() + '\r\n');
+    await this.autostartBridgeIfConfigured();
     this.smartInput.start();
   }
 
@@ -984,7 +986,7 @@ export class ReplService {
         process.stdout.write(this.ui.error('Bridge commands are not available in this runtime.'));
         break;
       }
-      const bridgeOutput = await this.bridgeCommands.cmdBridge(args, process.cwd());
+      const bridgeOutput = await this.bridgeCommands.cmdBridge(args, process.cwd(), this.smartInput!);
       this.writeExternalBlock(bridgeOutput);
       break;
 
@@ -1055,9 +1057,16 @@ export class ReplService {
           }
         },
         onToolCall: (call) => {
+          this.stopSpinner();
+          flushOutput();
+          writeHeader();
+          process.stdout.write(this.formatBridgeToolStart(call));
           this.updateSpinner(`Bridge tool ${call.name}`);
         },
-        onToolResult: () => {
+        onToolResult: (result) => {
+          this.stopSpinner();
+          writeHeader();
+          process.stdout.write(this.formatBridgeToolResult(result));
           this.updateSpinner(`${providerLabel} thinking`);
         },
       });
@@ -1084,6 +1093,116 @@ export class ReplService {
       if (externalStarted) {
         this.smartInput?.endExternalOutput?.();
       }
+    }
+  }
+
+  private formatBridgeToolStart(call: BridgeToolCall): string {
+    const label = call.name.replace(/_/g, ' ');
+    const detail = this.getBridgeToolDetail(call);
+    return `${Colors.dim}  ▶ ${Colors.reset}${Colors.dim}${Colors.cyan}${label}${Colors.reset}${Colors.dim}${detail}${Colors.reset}\r\n`;
+  }
+
+  private formatBridgeToolResult(result: BridgeToolResult): string {
+    const ok = result.status === 'ok';
+    const icon = ok ? Icons.check : Icons.cross;
+    const color = ok ? Colors.green : Colors.red;
+    const summary = ok
+      ? this.summarizeBridgeToolContent(result.content || '')
+      : this.truncateBridgeToolText(result.error || 'Tool failed', 120);
+    return `${Colors.dim}    ${color}${icon}${Colors.reset}${Colors.dim} ${result.name} ${ok ? 'ok' : 'error'}${summary ? ` - ${summary}` : ''}${Colors.reset}\r\n`;
+  }
+
+  private getBridgeToolDetail(call: BridgeToolCall): string {
+    const input = call.arguments || {};
+    const fromKeys = (...keys: string[]): string => {
+      for (const key of keys) {
+        const value = input[key];
+        if (value !== undefined && value !== null && String(value).trim()) {
+          return String(value);
+        }
+      }
+      return '';
+    };
+
+    switch (call.name) {
+    case 'read_file':
+    case 'write_file':
+    case 'edit_file':
+      return this.formatBridgeToolDetailValue(fromKeys('file_path', 'path', 'file', 'filename'));
+    case 'glob':
+      return this.formatBridgeToolDetailValue(fromKeys('pattern'));
+    case 'grep':
+      return this.formatBridgeToolDetailValue(fromKeys('pattern', 'query'));
+    case 'ls':
+      return this.formatBridgeToolDetailValue(fromKeys('directory', 'path'));
+    case 'shell':
+    case 'shell_background':
+      return this.formatBridgeToolDetailValue(fromKeys('command'), 100);
+    case 'read_skill':
+    case 'skill_view':
+      return this.formatBridgeToolDetailValue(fromKeys('name', 'skill'));
+    case 'list_skill_files':
+      return this.formatBridgeToolDetailValue(fromKeys('name', 'skill'));
+    case 'task_create':
+      return this.formatBridgeToolDetailValue(fromKeys('title', 'name'));
+    case 'task_update':
+    case 'task_get':
+      return this.formatBridgeToolDetailValue(fromKeys('id', 'taskId'));
+    case 'memory_read':
+    case 'memory_search':
+    case 'rag_search':
+      return this.formatBridgeToolDetailValue(fromKeys('query', 'key'));
+    case 'memory_write':
+      return this.formatBridgeToolDetailValue(fromKeys('filename', 'key', 'title'));
+    case 'cast_command':
+      return this.formatBridgeToolDetailValue(fromKeys('command'));
+    default: {
+      const firstKey = Object.keys(input)[0];
+      if (!firstKey) {
+        return '';
+      }
+      return this.formatBridgeToolDetailValue(`${firstKey}=${String(input[firstKey])}`);
+    }
+    }
+  }
+
+  private formatBridgeToolDetailValue(value: string, maxLength = 80): string {
+    const trimmed = value.trim();
+    return trimmed ? ` ${this.truncateBridgeToolText(trimmed, maxLength)}` : '';
+  }
+
+  private summarizeBridgeToolContent(content: string): string {
+    if (!content) {
+      return '';
+    }
+
+    const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const bytes = Buffer.byteLength(content, 'utf-8');
+    if (lines.length > 1 || bytes > 240) {
+      const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+      return `${lines.length} lines, ${size}`;
+    }
+    return this.truncateBridgeToolText(lines[0] || content, 120);
+  }
+
+  private truncateBridgeToolText(value: string, maxLength: number): string {
+    const clean = stripAnsi(value).replace(/\s+/g, ' ').trim();
+    return clean.length > maxLength ? `${clean.slice(0, Math.max(0, maxLength - 3))}...` : clean;
+  }
+
+  private async autostartBridgeIfConfigured(): Promise<void> {
+    if (!this.bridgeCommands?.startAutostart) {
+      return;
+    }
+
+    try {
+      const output = await this.bridgeCommands.startAutostart(process.cwd());
+      if (output) {
+        process.stdout.write(output.endsWith('\n') || output.endsWith('\r\n') ? output : `${output}\r\n`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stdout.write(this.ui.warning(`Bridge autostart skipped: ${message}`));
     }
   }
 
