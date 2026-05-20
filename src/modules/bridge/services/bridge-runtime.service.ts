@@ -30,10 +30,18 @@ export class BridgeRuntimeService {
     turn: BridgeUserTurn,
     options: { projectRoot: string; idleMs?: number; firstByteMs?: number; maxToolRounds?: number } & BridgeRuntimeCallbacks,
   ): Promise<BridgeRuntimeResult> {
+    return this.runUserTurnOnSession(this.session, turn, options);
+  }
+
+  async runUserTurnOnSession(
+    session: BridgeSessionService,
+    turn: BridgeUserTurn,
+    options: { projectRoot: string; idleMs?: number; firstByteMs?: number; maxToolRounds?: number } & BridgeRuntimeCallbacks,
+  ): Promise<BridgeRuntimeResult> {
     this.protocol.reset();
 
-    const provider = this.session.getProviderId();
-    const providerLabel = this.session.getProviderLabel();
+    const provider = session.getProviderId();
+    const providerLabel = session.getProviderLabel();
     const idleMs = options.idleMs ?? DEFAULT_TURN_IDLE_MS;
     const firstByteMs = options.firstByteMs ?? DEFAULT_FIRST_BYTE_MS;
     const maxToolRounds = options.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
@@ -47,12 +55,13 @@ export class BridgeRuntimeService {
     let runtimeError: Error | null = null;
     let pending = Promise.resolve();
 
-    const unsubscribe = this.session.onData((chunk) => {
+    const unsubscribe = session.onData((chunk) => {
       if (chunk.length === 0) {
         return;
       }
       pending = pending
         .then(() => this.handleChunk({
+          session,
           chunk,
           turn,
           projectRoot: options.projectRoot,
@@ -86,7 +95,7 @@ export class BridgeRuntimeService {
           done = true;
         });
     });
-    this.session.onceExit(() => {
+    session.onceExit(() => {
       lastActivity = Date.now();
       done = true;
     });
@@ -109,7 +118,7 @@ export class BridgeRuntimeService {
       turnId: turn.id,
       redactedText: prompt,
     });
-    await this.session.write(prompt);
+    await session.write(prompt);
     lastActivity = Date.now();
 
     try {
@@ -137,8 +146,9 @@ export class BridgeRuntimeService {
       && output.join('').trim() === ''
       && !turn.id.includes('_tool_followup')
     ) {
-      await this.session.start({ cwd: options.projectRoot });
+      await session.start({ cwd: options.projectRoot });
       const followup = await this.runResponseOnlyTurn(
+        session,
         {
           id: `${turn.id}_tool_followup`,
           message: [
@@ -175,6 +185,7 @@ export class BridgeRuntimeService {
   }
 
   private async handleChunk(input: {
+    session: BridgeSessionService;
     chunk: string;
     turn: BridgeUserTurn;
     projectRoot: string;
@@ -211,7 +222,7 @@ export class BridgeRuntimeService {
     }
 
     for (const error of parsed.errors) {
-      await this.session.write(this.protocol.buildToolResult({
+      await input.session.write(this.protocol.buildToolResult({
         id: 'protocol_error',
         name: 'protocol',
         status: 'error',
@@ -236,6 +247,7 @@ export class BridgeRuntimeService {
   private async executeToolCall(
     call: BridgeToolCall,
     input: {
+      session: BridgeSessionService;
       projectRoot: string;
       turn: BridgeUserTurn;
       provider: BridgeProviderId;
@@ -251,7 +263,7 @@ export class BridgeRuntimeService {
         status: 'error',
         error: `Maximum bridge tool rounds reached: ${input.maxToolRounds}`,
       } as const;
-      await this.writeToolResult(result);
+      await this.writeToolResult(input.session, result);
       return result;
     }
 
@@ -281,13 +293,13 @@ export class BridgeRuntimeService {
       metadata: { name: call.name, status: result.status },
     });
 
-    await this.writeToolResult(result);
+    await this.writeToolResult(input.session, result);
     return result;
   }
 
-  private async writeToolResult(result: BridgeToolResult): Promise<void> {
+  private async writeToolResult(session: BridgeSessionService, result: BridgeToolResult): Promise<void> {
     try {
-      await this.session.write(this.protocol.buildToolResult(result));
+      await session.write(this.protocol.buildToolResult(result));
     } catch {
       // One-shot providers such as `claude -p` may exit after emitting a tool call.
       // The runtime will open a follow-up provider turn with the collected result.
@@ -295,12 +307,13 @@ export class BridgeRuntimeService {
   }
 
   private async runResponseOnlyTurn(
+    session: BridgeSessionService,
     turn: BridgeUserTurn,
     options: { projectRoot: string; idleMs: number; firstByteMs: number } & Pick<BridgeRuntimeCallbacks, 'onOutputChunk'>,
   ): Promise<BridgeRuntimeResult> {
     this.protocol.reset();
 
-    const provider = this.session.getProviderId();
+    const provider = session.getProviderId();
     const output: string[] = [];
     let done = false;
     let sawProviderData = false;
@@ -308,7 +321,7 @@ export class BridgeRuntimeService {
     let runtimeError: Error | null = null;
     let pending = Promise.resolve();
 
-    const unsubscribe = this.session.onData((chunk) => {
+    const unsubscribe = session.onData((chunk) => {
       if (chunk.length === 0) {
         return;
       }
@@ -340,7 +353,7 @@ export class BridgeRuntimeService {
           done = true;
         });
     });
-    this.session.onceExit(() => {
+    session.onceExit(() => {
       lastActivity = Date.now();
       done = true;
     });
@@ -354,7 +367,7 @@ export class BridgeRuntimeService {
       turnId: turn.id,
       redactedText: turn.message,
     });
-    await this.session.write(turn.message);
+    await session.write(turn.message);
     lastActivity = Date.now();
 
     try {
