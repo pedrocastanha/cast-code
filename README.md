@@ -76,7 +76,9 @@ cast bridge claude
 Ou dentro do REPL:
 
 ```text
+/bridge
 /bridge claude
+/bridge autostart claude
 /bridge status
 /bridge tools
 /bridge stop
@@ -84,7 +86,9 @@ Ou dentro do REPL:
 
 Providers aceitos pelo bridge: `claude`, `codex`, `copilot`, `qwen`, `kimi`, `openrouter`.
 
-Depois de `/bridge <provider>`, prompts normais sem `/` são enviados para a CLI conectada até você rodar `/bridge stop`. O bridge troca apenas o runtime do modelo. O Cast continua controlando ferramentas locais, permissões, transcripts e guardrails de arquivos/shell. Isso é diferente de `/remote`, que só expõe a interface web do Cast para outro dispositivo.
+No REPL, `/bridge` abre um seletor de providers. Use `↑/↓` para escolher, `Enter` para conectar agora, ou `Tab` para conectar e ativar autostart no projeto atual. Depois de `/bridge <provider>`, prompts normais sem `/` são enviados para a CLI conectada até você rodar `/bridge stop`. O bridge troca apenas o runtime do modelo. O Cast continua controlando ferramentas locais, permissões, transcripts e guardrails de arquivos/shell. Isso é diferente de `/remote`, que só expõe a interface web do Cast para outro dispositivo.
+
+Autostart é opt-in e fica em `.cast/bridge.json`. Use `/bridge autostart off` para desligar.
 
 Para CLIs diferentes do padrão, configure comando e argumentos por provider:
 
@@ -120,7 +124,9 @@ Se uma CLI real demorar no primeiro token, ajuste `CAST_BRIDGE_TURN_FIRST_BYTE_M
 | `/stats` | Uso de tokens e custo da sessão |
 | `/kanban` | Abre o quadro Kanban (localhost:3333) |
 | `/remote` | Expõe interface web via ngrok |
+| `/bridge` | Escolhe provider CLI com setas; `Tab` conecta e ativa autostart |
 | `/bridge <provider>` | Usa o Cast através de um provider CLI autenticado |
+| `/bridge autostart <provider>\|off` | Liga/desliga autostart do bridge no projeto |
 | `/bridge status` | Mostra status, provider, tools e modo raw do bridge |
 | `/bridge stop` | Desconecta o bridge e volta ao runtime normal do Cast |
 | `/exit` | Sair |

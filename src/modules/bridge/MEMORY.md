@@ -13,7 +13,7 @@ Core product rule: the provider model thinks, Cast executes tools.
 ## Key Files
 
 - `bridge.module.ts`: wires bridge services and exports command/runtime/session services.
-- `commands/bridge-commands.service.ts`: starts provider bridge sessions, handles direct prompts, exposes connection state for REPL routing, and implements `/bridge <provider>|status|stop|disconnect|off|reset|raw|tools|help`.
+- `commands/bridge-commands.service.ts`: starts provider bridge sessions, handles direct prompts, exposes connection state for REPL routing, implements the bare `/bridge` provider picker, persists project autostart in `.cast/bridge.json`, and implements `/bridge <provider>|status|stop|disconnect|off|reset|autostart|raw|tools|help`.
 - `providers/claude-bridge-adapter.ts`: generic CLI provider adapter plus Claude wrapper, env overrides, startup failure classification, stream/raw/Codex JSON input-output formatting, and protocol prompt formatting.
 - `services/bridge-session.service.ts`: provider process lifecycle. It tries optional `node-pty` and falls back to `child_process` pipes when the native module is unavailable; stream-json and JSONL adapters force pipe transport because `claude -p --input-format stream-json` and `codex exec --json` are pipe-oriented.
 - `services/bridge-protocol.service.ts`: Cast XML-ish protocol prompt/result builders and parser for `<cast_tool_call>`, `<cast_tool_result>`, and `<cast_turn_done/>`.
@@ -27,9 +27,9 @@ Core product rule: the provider model thinks, Cast executes tools.
 - Direct: `cast bridge <claude|codex|copilot|qwen|kimi|openrouter>`
 - Scripted/direct smoke: `CAST_BRIDGE_SCRIPTED_INPUT='["message","/bridge status","/exit"]' node dist/main.js bridge claude`
 - Assertive fake-provider smoke: `/usr/bin/zsh -lc 'source scripts/bridge-claude-smoke.zsh'`
-- REPL: `/bridge claude`, `/bridge codex`, `/bridge copilot`, `/bridge qwen`, `/bridge kimi`, `/bridge openrouter`, `/bridge status`, `/bridge stop`, `/bridge reset`, `/bridge raw on|off`, `/bridge tools`, `/bridge help`
+- REPL: `/bridge` picker, `/bridge claude`, `/bridge codex`, `/bridge copilot`, `/bridge qwen`, `/bridge kimi`, `/bridge openrouter`, `/bridge status`, `/bridge stop`, `/bridge reset`, `/bridge autostart <provider>|off`, `/bridge raw on|off`, `/bridge tools`, `/bridge help`
 
-Bridge mode intentionally skips normal model API-key setup. It uses the user's authenticated provider CLI account when the real provider is used. In the REPL, bridge sessions are sticky for normal non-slash prompts until `/bridge stop`; slash commands remain Cast-local. Claude CLI and Codex CLI are validated against live accounts.
+Bridge mode intentionally skips normal model API-key setup. It uses the user's authenticated provider CLI account when the real provider is used. In the REPL, bridge sessions are sticky for normal non-slash prompts until `/bridge stop`; slash commands remain Cast-local. `BridgeCommandsService` owns the active bridge routing flag, while `BridgeSessionService` owns only the provider child process. Do not use provider process status alone for REPL routing: one-shot providers such as Claude stream-json and Codex JSONL may be disconnected between turns and must be reopened by `runPrompt`. Project autostart can be persisted in `.cast/bridge.json` through `/bridge autostart <provider>` or Tab in the bare `/bridge` picker. Claude CLI and Codex CLI are validated against live accounts.
 
 ## Environment Overrides
 
@@ -59,6 +59,7 @@ Bridge mode intentionally skips normal model API-key setup. It uses the user's a
 - Follow-up turns are response-only: do not send the full tool manifest again. If the provider returns no usable final text, fall back to the real Cast tool result. For package script requests, extract scripts from the actual `package.json` JSON returned by Cast.
 - Do not apply the short idle timeout before the provider emits its first non-empty chunk. Real CLIs such as Claude can take longer to produce the first visible text than local fake providers, and stream-json metadata can sanitize to empty output.
 - Streaming bridge responses should go through callbacks into the REPL SmartInput external output block. This keeps large responses from corrupting the prompt/footer and makes the bridge feel like the normal Cast stream instead of a single delayed HTTP response.
+- Tool-call visibility is part of the bridge UX. `BridgeRuntimeService` callbacks should surface tool start/result events to the REPL, and the REPL should render compact one-line summaries rather than raw tool payloads.
 - Claude stream-json output can put useful text in a `result` event when no assistant text was emitted; reset adapter output state on every provider start and use `result` only as a no-assistant fallback to avoid duplicate output.
 - Keep `/help`, startup quick commands, autocomplete, `list_commands`, README, and this memory in sync when `/bridge` surface changes.
 

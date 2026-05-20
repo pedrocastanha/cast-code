@@ -47,7 +47,7 @@ The long-term direction is inspired partly by Nous Hermes Agent, but Cast should
 Active bridge implementation:
 
 - `cast bridge <provider>` starts a provider bridge where Cast uses a user-authenticated provider CLI as the local model runtime. Supported provider IDs are `claude`, `codex`, `copilot`, `qwen`, `kimi`, and `openrouter`.
-- In the REPL, `/bridge <provider>` connects the provider and then routes normal non-slash prompts through that bridge until `/bridge stop`, `/bridge disconnect`, or `/bridge off` is used. Slash commands remain local Cast commands.
+- In the REPL, bare `/bridge` opens a SmartInput provider picker. Enter connects the selected provider; Tab connects it and enables project autostart. `/bridge <provider>` connects directly and then routes normal non-slash prompts through that bridge until `/bridge stop`, `/bridge disconnect`, or `/bridge off` is used. Slash commands remain local Cast commands.
 - Product rule: the provider model thinks, Cast executes tools. Cast keeps ownership of tool allowlists, permissions, transcripts, and file/shell guards.
 - Claude CLI is the first real validated provider and uses `stream-json` by default. Other provider IDs are raw CLI adapters that can be pointed at concrete commands with `CAST_BRIDGE_<PROVIDER>_COMMAND` and `CAST_BRIDGE_<PROVIDER>_ARGS`.
 - Codex CLI defaults to `codex exec --json --ignore-user-config --ignore-rules ... -` rather than the interactive TUI. It is a one-shot provider: Cast writes the prompt, closes stdin, parses JSONL `agent_message` events, and restarts Codex for follow-up turns.
@@ -56,6 +56,7 @@ Active bridge implementation:
 - Bridge runtime has separate first-non-empty-byte and idle timeouts. Keep the first-byte timeout longer than idle because real provider CLIs can have slow cold starts and stream-json metadata before visible output.
 - Stream-json bridge adapters force pipe transport even when `node-pty` exists; real `claude -p --input-format stream-json` should not run behind a PTY.
 - JSON bridge adapters such as Codex also force pipe transport. Do not run one-shot JSON providers behind PTY.
+- Bridge tool activity is visible in the REPL stream. `BridgeRuntimeService` emits tool callbacks and `ReplService` prints compact start/result lines inside the provider output block, for example `read file package.json` and `read_file ok - 2 lines, 240 B`; keep summaries compact instead of dumping raw tool output into the terminal.
 - `docs/superpowers/specs/2026-05-19-cast-bridge-claude-design.md` is the design record for the bridge.
 - `docs/superpowers/plans/2026-05-19-cast-bridge-claude.md` is the approved implementation plan that led to the current module.
 
@@ -156,7 +157,8 @@ Important services:
 Important command rules:
 
 - `/platform` is the only advertised Platform setup command.
-- `/bridge` controls the active provider bridge session from the REPL. Connected bridge sessions consume normal prompts until `/bridge stop`; keep help, suggestions, discovery command metadata, README, and memory in sync with bridge command handlers.
+- `/bridge` controls the active provider bridge session from the REPL. Bare `/bridge` is an interactive provider picker; connected bridge sessions consume normal prompts until `/bridge stop`; project autostart is opt-in via `.cast/bridge.json`. Keep help, suggestions, discovery command metadata, README, and memory in sync with bridge command handlers.
+- Active bridge prompts display tool-call progress through SmartInput external output blocks. Preserve the compact format and do not stream full file/shell payloads into the prompt area.
 - `/link` is removed from help/suggestions. If invoked, it prints a warning and points to `/platform`.
 - `/config` should not manage Cast Platform anymore. It remains for model/provider/prompt config.
 - `/help` should show `/platform` under "AGENTS, PROJECT, CONFIG".
@@ -179,6 +181,8 @@ Important behavior:
 
 - `cast bridge <provider>` uses the user's authenticated provider CLI account instead of requiring a Cast/OpenAI API key.
 - REPL `/bridge <provider>` is sticky for normal prompts; `/bridge stop` restores the normal Cast/OpenAI runtime without restarting the CLI.
+- Active bridge provider processes are in-memory state. Closing the Cast CLI kills the provider process, but `/bridge autostart <provider>` or Tab in the `/bridge` picker persists a project autostart preference in `.cast/bridge.json`; the REPL reconnects that provider on startup until `/bridge autostart off`.
+- Bridge routing state is separate from the provider child-process status. One-shot providers such as Claude stream-json and Codex JSONL may be disconnected between turns, but normal prompts must still route through bridge mode and reopen the provider until `/bridge stop` clears the active bridge.
 - Provider models can request tool calls with the bridge protocol, but Cast executes them through existing tool, permission, and filesystem guards.
 - One-shot providers such as real `claude -p` can emit a tool call and exit; the runtime must reopen a provider turn and answer from the real Cast tool result instead of trusting provider-invented `<cast_tool_result>` text.
 - The Claude stream-json adapter should use assistant text first and only fall back to result text when no assistant text was emitted for that provider start.

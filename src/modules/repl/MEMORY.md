@@ -22,14 +22,15 @@ The REPL module owns the interactive terminal experience: startup loop, smart in
 
 - Business logic should stay in modules such as git, platform, benchmark, scheduler, sandbox, tasks, and core. REPL command services orchestrate and display.
 - Platform setup UI lives here, but config parsing/writing lives in `platform`.
-- SmartInput should not know domain command internals beyond suggestions and choices.
+- SmartInput should not know domain command internals beyond suggestions and choices. Choice options may expose an optional `tabKey`/`tabLabel` alternate action; the `/bridge` picker uses this for "connect + autostart".
 
 ## Decisions To Preserve
 
 - `/platform` is the advertised platform setup command; `/link` is legacy and should only warn/delegate.
-- `/bridge` is the advertised provider bridge control command. It supports `claude`, `codex`, `copilot`, `qwen`, `kimi`, `openrouter`, plus `status`, `stop`/`disconnect`/`off`, `reset`, `raw on|off`, `tools`, and `help`; keep help, startup quick commands, autocomplete, and `BridgeCommandsService` in sync.
-- While a bridge is connected, normal non-slash REPL prompts route to `BridgeCommandsService.runPrompt`; slash commands keep local Cast routing. `/bridge stop` returns prompts to `DeepAgentService`.
+- `/bridge` is the advertised provider bridge control command. Bare `/bridge` opens a provider picker where Enter connects and Tab connects plus enables project autostart. It supports `claude`, `codex`, `copilot`, `qwen`, `kimi`, `openrouter`, plus `status`, `stop`/`disconnect`/`off`, `reset`, `autostart <provider>|off`, `raw on|off`, `tools`, and `help`; keep help, startup quick commands, autocomplete, and `BridgeCommandsService` in sync.
+- While bridge mode is active, normal non-slash REPL prompts route to `BridgeCommandsService.runPrompt`; slash commands keep local Cast routing. This must not depend on the provider child-process being alive because one-shot bridge providers disconnect between turns. `/bridge stop` returns prompts to `DeepAgentService`.
 - Bridge responses must print through SmartInput external output blocks and stream chunks when available; avoid raw `process.stdout.write` for large bridge answers because it corrupts the footer/prompt layout.
+- Bridge tool activity should be visible while a bridged prompt is running. Render compact start/result lines in the provider block, including a useful target such as file path, glob, command, task id, or memory query, and summarize results by short text or line/byte count instead of dumping full tool output.
 - `/config` should not contain platform setup.
 - After successful platform linking, refresh `DeepAgentService` so remote definitions/RAG become active immediately.
 - Keep command help/suggestions in sync with actual command handlers.
