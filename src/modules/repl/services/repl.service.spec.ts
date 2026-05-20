@@ -73,6 +73,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       getProviderLabel: () => 'Claude CLI',
       runPrompt: async () => '',
     },
+    swarmCommands: undefined,
   };
 
   const deps = { ...defaults, ...overrides };
@@ -112,6 +113,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     deps.sandboxCommands as any,
     undefined as any,
     deps.bridgeCommands as any,
+    deps.swarmCommands as any,
   );
 };
 
@@ -231,6 +233,36 @@ describe('ReplService', () => {
 
     assert.deepEqual(prompts, ['qual modelo voce esta usando?']);
     assert.match(output, /Claude bridge response/);
+  });
+
+  test('offers Agent Swarm before routing a regular prompt to an active bridge', async () => {
+    const bridgePrompts: string[] = [];
+    const swarmPrompts: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (message: string) => {
+          bridgePrompts.push(message);
+          return 'unexpected bridge response';
+        },
+      },
+      swarmCommands: {
+        offerForPrompt: async (message: string) => {
+          swarmPrompts.push(message);
+          return true;
+        },
+      },
+    });
+    (service as any).smartInput = { refresh: () => {} };
+
+    await captureStdoutAsync(async () => {
+      await (service as any).processLine('Implement billing limits across backend, web, and CLI tests with a full refactor');
+    });
+
+    assert.deepEqual(swarmPrompts, ['Implement billing limits across backend, web, and CLI tests with a full refactor']);
+    assert.deepEqual(bridgePrompts, []);
   });
 
   test('streams connected bridge output through a SmartInput external block', async () => {

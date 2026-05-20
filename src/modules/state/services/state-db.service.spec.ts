@@ -69,6 +69,7 @@ describe('StateDbService', () => {
         '0005_scheduler_core',
         '0006_local_memory',
         '0007_environment_profiles',
+        '0008_swarm_core',
       ]);
 
       await service.close();
