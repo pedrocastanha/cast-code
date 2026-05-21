@@ -1,6 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { HumanMessage } from '@langchain/core/messages';
-import { createDeepAgent, FilesystemBackend } from 'deepagents';
+import {
+  createDeepAgent,
+  FilesystemBackend,
+  type BackendProtocolV2,
+  type EditResult,
+  type FileInfo,
+  type GlobResult,
+  type GrepMatch,
+  type GrepResult,
+  type LsResult,
+  type ReadRawResult,
+  type ReadResult,
+  type WriteResult,
+} from 'deepagents';
 import * as path from 'node:path';
 import { MultiLlmService } from '../../../common/services/multi-llm.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
@@ -8,7 +21,7 @@ import { FilesystemToolsService } from '../../tools/services/filesystem-tools.se
 import { ShellToolsService } from '../../tools/services/shell-tools.service';
 import type { SwarmWorkerRunInput } from '../types';
 
-class SwarmWorktreeBackend {
+class SwarmWorktreeBackend implements BackendProtocolV2 {
   constructor(
     private readonly worktreePath: string,
     private readonly workspaceRoot: string,
@@ -26,23 +39,36 @@ class SwarmWorktreeBackend {
 
   private backend = () => new FilesystemBackend({ rootDir: path.resolve(this.workspaceRoot) });
 
-  async lsInfo(dirPath: string) {
-    return this.backend().lsInfo(this.resolvePath(dirPath));
-  }
-
-  async read(filePath: string, offset?: number, limit?: number) {
+  async ls(dirPath: string): Promise<LsResult> {
     try {
-      return await this.backend().read(this.resolvePath(filePath), offset, limit);
+      return await this.backend().ls(this.resolvePath(dirPath));
     } catch (error) {
-      return `Error reading file '${filePath}': ${(error as Error).message}`;
+      return { error: (error as Error).message };
     }
   }
 
-  async readRaw(filePath: string) {
-    return this.backend().readRaw(this.resolvePath(filePath));
+  async lsInfo(dirPath: string): Promise<FileInfo[]> {
+    const result = await this.ls(dirPath);
+    return result.files ?? [];
   }
 
-  async write(filePath: string, content: string) {
+  async read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
+    try {
+      return await this.backend().read(this.resolvePath(filePath), offset, limit);
+    } catch (error) {
+      return { error: `Error reading file '${filePath}': ${(error as Error).message}` };
+    }
+  }
+
+  async readRaw(filePath: string): Promise<ReadRawResult> {
+    try {
+      return await this.backend().readRaw(this.resolvePath(filePath));
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  }
+
+  async write(filePath: string, content: string): Promise<WriteResult> {
     try {
       return await this.backend().write(this.resolvePath(filePath), content);
     } catch (error) {
@@ -50,7 +76,7 @@ class SwarmWorktreeBackend {
     }
   }
 
-  async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean) {
+  async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult> {
     try {
       return await this.backend().edit(this.resolvePath(filePath), oldString, newString, replaceAll);
     } catch (error) {
@@ -58,20 +84,30 @@ class SwarmWorktreeBackend {
     }
   }
 
-  async grepRaw(pattern: string, dirPath?: string, glob?: string | null) {
+  async grep(pattern: string, dirPath?: string | null, glob?: string | null): Promise<GrepResult> {
     try {
-      return await this.backend().grepRaw(pattern, this.resolvePath(dirPath || '.'), glob);
+      return await this.backend().grep(pattern, this.resolvePath(dirPath || '.'), glob);
     } catch (error) {
-      return `Error: ${(error as Error).message}`;
+      return { error: (error as Error).message };
     }
   }
 
-  async globInfo(pattern: string, searchPath?: string) {
+  async grepRaw(pattern: string, dirPath?: string, glob?: string | null): Promise<GrepMatch[] | string> {
+    const result = await this.grep(pattern, dirPath, glob);
+    return result.error ? `Error: ${result.error}` : result.matches ?? [];
+  }
+
+  async glob(pattern: string, searchPath?: string): Promise<GlobResult> {
     try {
-      return await this.backend().globInfo(pattern, this.resolvePath(searchPath || '.'));
-    } catch {
-      return [];
+      return await this.backend().glob(pattern, this.resolvePath(searchPath || '.'));
+    } catch (error) {
+      return { error: (error as Error).message };
     }
+  }
+
+  async globInfo(pattern: string, searchPath?: string): Promise<FileInfo[]> {
+    const result = await this.glob(pattern, searchPath);
+    return result.files ?? [];
   }
 }
 

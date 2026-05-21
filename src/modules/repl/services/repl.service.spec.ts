@@ -74,6 +74,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       runPrompt: async () => '',
     },
     swarmCommands: undefined,
+    runtimeTelemetryProjector: undefined,
   };
 
   const deps = { ...defaults, ...overrides };
@@ -114,6 +115,7 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     undefined as any,
     deps.bridgeCommands as any,
     deps.swarmCommands as any,
+    deps.runtimeTelemetryProjector as any,
   );
 };
 
@@ -338,6 +340,74 @@ describe('ReplService', () => {
     assert.match(plain, /▶ read file package\.json/);
     assert.match(plain, /✓ read_file ok - 2 lines,/);
     assert.match(plain, /Bridge final answer/);
+  });
+
+  test('projects bridge runtime events to platform telemetry without raw text', async () => {
+    const tracked: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const service = buildReplService({
+      platformService: {
+        track: (type: string, payload: Record<string, unknown>) => tracked.push({ type, payload }),
+        close: async () => {},
+        getStatus: () => 'online',
+      },
+      runtimeTelemetryProjector: {
+        project: (event: any) => (event.type === 'runtime.tool.completed'
+          ? {
+            type: 'runtime.tool.completed',
+            ts: event.timestamp,
+            payload: {
+              runId: event.scope.runId,
+              tool: event.toolName,
+              scope: event.scope.kind,
+              status: event.status,
+              summary: event.summary,
+            },
+          }
+          : null),
+      },
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (_message: string, _projectRoot: string, callbacks: any) => {
+          callbacks.onRuntimeEvent({
+            id: 'evt_1',
+            seq: 1,
+            timestamp: '2026-05-20T00:00:00.000Z',
+            type: 'runtime.tool.completed',
+            scope: { kind: 'bridge', runId: 'turn_1', provider: 'claude' },
+            privacy: 'local',
+            toolName: 'read_file',
+            status: 'ok',
+            summary: 'read_file ok - 2 lines',
+            outputPreview: 'raw file content',
+          });
+          callbacks.onOutputChunk('Bridge final answer');
+          return 'Bridge final answer';
+        },
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => {},
+      endExternalOutput: () => {},
+      writeOutputLine: () => {},
+    };
+
+    await captureStdoutAsync(async () => {
+      await (service as any).processLine('le package');
+    });
+
+    assert.deepEqual(tracked, [{
+      type: 'runtime.tool.completed',
+      payload: {
+        runId: 'turn_1',
+        tool: 'read_file',
+        scope: 'bridge',
+        status: 'ok',
+        summary: 'read_file ok - 2 lines',
+      },
+    }]);
   });
 
   test('keeps slash commands local while a bridge provider is connected', async () => {

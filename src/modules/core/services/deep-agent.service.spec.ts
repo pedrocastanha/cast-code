@@ -155,6 +155,93 @@ describe('DeepAgentService compact chat route', () => {
     assert.match(toolCall[1].inputRedacted, /unserializable/i);
   });
 
+  test('streams through the DeepAgents event adapter and tracks sanitized runtime telemetry', async () => {
+    const tracked: any[] = [];
+    const adapterCalls: any[] = [];
+    let seq = 0;
+    const event = (type: string, payload: Record<string, unknown> = {}) => ({
+      id: `evt_${++seq}`,
+      seq,
+      timestamp: '2026-05-21T00:00:00.000Z',
+      type,
+      scope: { kind: 'main', runId: 'run_adapter_1' },
+      privacy: 'local',
+      ...payload,
+    });
+
+    const service = buildService({
+      platformService: {
+        getRagInstruction: () => '',
+        bootstrap: async () => {},
+        track: (type: string, payload: Record<string, unknown>) => tracked.push({ type, payload }),
+      },
+    });
+    (service as any).deepAgentEventAdapter = {
+      stream: async function* (input: any) {
+        adapterCalls.push(input);
+        yield { sourceVersion: 'v2', runtimeEvent: event('runtime.run.started', { runtime: 'model' }) };
+        yield {
+          sourceVersion: 'v2',
+          runtimeEvent: event('runtime.tool.started', { toolName: 'shell', callId: 'tool-1', input: { command: 'echo ok' } }),
+          rawEvent: { event: 'on_tool_start', name: 'shell', run_id: 'tool-1', data: { input: { command: 'echo ok' } } },
+        };
+        yield {
+          sourceVersion: 'v2',
+          runtimeEvent: event('runtime.tool.completed', { toolName: 'shell', callId: 'tool-1', status: 'ok', summary: 'shell ok' }),
+          rawEvent: { event: 'on_tool_end', name: 'shell', run_id: 'tool-1', data: { output: 'done' } },
+        };
+        yield {
+          sourceVersion: 'v2',
+          runtimeEvent: event('runtime.message.delta', { text: 'All done.' }),
+          rawEvent: { event: 'on_chat_model_stream', data: { chunk: { content: 'All done.' } } },
+        };
+        yield {
+          sourceVersion: 'v2',
+          runtimeEvent: event('runtime.usage', { input: 4, output: 5 }),
+          rawEvent: { event: 'on_chat_model_end', data: { output: { usage_metadata: { input_tokens: 4, output_tokens: 5 } } } },
+        };
+        yield { sourceVersion: 'v2', runtimeEvent: event('runtime.run.completed', { status: 'completed' }) };
+      },
+    };
+    (service as any).runtimeTelemetryProjector = {
+      project: (runtimeEvent: any) => {
+        if (runtimeEvent.type.startsWith('runtime.message')) {
+          return null;
+        }
+        return {
+          type: runtimeEvent.type,
+          ts: runtimeEvent.timestamp,
+          payload: { runId: runtimeEvent.scope.runId, summary: runtimeEvent.summary },
+        };
+      },
+    };
+    (service as any).agent = {
+      streamEvents: () => {
+        throw new Error('direct streamEvents should not be used when the adapter is available');
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    assert.equal(adapterCalls.length, 1);
+    assert.equal(adapterCalls[0].streamVersion, 'auto');
+    assert.equal(adapterCalls[0].recursionLimit, Math.max(8, EFFORT_PROFILES.balanced.maxToolCalls * 2));
+    assert.match(chunks.join(''), /All done/);
+    assert.deepEqual(tracked.map((item) => item.type), [
+      'runtime.run.started',
+      'runtime.tool.started',
+      'runtime.tool.completed',
+      'runtime.usage',
+      'runtime.run.completed',
+    ]);
+    assert.equal(tracked[2].payload.summary, 'shell ok');
+  });
+
   test('extracts cached input tokens from provider usage metadata', () => {
     const service = buildService();
 
@@ -651,16 +738,27 @@ describe('DeepAgentService system prompt engineering workflow', () => {
       (service as any).workspaceRoot = workspace;
       const backend = (service as any).createFilesystemBackend();
 
-      const projectEntries = await backend.lsInfo('.');
-      const webEntries = await backend.lsInfo('../web');
+      const projectEntries = await backend.ls('.');
+      const webEntries = await backend.ls('../web');
       const blocked = await backend.read('/etc/passwd');
 
-      assert.equal(projectEntries.some((entry: { path: string }) => entry.path.endsWith('cast-code/package.json')), true);
-      assert.equal(webEntries.some((entry: { path: string }) => entry.path.endsWith('web/package.json')), true);
-      assert.match(blocked, /outside workspace root/i);
+      assert.equal((projectEntries.files ?? []).some((entry: { path: string }) => entry.path.endsWith('cast-code/package.json')), true);
+      assert.equal((webEntries.files ?? []).some((entry: { path: string }) => entry.path.endsWith('web/package.json')), true);
+      assert.match(blocked.error ?? '', /outside workspace root/i);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
+  });
+
+  test('deep agent middleware enables the LangChain QuickJS interpreter safely', async () => {
+    const service = buildService();
+
+    const middleware = await (service as any).buildDeepAgentMiddleware();
+
+    assert.equal(middleware.length, 1);
+    assert.equal(middleware[0].name, 'CodeInterpreterMiddleware');
+    assert.deepEqual(middleware[0].tools.map((tool: any) => tool.name), ['eval']);
+    assert.match(middleware[0].tools[0].description, /sandboxed REPL/i);
   });
 
   test('lean agent keeps only file edit and shell tools', () => {
@@ -1020,7 +1118,9 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    for await (const _chunk of service.chat('run it')) {}
+    for await (const _chunk of service.chat('run it')) {
+      void _chunk;
+    }
 
     assert.equal(calls[0][1].agentName, 'architect');
     assert.equal(calls[0][1].task, 'Inspect runtime orchestration boundaries');

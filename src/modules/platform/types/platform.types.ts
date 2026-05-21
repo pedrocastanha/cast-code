@@ -111,7 +111,58 @@ export interface PlatformProjectPayload {
       agentInstruction?: string | null;
     } | null;
   };
+  runtimePolicy?: PlatformRuntimePolicyPayload;
+  swarmPolicy?: PlatformSwarmPolicyPayload;
+  modelPolicy?: PlatformModelPolicyPayload;
+  sandboxPolicy?: PlatformSandboxPolicyPayload;
+  telemetryPolicy?: PlatformTelemetryPolicyPayload;
   fetchedAt?: string;
+}
+
+export interface PlatformRuntimePolicyPayload {
+  defaultRuntime?: 'model' | 'bridge';
+  allowBridge?: boolean;
+  allowedBridgeProviders?: string[];
+  maxToolRounds?: number;
+  firstByteTimeoutMs?: number;
+  idleTimeoutMs?: number;
+}
+
+export interface PlatformSwarmPolicyPayload {
+  enabled?: boolean;
+  suggestionMode?: 'off' | 'explicit-only' | 'auto-suggest';
+  requireApproval?: boolean;
+  defaultIntegrationMode?: 'manual' | 'apply_safe' | 'apply_all';
+  maxWorkers?: number;
+  allowApplyAll?: boolean;
+  allowedToolNames?: string[];
+  allowedSkillTrust?: string[];
+  blockedSkillRisk?: string[];
+}
+
+export interface PlatformModelPolicyPayload {
+  allowedProviders?: string[];
+  blockedProviders?: string[];
+  allowedModels?: string[];
+  blockedModels?: string[];
+  purposeRouting?: Record<string, { provider: string; model: string }>;
+  maxEstimatedCostUsd?: number;
+}
+
+export interface PlatformSandboxPolicyPayload {
+  defaultBackend?: 'worktree' | 'docker' | 'snapshot' | 'noop';
+  allowExecute?: boolean;
+  allowNetwork?: boolean;
+  envAllowlist?: string[];
+  writableRoots?: string[];
+}
+
+export interface PlatformTelemetryPolicyPayload {
+  runtimeEvents?: boolean;
+  swarmEvents?: boolean;
+  toolEvents?: boolean;
+  usageEvents?: boolean;
+  redaction?: 'metadata-only' | 'preview' | 'local-only';
 }
 
 export interface PlatformMemoryRetrievalResult {
@@ -272,7 +323,24 @@ export type PlatformEventType =
   | 'skill.used'
   | 'command.run'
   | 'tokens.consumed'
-  | 'session.ended';
+  | 'session.ended'
+  | 'runtime.run.started'
+  | 'runtime.run.completed'
+  | 'runtime.run.failed'
+  | 'runtime.tool.started'
+  | 'runtime.tool.completed'
+  | 'runtime.tool.failed'
+  | 'runtime.usage'
+  | 'swarm.plan.created'
+  | 'swarm.plan.approved'
+  | 'swarm.run.started'
+  | 'swarm.run.completed'
+  | 'swarm.run.failed'
+  | 'swarm.task.started'
+  | 'swarm.task.completed'
+  | 'swarm.task.failed'
+  | 'swarm.integration.completed'
+  | 'swarm.integration.blocked';
 
 export interface PlatformEvent {
   type: PlatformEventType;

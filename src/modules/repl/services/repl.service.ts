@@ -46,6 +46,8 @@ import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.
 import { BridgeCommandsService } from '../../bridge/commands/bridge-commands.service';
 import { SwarmCommandsService } from '../../swarm/commands/swarm-commands.service';
 import type { BridgeToolCall, BridgeToolResult } from '../../bridge/types/bridge.types';
+import { RuntimeTelemetryProjectorService } from '../../runtime/services/runtime-telemetry-projector.service';
+import type { CastRuntimeEvent } from '../../runtime/types/runtime-event.types';
 import { CommandUiService } from './command-ui.service';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
@@ -114,6 +116,8 @@ export class ReplService {
     private readonly bridgeCommands?: BridgeCommandsService,
     @Optional()
     private readonly swarmCommands?: SwarmCommandsService,
+    @Optional()
+    private readonly runtimeTelemetryProjector?: RuntimeTelemetryProjectorService,
   ) {
     this.benchmarkCommands?.setAgentExecutor?.(this.deepAgent as any);
     this.environmentCommands?.setAgentRefresh?.(this.deepAgent as any);
@@ -212,7 +216,7 @@ export class ReplService {
 
       const choices = [
         { key: 'allow-once', label: 'Yes', description: 'allow once' },
-        { key: 'allow-session', label: "Yes, don't ask again", description: 'for this session' },
+        { key: 'allow-session', label: 'Yes, don\'t ask again', description: 'for this session' },
         ...(!isDangerous ? [{ key: 'allow-always', label: 'Yes, always allow', description: 'save rule' }] : []),
         { key: 'deny', label: 'No', description: 'deny' },
       ] as const;
@@ -269,7 +273,7 @@ export class ReplService {
 
       const choices = [
         { key: 'yes', label: 'Yes', description: 'apply change' },
-        { key: 'session', label: 'Yes, allow all', description: "don't ask again this session" },
+        { key: 'session', label: 'Yes, allow all', description: 'don\'t ask again this session' },
         { key: 'no', label: 'No', description: 'skip' },
       ] as const;
 
@@ -974,7 +978,7 @@ export class ReplService {
     case 'vault':
       this.vaultCommandsService.cmdVault(args.join(' '));
       break;
-    case 'benchmark':
+    case 'benchmark': {
       const benchmarkCommands = this.benchmarkCommands;
       const runBenchmarkCommand = benchmarkCommands?.cmdBenchmark
         ? benchmarkCommands.cmdBenchmark.bind(benchmarkCommands)
@@ -985,6 +989,7 @@ export class ReplService {
       }
       await runBenchmarkCommand(args, this.smartInput!);
       break;
+    }
     case 'env':
       if (!this.environmentCommands?.cmdEnv) {
         process.stdout.write(this.ui.error('Cast environments are not available in this runtime.'));
@@ -1006,7 +1011,7 @@ export class ReplService {
       }
       await this.sandboxCommands.cmdSandbox(args);
       break;
-    case 'bridge':
+    case 'bridge': {
       if (!this.bridgeCommands?.cmdBridge) {
         process.stdout.write(this.ui.error('Bridge commands are not available in this runtime.'));
         break;
@@ -1014,6 +1019,7 @@ export class ReplService {
       const bridgeOutput = await this.bridgeCommands.cmdBridge(args, process.cwd(), this.smartInput!);
       this.writeExternalBlock(bridgeOutput);
       break;
+    }
     case 'swarm':
       if (!this.swarmCommands?.cmdSwarm) {
         process.stdout.write(this.ui.error('Agent Swarm is not available in this runtime.'));
@@ -1100,6 +1106,12 @@ export class ReplService {
           writeHeader();
           process.stdout.write(this.formatBridgeToolResult(result));
           this.updateSpinner(`${providerLabel} thinking`);
+        },
+        onRuntimeEvent: (event: CastRuntimeEvent) => {
+          const projected = this.runtimeTelemetryProjector?.project(event);
+          if (projected) {
+            this.platformService.track(projected.type, projected.payload);
+          }
         },
       });
       this.stopSpinner();

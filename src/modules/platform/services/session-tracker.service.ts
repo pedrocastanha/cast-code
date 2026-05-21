@@ -17,6 +17,23 @@ const ALLOWED_PAYLOAD_KEYS: Record<PlatformEventType, string[]> = {
   'command.run': ['command'],
   'tokens.consumed': ['input', 'cachedInput', 'output', 'model', 'cost'],
   'session.ended': ['duration', 'totalTokens', 'totalCost'],
+  'runtime.run.started': ['runId', 'runtime', 'provider', 'model'],
+  'runtime.run.completed': ['runId', 'durationMs', 'status'],
+  'runtime.run.failed': ['runId', 'errorClass', 'message'],
+  'runtime.tool.started': ['runId', 'tool', 'scope'],
+  'runtime.tool.completed': ['runId', 'tool', 'scope', 'status', 'durationMs', 'summary'],
+  'runtime.tool.failed': ['runId', 'tool', 'scope', 'errorClass', 'message'],
+  'runtime.usage': ['runId', 'input', 'cachedInput', 'output', 'model', 'cost'],
+  'swarm.plan.created': ['planId', 'taskCount', 'maxWorkers', 'integrationMode'],
+  'swarm.plan.approved': ['planId', 'runId', 'integrationMode'],
+  'swarm.run.started': ['runId', 'taskCount', 'maxWorkers', 'runtime'],
+  'swarm.run.completed': ['runId', 'durationMs', 'status', 'filesChanged'],
+  'swarm.run.failed': ['runId', 'errorClass', 'message'],
+  'swarm.task.started': ['runId', 'taskId', 'workerId'],
+  'swarm.task.completed': ['runId', 'taskId', 'status', 'filesChanged'],
+  'swarm.task.failed': ['runId', 'taskId', 'errorClass', 'message'],
+  'swarm.integration.completed': ['runId', 'mode', 'filesApplied', 'status'],
+  'swarm.integration.blocked': ['runId', 'reason', 'filesBlocked'],
 };
 
 @Injectable()

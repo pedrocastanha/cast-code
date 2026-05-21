@@ -3,8 +3,24 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
+import { randomUUID } from 'node:crypto';
 import * as path from 'path';
-import { createDeepAgent, FilesystemBackend } from 'deepagents';
+import {
+  createDeepAgent,
+  FilesystemBackend,
+  type BackendProtocolV2,
+  type EditResult,
+  type FileDownloadResponse,
+  type FileInfo,
+  type FileUploadResponse,
+  type GlobResult,
+  type GrepMatch,
+  type GrepResult,
+  type LsResult,
+  type ReadRawResult,
+  type ReadResult,
+  type WriteResult,
+} from 'deepagents';
 import {
   ClearToolUsesEdit,
   contextEditingMiddleware,
@@ -37,6 +53,13 @@ import { EnvironmentResolverService } from '../../environments/services/environm
 import { AgentRunService } from '../../agents/services/agent-run.service';
 import { AgentRun } from '../../agents/types/agent-runtime.types';
 import { ADAPTIVE_TEST_FIRST_WORKFLOW_PROMPT } from '../../../common/constants';
+import { RuntimeTelemetryProjectorService } from '../../runtime/services/runtime-telemetry-projector.service';
+import type { CastRuntimeEvent } from '../../runtime/types/runtime-event.types';
+import {
+  DeepAgentEventAdapterService,
+  DeepAgentRuntimeEnvelope,
+  DeepAgentStreamVersion,
+} from './deep-agent-event-adapter.service';
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -75,8 +98,10 @@ const COMPACT_CHAT_PATTERNS = [
   /^(what can you do|what do you do|how can you help|what are you able to do)\??$/i,
 ];
 const MAX_GIT_STATUS_PROMPT_LINES = 20;
+type QuickJsModule = typeof import('@langchain/quickjs');
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<QuickJsModule>;
 
-class WorkspaceFilesystemBackend {
+class WorkspaceFilesystemBackend implements BackendProtocolV2 {
   private readonly backend: FilesystemBackend;
 
   constructor(
@@ -100,23 +125,36 @@ class WorkspaceFilesystemBackend {
     throw new Error(`Path ${resolved} outside workspace root ${workspace}`);
   }
 
-  async lsInfo(dirPath: string) {
-    return this.backend.lsInfo(this.resolvePath(dirPath));
-  }
-
-  async read(filePath: string, offset?: number, limit?: number) {
+  async ls(dirPath: string): Promise<LsResult> {
     try {
-      return await this.backend.read(this.resolvePath(filePath), offset, limit);
+      return await this.backend.ls(this.resolvePath(dirPath));
     } catch (error) {
-      return `Error reading file '${filePath}': ${(error as Error).message}`;
+      return { error: (error as Error).message };
     }
   }
 
-  async readRaw(filePath: string) {
-    return this.backend.readRaw(this.resolvePath(filePath));
+  async lsInfo(dirPath: string): Promise<FileInfo[]> {
+    const result = await this.ls(dirPath);
+    return result.files ?? [];
   }
 
-  async write(filePath: string, content: string) {
+  async read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
+    try {
+      return await this.backend.read(this.resolvePath(filePath), offset, limit);
+    } catch (error) {
+      return { error: `Error reading file '${filePath}': ${(error as Error).message}` };
+    }
+  }
+
+  async readRaw(filePath: string): Promise<ReadRawResult> {
+    try {
+      return await this.backend.readRaw(this.resolvePath(filePath));
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  }
+
+  async write(filePath: string, content: string): Promise<WriteResult> {
     try {
       return await this.backend.write(this.resolvePath(filePath), content);
     } catch (error) {
@@ -124,7 +162,7 @@ class WorkspaceFilesystemBackend {
     }
   }
 
-  async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean) {
+  async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult> {
     try {
       return await this.backend.edit(this.resolvePath(filePath), oldString, newString, replaceAll);
     } catch (error) {
@@ -132,23 +170,33 @@ class WorkspaceFilesystemBackend {
     }
   }
 
-  async grepRaw(pattern: string, dirPath?: string, glob?: string | null) {
+  async grep(pattern: string, dirPath?: string | null, glob?: string | null): Promise<GrepResult> {
     try {
-      return await this.backend.grepRaw(pattern, this.resolvePath(dirPath || '.'), glob);
+      return await this.backend.grep(pattern, this.resolvePath(dirPath || '.'), glob);
     } catch (error) {
-      return `Error: ${(error as Error).message}`;
+      return { error: (error as Error).message };
     }
   }
 
-  async globInfo(pattern: string, searchPath?: string) {
+  async grepRaw(pattern: string, dirPath?: string, glob?: string | null): Promise<GrepMatch[] | string> {
+    const result = await this.grep(pattern, dirPath, glob);
+    return result.error ? `Error: ${result.error}` : result.matches ?? [];
+  }
+
+  async glob(pattern: string, searchPath?: string): Promise<GlobResult> {
     try {
-      return await this.backend.globInfo(pattern, this.resolvePath(searchPath || '.'));
-    } catch {
-      return [];
+      return await this.backend.glob(pattern, this.resolvePath(searchPath || '.'));
+    } catch (error) {
+      return { error: (error as Error).message };
     }
   }
 
-  async uploadFiles(files: Array<[string, Uint8Array]>) {
+  async globInfo(pattern: string, searchPath?: string): Promise<FileInfo[]> {
+    const result = await this.glob(pattern, searchPath);
+    return result.files ?? [];
+  }
+
+  async uploadFiles(files: Array<[string, Uint8Array]>): Promise<FileUploadResponse[]> {
     const resolved: Array<[string, Uint8Array]> = [];
     const responses: Array<{ path: string; error: 'permission_denied' | null }> = [];
     for (const [filePath, content] of files) {
@@ -164,7 +212,7 @@ class WorkspaceFilesystemBackend {
     return responses.map((response) => response.error ? response : uploaded[uploadedIndex++]);
   }
 
-  async downloadFiles(paths: string[]) {
+  async downloadFiles(paths: string[]): Promise<FileDownloadResponse[]> {
     const resolved: string[] = [];
     const responses: Array<{ path: string; content: Uint8Array | null; error: 'permission_denied' | null }> = [];
     for (const filePath of paths) {
@@ -209,6 +257,7 @@ export class DeepAgentService {
   private cachedProjectStructure: string = '';
   private cachedEnvironmentPrompt: string = '';
   private localSessionId: string | null = null;
+  private codeInterpreterMiddlewareFactory?: QuickJsModule['createCodeInterpreterMiddleware'];
 
   constructor(
     private readonly multiLlmService: MultiLlmService,
@@ -235,6 +284,10 @@ export class DeepAgentService {
     private readonly environmentResolver?: EnvironmentResolverService,
     @Optional()
     private readonly agentRunService?: AgentRunService,
+    @Optional()
+    private readonly deepAgentEventAdapter?: DeepAgentEventAdapterService,
+    @Optional()
+    private readonly runtimeTelemetryProjector?: RuntimeTelemetryProjectorService,
   ) {
     this.fileWatcherService.on(FILE_CHANGE_EVENT, (_files: string[]) => {
       this.pendingContextRefresh = true;
@@ -339,12 +392,10 @@ export class DeepAgentService {
     this.cachedAgentToolKey = this.getToolKey(initialTools);
     this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
 
-    this.agent = createDeepAgent({
-      model: this.model,
+    this.agent = await this.createDeepAgentInstance({
       systemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
-      backend: () => this.createFilesystemBackend(),
     });
 
     return {
@@ -366,12 +417,10 @@ export class DeepAgentService {
     const initialSubagents = this.selectContextSubagents('', []);
     this.cachedAgentToolKey = this.getToolKey(initialTools);
     this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
-    this.agent = createDeepAgent({
-      model: this.model,
+    this.agent = await this.createDeepAgentInstance({
       systemPrompt: this.cachedSystemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
-      backend: () => this.createFilesystemBackend(),
     });
   }
 
@@ -394,13 +443,59 @@ export class DeepAgentService {
     this.cachedAgentToolKey = this.getToolKey(initialTools);
     this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
     this.model = this.model ?? this.multiLlmService.createStreamingModel('default');
-    this.agent = createDeepAgent({
-      model: this.model,
+    this.agent = await this.createDeepAgentInstance({
       systemPrompt: this.cachedSystemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
-      backend: () => this.createFilesystemBackend(),
     });
+  }
+
+  private async createDeepAgentInstance(input: {
+    systemPrompt: string;
+    tools: any[];
+    subagents: any[];
+  }): Promise<any> {
+    const skillSources = this.getDeepAgentSkillSources();
+    return createDeepAgent({
+      model: this.model ?? undefined,
+      systemPrompt: input.systemPrompt,
+      tools: input.tools,
+      subagents: input.subagents,
+      backend: () => this.createFilesystemBackend(),
+      middleware: await this.buildDeepAgentMiddleware(),
+      skills: skillSources.length > 0 ? skillSources : undefined,
+    } as any);
+  }
+
+  private async buildDeepAgentMiddleware(): Promise<any[]> {
+    const createCodeInterpreterMiddleware = await this.getCodeInterpreterMiddlewareFactory();
+    const skillSources = this.getDeepAgentSkillSources();
+
+    return [
+      createCodeInterpreterMiddleware({
+        toolName: 'eval',
+        ptc: ['ls', 'read_file', 'glob', 'grep'],
+        skillsBackend: skillSources.length > 0 ? () => this.createFilesystemBackend() : undefined,
+        executionTimeoutMs: 5_000,
+        maxPtcCalls: 64,
+        maxResultChars: 4_000,
+        captureConsole: true,
+      }),
+    ];
+  }
+
+  private async getCodeInterpreterMiddlewareFactory(): Promise<QuickJsModule['createCodeInterpreterMiddleware']> {
+    if (!this.codeInterpreterMiddlewareFactory) {
+      const module = await dynamicImport('@langchain/quickjs');
+      this.codeInterpreterMiddlewareFactory = module.createCodeInterpreterMiddleware;
+    }
+
+    return this.codeInterpreterMiddlewareFactory;
+  }
+
+  private getDeepAgentSkillSources(): string[] {
+    return ['.cast/skills', '.skills']
+      .filter((source) => existsSync(path.join(this.projectRoot, source)));
   }
 
   private createFilesystemBackend(): WorkspaceFilesystemBackend {
@@ -2105,12 +2200,10 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
         this.cachedSystemPrompt = contextualPrompt;
         this.cachedAgentToolKey = toolKey;
         this.cachedAgentSubagentKey = subagentKey;
-        this.agent = createDeepAgent({
-          model: this.model ?? undefined,
+        this.agent = await this.createDeepAgentInstance({
           systemPrompt: contextualPrompt,
           tools: activeTools,
           subagents: activeSubagents,
-          backend: () => this.createFilesystemBackend(),
         });
       }
       activeAgent = this.agent;
@@ -2122,12 +2215,23 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     this.lastToolOutputs = [];
 
     const effort = this.multiLlmService.getCurrentEffortProfile();
-    let stream: any;
+    const streamPayload = { messages: useLeanAgent ? [currentUserMessage] : this.messages };
+    const recursionLimit = Math.max(8, effort.maxToolCalls * 2);
+    let stream: AsyncIterable<any>;
     try {
-      stream = activeAgent.streamEvents(
-        { messages: useLeanAgent ? [currentUserMessage] : this.messages },
-        { version: 'v2', recursionLimit: Math.max(8, effort.maxToolCalls * 2) },
-      );
+      stream = this.deepAgentEventAdapter
+        ? this.deepAgentEventAdapter.stream({
+          agent: activeAgent,
+          payload: streamPayload,
+          recursionLimit,
+          scope: { kind: 'main', runId: randomUUID() },
+          streamVersion: this.getDeepAgentStreamVersion(),
+          model: (this.model as any)?.modelName || (this.model as any)?.model,
+        })
+        : activeAgent.streamEvents(
+          streamPayload,
+          { version: 'v2', recursionLimit },
+        );
     } catch (error) {
       yield `\n\x1b[31m  Error starting agent: ${(error as Error).message}\x1b[0m\n`;
       return;
@@ -2146,7 +2250,104 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     let lastLocalToolKey = '';
 
     try {
-      for await (const event of stream) {
+      for await (const streamItem of stream) {
+        const envelope = this.asDeepAgentRuntimeEnvelope(streamItem);
+        if (envelope) {
+          this.trackRuntimeEvent(envelope.runtimeEvent);
+        }
+
+        if (envelope && !envelope.rawEvent) {
+          const runtimeEvent = envelope.runtimeEvent;
+          if (runtimeEvent.type === 'runtime.message.delta') {
+            const text = runtimeEvent.text;
+            if (text) {
+              if (useLeanAgent) {
+                leanResponseBuffer += text;
+              } else {
+                yield text;
+                fullResponse += text;
+              }
+            }
+          }
+
+          if (runtimeEvent.type === 'runtime.tool.started') {
+            lastToolName = runtimeEvent.toolName;
+            lastLocalToolKey = runtimeEvent.callId ?? `${runtimeEvent.toolName}:${++localToolSequence}`;
+            activeLocalToolCalls.set(lastLocalToolKey, {
+              name: runtimeEvent.toolName,
+              input: runtimeEvent.input,
+              startedAt: Date.now(),
+            });
+            if (this.isDelegationTool(runtimeEvent.toolName)) {
+              const run = this.startDelegatedAgentRun(runtimeEvent.input);
+              if (run) {
+                activeDelegatedAgentRuns.set(lastLocalToolKey, run.id);
+              }
+            }
+            yield this.formatToolStart(runtimeEvent.toolName, runtimeEvent.input);
+          }
+
+          if (runtimeEvent.type === 'runtime.tool.completed') {
+            const localToolKey = runtimeEvent.callId ?? lastLocalToolKey;
+            const localTool = activeLocalToolCalls.get(localToolKey) ?? {
+              name: runtimeEvent.toolName || lastToolName,
+              input: undefined,
+              startedAt: Date.now(),
+            };
+            const toolName = localTool.name || runtimeEvent.toolName || lastToolName || 'tool';
+            const output = runtimeEvent.outputPreview || runtimeEvent.summary || '';
+            if (output) {
+              this.lastToolOutputs.push({ tool: toolName, output });
+              yield this.formatToolEnd(toolName, output);
+            }
+            activeLocalToolCalls.delete(localToolKey);
+            if (this.isDelegationTool(toolName)) {
+              this.completeDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), output);
+              activeDelegatedAgentRuns.delete(localToolKey);
+            }
+            this.recordLocalToolCall({
+              toolName,
+              inputRedacted: this.serializeForLocalState(localTool.input),
+              outputPreview: output,
+              status: 'ok',
+              latencyMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
+            });
+          }
+
+          if (runtimeEvent.type === 'runtime.tool.failed') {
+            const localToolKey = runtimeEvent.callId ?? lastLocalToolKey;
+            const localTool = activeLocalToolCalls.get(localToolKey) ?? {
+              name: runtimeEvent.toolName || lastToolName,
+              input: undefined,
+              startedAt: Date.now(),
+            };
+            const toolName = localTool.name || runtimeEvent.toolName || lastToolName || 'tool';
+            const message = runtimeEvent.message || 'Unknown error';
+            activeLocalToolCalls.delete(localToolKey);
+            if (this.isDelegationTool(toolName)) {
+              this.failDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), new Error(message));
+              activeDelegatedAgentRuns.delete(localToolKey);
+            }
+            this.recordLocalToolCall({
+              toolName,
+              inputRedacted: this.serializeForLocalState(localTool.input),
+              outputPreview: message,
+              status: 'error',
+              latencyMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
+            });
+            yield `\n\x1b[31m  \u2717 Error: ${message}\x1b[0m\n`;
+          }
+
+          if (runtimeEvent.type === 'runtime.usage') {
+            interactionInputTokens += runtimeEvent.input ?? 0;
+            interactionOutputTokens += runtimeEvent.output ?? 0;
+            interactionCachedInputTokens += runtimeEvent.cachedInput ?? 0;
+          }
+
+          continue;
+        }
+
+        const event = envelope?.rawEvent ?? streamItem;
         if (event.event === 'on_chat_model_stream' && event.data?.chunk?.content) {
           const text = this.extractTextFromModelContent(event.data.chunk.content);
           if (text) {
@@ -2304,6 +2505,31 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       const modelName = (this.model as any)?.modelName || (this.model as any)?.model || 'unknown';
       this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens, interactionCachedInputTokens);
     }
+  }
+
+  private asDeepAgentRuntimeEnvelope(value: any): DeepAgentRuntimeEnvelope | undefined {
+    if (
+      value
+      && typeof value === 'object'
+      && value.runtimeEvent
+      && typeof value.runtimeEvent.type === 'string'
+      && (value.sourceVersion === 'v2' || value.sourceVersion === 'v3')
+    ) {
+      return value as DeepAgentRuntimeEnvelope;
+    }
+    return undefined;
+  }
+
+  private trackRuntimeEvent(event: CastRuntimeEvent): void {
+    const projected = this.runtimeTelemetryProjector?.project(event);
+    if (projected) {
+      this.platformService.track(projected.type, projected.payload);
+    }
+  }
+
+  private getDeepAgentStreamVersion(): DeepAgentStreamVersion {
+    const version = process.env.CAST_DEEPAGENTS_STREAM_VERSION;
+    return version === 'v2' || version === 'v3' || version === 'auto' ? version : 'auto';
   }
 
   async runBenchmarkPrompt(prompt: string): Promise<{ output: string; tokens: number; cost: number }> {
