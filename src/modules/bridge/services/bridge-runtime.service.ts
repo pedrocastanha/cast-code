@@ -12,10 +12,12 @@ import type {
   BridgeUserTurn,
   BridgeRuntimeCallbacks,
 } from '../types/bridge.types';
+import type { CastRuntimeEvent } from '../../runtime/types/runtime-event.types';
 
 const DEFAULT_TURN_IDLE_MS = Number(process.env.CAST_BRIDGE_TURN_IDLE_MS || 1200);
 const DEFAULT_FIRST_BYTE_MS = Number(process.env.CAST_BRIDGE_TURN_FIRST_BYTE_MS || 30_000);
 const DEFAULT_MAX_TOOL_ROUNDS = Number(process.env.CAST_BRIDGE_MAX_TOOL_ROUNDS || 12);
+type RuntimeEventPatch = Record<string, unknown> & { type: CastRuntimeEvent['type'] };
 
 @Injectable()
 export class BridgeRuntimeService {
@@ -42,6 +44,24 @@ export class BridgeRuntimeService {
 
     const provider = session.getProviderId();
     const providerLabel = session.getProviderLabel();
+    const runStartedAt = Date.now();
+    let runtimeSeq = 0;
+    const emitRuntimeEvent = (event: RuntimeEventPatch) => {
+      options.onRuntimeEvent?.({
+        id: randomUUID(),
+        seq: ++runtimeSeq,
+        timestamp: new Date().toISOString(),
+        scope: { kind: 'bridge', runId: turn.id, provider },
+        privacy: 'local',
+        ...event,
+      } as CastRuntimeEvent);
+    };
+    emitRuntimeEvent({
+      type: 'runtime.run.started',
+      runtime: 'bridge',
+      provider,
+      providerLabel,
+    });
     const idleMs = options.idleMs ?? DEFAULT_TURN_IDLE_MS;
     const firstByteMs = options.firstByteMs ?? DEFAULT_FIRST_BYTE_MS;
     const maxToolRounds = options.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
@@ -79,6 +99,7 @@ export class BridgeRuntimeService {
           onOutputChunk: options.onOutputChunk,
           onToolCall: options.onToolCall,
           onToolResult: options.onToolResult,
+          emitRuntimeEvent,
           markToolCall: () => {
             sawToolCall = true;
           },
@@ -170,16 +191,43 @@ export class BridgeRuntimeService {
           idleMs,
           firstByteMs,
           onOutputChunk: options.onOutputChunk,
+          emitRuntimeEvent,
         },
       );
+      const finalOutput = followup.output.trim() || this.buildFallbackResponse(turn.message, toolResults);
+      emitRuntimeEvent({
+        type: 'runtime.message.completed',
+        text: finalOutput,
+        outputLength: finalOutput.length,
+      });
+      emitRuntimeEvent({
+        type: 'runtime.run.completed',
+        status: 'completed',
+        durationMs: Date.now() - runStartedAt,
+        toolRounds: toolRounds + followup.toolRounds,
+        outputLength: finalOutput.length,
+      });
       return {
-        output: followup.output.trim() || this.buildFallbackResponse(turn.message, toolResults),
+        output: finalOutput,
         toolRounds: toolRounds + followup.toolRounds,
       };
     }
 
+    const finalOutput = output.join('');
+    emitRuntimeEvent({
+      type: 'runtime.message.completed',
+      text: finalOutput,
+      outputLength: finalOutput.length,
+    });
+    emitRuntimeEvent({
+      type: 'runtime.run.completed',
+      status: 'completed',
+      durationMs: Date.now() - runStartedAt,
+      toolRounds,
+      outputLength: finalOutput.length,
+    });
     return {
-      output: output.join(''),
+      output: finalOutput,
       toolRounds,
     };
   }
@@ -199,6 +247,7 @@ export class BridgeRuntimeService {
     onOutputChunk?: (chunk: string) => void;
     onToolCall?: (call: BridgeToolCall) => void;
     onToolResult?: (result: BridgeToolResult) => void;
+    emitRuntimeEvent(event: RuntimeEventPatch): void;
     markToolCall(): void;
     markDone(): void;
     markActivity(): void;
@@ -219,6 +268,10 @@ export class BridgeRuntimeService {
     if (parsed.finalText && parsed.toolCalls.length === 0) {
       input.appendOutput(parsed.finalText);
       input.onOutputChunk?.(parsed.finalText);
+      input.emitRuntimeEvent({
+        type: 'runtime.message.delta',
+        text: parsed.finalText,
+      });
     }
 
     for (const error of parsed.errors) {
@@ -234,8 +287,36 @@ export class BridgeRuntimeService {
       input.markToolCall();
       input.onToolCall?.(call);
       input.clearOutput();
+      const startedAt = Date.now();
+      input.emitRuntimeEvent({
+        type: 'runtime.tool.started',
+        toolName: call.name,
+        callId: call.id,
+      });
       const result = await this.executeToolCall(call, input);
       input.onToolResult?.(result);
+      const durationMs = Date.now() - startedAt;
+      if (result.status === 'ok') {
+        input.emitRuntimeEvent({
+          type: 'runtime.tool.completed',
+          toolName: result.name,
+          callId: result.id,
+          status: 'ok',
+          durationMs,
+          summary: this.summarizeToolResult(result),
+        });
+      } else {
+        input.emitRuntimeEvent({
+          type: 'runtime.tool.failed',
+          toolName: result.name,
+          callId: result.id,
+          status: 'error',
+          durationMs,
+          errorClass: 'BridgeToolError',
+          message: this.truncate(result.error || 'Bridge tool failed', 120),
+          summary: this.summarizeToolResult(result),
+        });
+      }
       input.collectToolResult(this.formatToolResultForFollowup(result));
     }
 
@@ -309,7 +390,7 @@ export class BridgeRuntimeService {
   private async runResponseOnlyTurn(
     session: BridgeSessionService,
     turn: BridgeUserTurn,
-    options: { projectRoot: string; idleMs: number; firstByteMs: number } & Pick<BridgeRuntimeCallbacks, 'onOutputChunk'>,
+    options: { projectRoot: string; idleMs: number; firstByteMs: number; emitRuntimeEvent?: (event: RuntimeEventPatch) => void } & Pick<BridgeRuntimeCallbacks, 'onOutputChunk'>,
   ): Promise<BridgeRuntimeResult> {
     this.protocol.reset();
 
@@ -343,6 +424,10 @@ export class BridgeRuntimeService {
           if (parsed.finalText && parsed.toolCalls.length === 0) {
             output.push(parsed.finalText);
             options.onOutputChunk?.(parsed.finalText);
+            options.emitRuntimeEvent?.({
+              type: 'runtime.message.delta',
+              text: parsed.finalText,
+            });
           }
           if (parsed.turnDone) {
             done = true;
@@ -403,6 +488,20 @@ export class BridgeRuntimeService {
       `Tool ${result.name} (${result.id}) ${result.status}:`,
       body,
     ].join('\n');
+  }
+
+  private summarizeToolResult(result: BridgeToolResult): string {
+    if (result.status === 'error') {
+      return `${result.name} error - ${this.truncate(result.error || 'unknown error', 120)}`;
+    }
+    const content = result.content || '';
+    const lines = content.length === 0 ? 0 : content.split(/\r\n|\r|\n/).length;
+    const bytes = Buffer.byteLength(content, 'utf8');
+    return `${result.name} ok - ${lines} lines, ${bytes} B`;
+  }
+
+  private truncate(value: string, max: number): string {
+    return value.length <= max ? value : value.slice(0, max);
   }
 
   private sanitizeRequestForResponseOnly(message: string): string {

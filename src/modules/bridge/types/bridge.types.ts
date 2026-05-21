@@ -1,3 +1,5 @@
+import type { CastRuntimeEvent } from '../../runtime/types/runtime-event.types';
+
 export const BRIDGE_PROVIDER_IDS = ['claude', 'codex', 'copilot', 'qwen', 'kimi', 'openrouter'] as const;
 export type BridgeProviderId = (typeof BRIDGE_PROVIDER_IDS)[number];
 export type BridgeSessionStatus = 'idle' | 'starting' | 'connected' | 'disconnected' | 'error';
@@ -54,6 +56,7 @@ export interface BridgeRuntimeCallbacks {
   onOutputChunk?(chunk: string): void;
   onToolCall?(call: BridgeToolCall): void;
   onToolResult?(result: BridgeToolResult): void;
+  onRuntimeEvent?(event: CastRuntimeEvent): void;
 }
 
 export interface BridgeTranscriptEvent {

@@ -251,6 +251,65 @@ describe('BridgeRuntimeService', () => {
     assert.equal(result.output, 'chunk-onechunk-two');
   });
 
+  test('emits runtime events while preserving bridge output and tool callbacks', async () => {
+    const session = new FakeSession();
+    const runtimeEvents: any[] = [];
+    const chunks: string[] = [];
+    const toolCalls: string[] = [];
+    const toolResults: string[] = [];
+    const runtime = new BridgeRuntimeService(
+      session as any,
+      new BridgeProtocolService(),
+      {
+        getManifest: () => ({
+          tools: [{ name: 'read_file', description: 'read', inputSchema: {} }],
+        }),
+        execute: async (call: any) => ({
+          id: call.id,
+          name: call.name,
+          status: 'ok',
+          content: '{"scripts":{"build":"x","test":"y"}}',
+        }),
+      } as any,
+      { append: async () => '' } as any,
+    );
+
+    const result = await runtime.runUserTurn(
+      { id: 'turn_runtime_events', message: 'read package' },
+      {
+        projectRoot: process.cwd(),
+        onOutputChunk: (chunk: string) => chunks.push(chunk),
+        onToolCall: (call: any) => toolCalls.push(call.name),
+        onToolResult: (result: any) => toolResults.push(result.name),
+        onRuntimeEvent: (event: any) => runtimeEvents.push(event),
+      } as any,
+    );
+
+    assert.match(result.output, /Scripts/);
+    assert.deepEqual(chunks, ['Scripts: build, test']);
+    assert.deepEqual(toolCalls, ['read_file']);
+    assert.deepEqual(toolResults, ['read_file']);
+    assert.deepEqual(
+      runtimeEvents.map((event) => event.type),
+      [
+        'runtime.run.started',
+        'runtime.tool.started',
+        'runtime.tool.completed',
+        'runtime.message.delta',
+        'runtime.message.completed',
+        'runtime.run.completed',
+      ],
+    );
+    assert.deepEqual(runtimeEvents[0].scope, {
+      kind: 'bridge',
+      runId: 'turn_runtime_events',
+      provider: 'claude',
+    });
+    assert.equal(runtimeEvents[2].toolName, 'read_file');
+    assert.equal(runtimeEvents[2].status, 'ok');
+    assert.match(runtimeEvents[2].summary, /read_file ok/);
+  });
+
   test('falls back to Cast tool results when response-only follow-up is empty', async () => {
     class EmptyFollowupSession extends EventEmitter {
       starts = 0;
