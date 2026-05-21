@@ -17,6 +17,9 @@ workers, worktrees, and safe patch integration.
 
 - `SwarmWorktreeService` — git worktrees under `.cast/worktrees/<run-id>/<task-id>`
 - `SwarmIsolatedAgentService` — per-worker `createDeepAgent` (serialized tool roots)
+- Swarm worker filesystem backend must implement DeepAgents `BackendProtocolV2`
+  (`ls`, `read`, `grep`, `glob`) because `deepagents@1.9.0` no longer exposes
+  the old `FilesystemBackend.lsInfo/grepRaw/globInfo` methods.
 - `SwarmWorkerRuntimeService` — dry-run or live execution, handoff + ownership checks
 - `SwarmDispatcherService` — DAG scheduling, concurrency, cancel
 - `/swarm run [--dry-run] [run-id]` and `/swarm workers [run-id]`

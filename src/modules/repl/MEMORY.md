@@ -1,6 +1,6 @@
 # REPL Module Memory
 
-Updated: 2026-05-20
+Updated: 2026-05-21
 
 Read the root `MEMORY.md` first. This file captures module-local decisions for `src/modules/repl`.
 
@@ -31,6 +31,9 @@ The REPL module owns the interactive terminal experience: startup loop, smart in
 - While bridge mode is active, normal non-slash REPL prompts route to `BridgeCommandsService.runPrompt`; slash commands keep local Cast routing. This must not depend on the provider child-process being alive because one-shot bridge providers disconnect between turns. `/bridge stop` or the picker `Stop bridge` option returns prompts to `DeepAgentService`.
 - Bridge responses must print through SmartInput external output blocks and stream chunks when available; avoid raw `process.stdout.write` for large bridge answers because it corrupts the footer/prompt layout.
 - Bridge tool activity should be visible while a bridged prompt is running. Render compact start/result lines in the provider block, including a useful target such as file path, glob, command, task id, or memory query, and summarize results by short text or line/byte count instead of dumping full tool output.
+- Bridge runtime events are projected through `RuntimeTelemetryProjectorService`
+  before calling `PlatformService.track`. The REPL should never send raw
+  assistant text, raw tool output, or raw diffs directly to platform telemetry.
 - `/config` should not contain platform setup.
 - After successful platform linking, refresh `DeepAgentService` so remote definitions/RAG become active immediately.
 - Keep command help/suggestions in sync with actual command handlers.

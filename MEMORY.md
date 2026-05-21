@@ -1,6 +1,6 @@
 # Cast Code Memory
 
-Updated: 2026-05-20
+Updated: 2026-05-21
 
 This file is intended to be read by future assistant sessions before changing the Cast CLI. It summarizes what the system does, how the main modules fit together, and what decisions are important to preserve.
 
@@ -57,6 +57,10 @@ Active bridge implementation:
 - Stream-json bridge adapters force pipe transport even when `node-pty` exists; real `claude -p --input-format stream-json` should not run behind a PTY.
 - JSON bridge adapters such as Codex also force pipe transport. Do not run one-shot JSON providers behind PTY.
 - Bridge tool activity is visible in the REPL stream. `BridgeRuntimeService` emits tool callbacks and `ReplService` prints compact start/result lines inside the provider output block, for example `read file package.json` and `read_file ok - 2 lines, 240 B`; keep summaries compact instead of dumping raw tool output into the terminal.
+- Bridge runtime now also emits typed `CastRuntimeEvent` objects. The REPL
+  projects those events through `RuntimeTelemetryProjectorService` before
+  calling `PlatformService.track`, so platform telemetry receives sanitized
+  metadata instead of raw assistant/tool content.
 - `docs/superpowers/specs/2026-05-19-cast-bridge-claude-design.md` is the design record for the bridge.
 - `docs/superpowers/plans/2026-05-19-cast-bridge-claude.md` is the approved implementation plan that led to the current module.
 
@@ -107,6 +111,8 @@ Each top-level module under `src/modules` has a local memory file. Read the rele
 - `src/modules/remote/MEMORY.md`: remote web UI, stdout streaming, inbound browser/mobile prompts, and ngrok exposure.
 - `src/modules/repl/MEMORY.md`: terminal loop, SmartInput, slash commands, streaming display, and command UX.
 - `src/modules/replay/MEMORY.md`: local replay timelines and trace export integration.
+- `src/modules/runtime/MEMORY.md`: typed runtime event contract and sanitized
+  platform telemetry projection.
 - `src/modules/sandbox/MEMORY.md`: Docker/worktree/snapshot/noop sandbox backends, rollback, and artifacts.
 - `src/modules/scheduler/MEMORY.md`: recurring schedules, cron, policy, execution, worker, suggestions, and platform sync.
 - `src/modules/skills/MEMORY.md`: built-in/project/user/session/remote skill loading, registry, metadata, runtime tools, search, and scoping.
@@ -135,7 +141,25 @@ Important behavior:
 
 - Short greetings and simple capability questions use a compact chat path without tools. This avoids wasting context and prevents fake file inspection.
 - Real project work goes through the deep agent.
+- Main DeepAgents streaming is normalized through `DeepAgentEventAdapterService`.
+  It tries DeepAgents v3 stream projections in `auto` mode and falls back to
+  the v2 `streamEvents` event stream when projections are unavailable, while
+  preserving existing terminal output from raw v2 events.
+- The CLI is validated against `deepagents@1.9.0` and `@langchain/quickjs@0.4.0`
+  for the LangChain Deep Agents v0.6-era TypeScript stack. Do not replace the
+  dynamic QuickJS import with a static CommonJS `require`; the package's CJS
+  path can fail on ESM-only transitive dependencies.
+- Main DeepAgents agents include the QuickJS `eval` middleware with read-only
+  programmatic tool calling for `ls`, `read_file`, `glob`, and `grep`. If local
+  `.cast/skills` or `.skills` directories exist, Cast also passes them to native
+  DeepAgents skills support.
+- Main model runtime events are projected through `RuntimeTelemetryProjectorService`
+  before reaching Platform sessions. Keep platform telemetry metadata-only;
+  message text and raw tool output remain local.
 - DeepAgents built-in filesystem backend is wrapped by `WorkspaceFilesystemBackend`. Relative paths resolve from the active project root, but sibling directories inside the detected workspace root are allowed. This is why a prompt like "look at ../web" should work from `cast-code`.
+  That wrapper now implements `BackendProtocolV2` (`ls`, `read`, `grep`, `glob`
+  structured results) because newer DeepAgents versions removed the old
+  `lsInfo`/`grepRaw`/`globInfo` backend methods.
 - The project root is usually the nearest folder with Cast project config. The workspace root is the outermost ancestor with `.cast` when present, otherwise the project root.
 - Built-in DeepAgents tools are filtered/controlled, while Cast-specific tools come from `ToolsRegistryService`.
 - Prompts include working directory and workspace root. This matters so the model does not accidentally treat `/` as the project.

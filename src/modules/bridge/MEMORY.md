@@ -1,6 +1,6 @@
 # Bridge Module Memory
 
-Updated: 2026-05-20
+Updated: 2026-05-21
 
 Read the root `MEMORY.md` first. This file captures module-local decisions for `src/modules/bridge`.
 
@@ -61,6 +61,11 @@ Bridge mode intentionally skips normal model API-key setup. It uses the user's a
 - Do not apply the short idle timeout before the provider emits its first non-empty chunk. Real CLIs such as Claude can take longer to produce the first visible text than local fake providers, and stream-json metadata can sanitize to empty output.
 - Streaming bridge responses should go through callbacks into the REPL SmartInput external output block. This keeps large responses from corrupting the prompt/footer and makes the bridge feel like the normal Cast stream instead of a single delayed HTTP response.
 - Tool-call visibility is part of the bridge UX. `BridgeRuntimeService` callbacks should surface tool start/result events to the REPL, and the REPL should render compact one-line summaries rather than raw tool payloads.
+- `BridgeRuntimeService` also emits typed `CastRuntimeEvent` objects through
+  `BridgeRuntimeCallbacks.onRuntimeEvent`. Keep the older `onOutputChunk`,
+  `onToolCall`, and `onToolResult` callbacks working while the typed runtime
+  stream is rolled out. Bridge runtime events are local detail; platform
+  telemetry must go through `RuntimeTelemetryProjectorService` before tracking.
 - Claude stream-json output can put useful text in a `result` event when no assistant text was emitted; reset adapter output state on every provider start and use `result` only as a no-assistant fallback to avoid duplicate output.
 - Keep `/help`, startup quick commands, autocomplete, `list_commands`, README, and this memory in sync when `/bridge` surface changes.
 

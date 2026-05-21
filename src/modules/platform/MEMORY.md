@@ -1,6 +1,6 @@
 # Platform Module Memory
 
-Updated: 2026-05-19
+Updated: 2026-05-21
 
 Read the root `MEMORY.md` first. This file captures module-local decisions for `src/modules/platform`.
 
@@ -34,6 +34,12 @@ The platform module owns CLI integration with Cast Platform: project linking, gl
 - Reject `apiKeyEnv` values that look like actual API keys.
 - Offline platform state should use usable cache when available and report `offline`, not `disabled`.
 - Session telemetry must be sanitized and must not sync raw conversation content by default.
+- Project payload types now include optional runtime, swarm, model, sandbox,
+  and telemetry policy fields. They are optional for backward compatibility
+  with older backend payloads.
+- `PlatformEventType` includes sanitized runtime/swarm event names. Runtime
+  message text is not tracked directly; use `RuntimeTelemetryProjectorService`
+  to project local runtime events before calling `PlatformService.track`.
 
 ## Tests
 
