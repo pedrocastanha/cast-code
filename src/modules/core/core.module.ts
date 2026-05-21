@@ -20,6 +20,8 @@ import { PlatformModule } from '../platform/platform.module';
 import { StateModule } from '../state/state.module';
 import { BenchmarkModule } from '../benchmark/benchmark.module';
 import { EnvironmentModule } from '../environments/environment.module';
+import { RuntimeModule } from '../runtime/runtime.module';
+import { DeepAgentEventAdapterService } from './services/deep-agent-event-adapter.service';
 
 @Module({
   imports: [
@@ -40,8 +42,9 @@ import { EnvironmentModule } from '../environments/environment.module';
     StateModule,
     BenchmarkModule,
     EnvironmentModule,
+    RuntimeModule,
   ],
-  providers: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService],
-  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule, StateModule, BenchmarkModule, EnvironmentModule],
+  providers: [DeepAgentService, DeepAgentEventAdapterService, PlanModeService, PromptLoaderService, PromptClassifierService],
+  exports: [DeepAgentService, DeepAgentEventAdapterService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule, StateModule, BenchmarkModule, EnvironmentModule],
 })
 export class CoreModule {}

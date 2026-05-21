@@ -37,6 +37,7 @@ import { SchedulerModule } from '../scheduler/scheduler.module';
 import { SandboxModule } from '../sandbox/sandbox.module';
 import { BridgeModule } from '../bridge/bridge.module';
 import { SwarmModule } from '../swarm/swarm.module';
+import { RuntimeModule } from '../runtime/runtime.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { SwarmModule } from '../swarm/swarm.module';
     SandboxModule,
     BridgeModule,
     SwarmModule,
+    RuntimeModule,
   ],
   providers: [
     ReplService,
