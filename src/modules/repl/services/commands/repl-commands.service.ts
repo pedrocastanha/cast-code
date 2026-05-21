@@ -193,11 +193,6 @@ export class ReplCommandsService {
     }));
   }
 
-  private getActiveModelDisplayName(): string {
-    const modelConfig = this.getActiveModelConfig();
-    return `${modelConfig.provider}/${modelConfig.model}`;
-  }
-
   private getActiveModelConfig(): { provider: ProviderType; model: string } {
     const modelConfig = this.configManager.getModelConfig('default');
     if (modelConfig?.provider && modelConfig?.model) {

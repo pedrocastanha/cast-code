@@ -27,9 +27,7 @@ const buildService = (overrides: Record<string, any> = {}) => {
       isInitialized: () => false,
       getCachedMemoryPrompt: () => '',
     },
-    markdownRenderer: {},
     permissionService: {},
-    snapshotService: {},
     statsService: { trackUsage: () => {}, setUsageListener: () => {} },
     replayService: { recordEntry: () => {}, setModel: () => {} },
     i18nService: {
@@ -59,9 +57,7 @@ const buildService = (overrides: Record<string, any> = {}) => {
     deps.projectContext as any,
     deps.skillRegistry as any,
     deps.memoryService as any,
-    deps.markdownRenderer as any,
     deps.permissionService as any,
-    deps.snapshotService as any,
     deps.statsService as any,
     deps.replayService as any,
     deps.i18nService as any,
@@ -659,7 +655,7 @@ describe('DeepAgentService system prompt engineering workflow', () => {
   test('requires adaptive clarification and test-first implementation for code changes', () => {
     const service = buildService();
 
-    const prompt = (service as any).buildSystemPrompt('', '', [], [], [], [], '');
+    const prompt = (service as any).buildLeanSystemPrompt();
 
     assert.match(prompt, /Adaptive Test-First Workflow/);
     assert.match(prompt, /Ask clarifying questions only when ambiguity affects behavior/);

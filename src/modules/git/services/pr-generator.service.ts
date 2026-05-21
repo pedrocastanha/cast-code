@@ -399,17 +399,6 @@ export class PrGeneratorService {
     };
   }
 
-  private parsePRDescription(content: string): { title: string; description: string } {
-    const titleMatch = content.match(/^#?\s*Title:?\s*(.+?)(?=\n\n|\n##|$)/i);
-    const lines = content.split('\n');
-    const title = titleMatch ? titleMatch[1].trim() : lines[0].replace(/^#+\s*/, '').trim();
-    const description = titleMatch 
-      ? content.slice(content.indexOf(titleMatch[0]) + titleMatch[0].length).trim()
-      : lines.slice(1).join('\n').trim();
-
-    return { title, description };
-  }
-
   private buildSinglePrompt(branchName: string, commits: CommitInfo[], baseBranch: string): string {
     const commitsInfo = commits.map((c, i) => 
       `${i + 1}. **${c.hash}** - ${c.message}\n   Files: ${c.files.slice(0, 5).join(', ')}${c.files.length > 5 ? '...' : ''}\n   Stats: ${c.diff.split('\n').slice(-3, -1).join(' ')}`

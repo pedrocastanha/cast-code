@@ -7,7 +7,6 @@ import type { ISmartInput } from '../../repl/services/smart-input';
 import { BridgeSessionService } from '../services/bridge-session.service';
 import { BridgeToolExecutorService } from '../services/bridge-tool-executor.service';
 import { BridgeRuntimeService } from '../services/bridge-runtime.service';
-import { BridgeProtocolService } from '../services/bridge-protocol.service';
 import {
   createBridgeProviderAdapter,
   formatBridgeProviderList,
@@ -33,7 +32,6 @@ export class BridgeCommandsService {
     private readonly session: BridgeSessionService,
     private readonly executor: BridgeToolExecutorService,
     private readonly runtime: BridgeRuntimeService,
-    private readonly protocol: BridgeProtocolService,
   ) {}
 
   private readonly ui = new CommandUiService();

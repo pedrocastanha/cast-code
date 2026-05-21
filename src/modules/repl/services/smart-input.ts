@@ -870,7 +870,6 @@ export class SmartInput implements ISmartInput {
 
   private render() {
     const write = (s: string) => process.stdout.write(s);
-    const totalLength = this.promptLen + this.buffer.length;
     const inputLines = this.buildInputLines();
     const promptRows = inputLines.length;
     const footerLines = this.suggestions.length > 0 ? [] : this.getFooterLines();

@@ -22,10 +22,14 @@ import { ShellToolsService } from '../../tools/services/shell-tools.service';
 import type { SwarmWorkerRunInput } from '../types';
 
 class SwarmWorktreeBackend implements BackendProtocolV2 {
+  private readonly backend: FilesystemBackend;
+
   constructor(
     private readonly worktreePath: string,
     private readonly workspaceRoot: string,
-  ) {}
+  ) {
+    this.backend = new FilesystemBackend({ rootDir: path.resolve(this.workspaceRoot) });
+  }
 
   private resolvePath(key: string): string {
     const root = path.resolve(this.worktreePath);
@@ -37,11 +41,9 @@ class SwarmWorktreeBackend implements BackendProtocolV2 {
     throw new Error(`Path ${resolved} outside swarm worktree ${root}`);
   }
 
-  private backend = () => new FilesystemBackend({ rootDir: path.resolve(this.workspaceRoot) });
-
   async ls(dirPath: string): Promise<LsResult> {
     try {
-      return await this.backend().ls(this.resolvePath(dirPath));
+      return await this.backend.ls(this.resolvePath(dirPath));
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -54,7 +56,7 @@ class SwarmWorktreeBackend implements BackendProtocolV2 {
 
   async read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
     try {
-      return await this.backend().read(this.resolvePath(filePath), offset, limit);
+      return await this.backend.read(this.resolvePath(filePath), offset, limit);
     } catch (error) {
       return { error: `Error reading file '${filePath}': ${(error as Error).message}` };
     }
@@ -62,7 +64,7 @@ class SwarmWorktreeBackend implements BackendProtocolV2 {
 
   async readRaw(filePath: string): Promise<ReadRawResult> {
     try {
-      return await this.backend().readRaw(this.resolvePath(filePath));
+      return await this.backend.readRaw(this.resolvePath(filePath));
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -70,7 +72,7 @@ class SwarmWorktreeBackend implements BackendProtocolV2 {
 
   async write(filePath: string, content: string): Promise<WriteResult> {
     try {
-      return await this.backend().write(this.resolvePath(filePath), content);
+      return await this.backend.write(this.resolvePath(filePath), content);
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -78,7 +80,7 @@ class SwarmWorktreeBackend implements BackendProtocolV2 {
 
   async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult> {
     try {
-      return await this.backend().edit(this.resolvePath(filePath), oldString, newString, replaceAll);
+      return await this.backend.edit(this.resolvePath(filePath), oldString, newString, replaceAll);
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -86,7 +88,7 @@ class SwarmWorktreeBackend implements BackendProtocolV2 {
 
   async grep(pattern: string, dirPath?: string | null, glob?: string | null): Promise<GrepResult> {
     try {
-      return await this.backend().grep(pattern, this.resolvePath(dirPath || '.'), glob);
+      return await this.backend.grep(pattern, this.resolvePath(dirPath || '.'), glob);
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -99,7 +101,7 @@ class SwarmWorktreeBackend implements BackendProtocolV2 {
 
   async glob(pattern: string, searchPath?: string): Promise<GlobResult> {
     try {
-      return await this.backend().glob(pattern, this.resolvePath(searchPath || '.'));
+      return await this.backend.glob(pattern, this.resolvePath(searchPath || '.'));
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -183,7 +185,7 @@ export class SwarmIsolatedAgentService {
     return [
       input.planTask.worker.systemPrompt,
       '',
-      `# Swarm execution contract`,
+      '# Swarm execution contract',
       `Worktree: ${input.worktree.worktreePath}`,
       `Branch: ${input.worktree.branchName}`,
       '',

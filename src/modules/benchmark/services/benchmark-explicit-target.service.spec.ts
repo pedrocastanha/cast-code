@@ -10,8 +10,8 @@ import { BenchmarkRouteDiscoveryService } from './benchmark-route-discovery.serv
 test('explicit target resolution scans only the mentioned file', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cast-explicit-target-'));
   await mkdir(join(root, 'src'), { recursive: true });
-  await writeFile(join(root, 'src/chat.ts'), `router.post('/chat', (req, res) => res.json({ answer: req.body.message }))`);
-  await writeFile(join(root, 'src/other.ts'), `router.post('/ignored', handler)`);
+  await writeFile(join(root, 'src/chat.ts'), 'router.post(\'/chat\', (req, res) => res.json({ answer: req.body.message }))');
+  await writeFile(join(root, 'src/other.ts'), 'router.post(\'/ignored\', handler)');
 
   let projectDiscoveryCalls = 0;
   const discovery = new BenchmarkRouteDiscoveryService();

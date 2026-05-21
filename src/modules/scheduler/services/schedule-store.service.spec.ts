@@ -32,7 +32,7 @@ describe('ScheduleStoreService', () => {
   test('creates scheduler tables through local state migrations', async () => {
     await withStore(async (_store, db) => {
       const database = await db.getDb();
-      const tables = database.prepare("select name from sqlite_master where type = 'table' order by name").all()
+      const tables = database.prepare('select name from sqlite_master where type = \'table\' order by name').all()
         .map((row: any) => row.name);
 
       assert(tables.includes('local_schedules'));

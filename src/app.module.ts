@@ -13,7 +13,6 @@ import { SnapshotModule } from './modules/snapshots/snapshot.module';
 import { StatsModule } from './modules/stats/stats.module';
 import { ReplayModule } from './modules/replay/replay.module';
 import { VaultModule } from './modules/vault/vault.module';
-import { DiffModule } from './modules/diff/diff.module';
 import { WatcherModule } from './modules/watcher/watcher.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { EnvironmentModule } from './modules/environments/environment.module';
@@ -40,7 +39,6 @@ import { SwarmModule } from './modules/swarm/swarm.module';
     StatsModule,
     ReplayModule,
     VaultModule,
-    DiffModule,
     WatcherModule,
     PlatformModule,
     EnvironmentModule,

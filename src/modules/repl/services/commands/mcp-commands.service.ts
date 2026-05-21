@@ -4,7 +4,6 @@ import * as path from 'path';
 import { colorize } from '../../utils/theme';
 import { CommandUiService } from '../command-ui.service';
 import { McpRegistryService } from '../../../mcp/services/mcp-registry.service';
-import { McpClientService } from '../../../mcp/services/mcp-client.service';
 import {
   selectWithEsc,
   inputWithEsc,
@@ -18,10 +17,7 @@ import { ISmartInput } from '../smart-input';
 export class McpCommandsService {
   private readonly ui = new CommandUiService();
 
-  constructor(
-    private readonly mcpRegistry: McpRegistryService,
-    private readonly mcpClient: McpClientService,
-  ) {}
+  constructor(private readonly mcpRegistry: McpRegistryService) {}
 
   async cmdMcp(args: string[], smartInput: ISmartInput): Promise<void> {
     const sub = args[0] || 'menu';
@@ -343,11 +339,11 @@ export class McpCommandsService {
         title: `${server.name} (${server.transport}, ${server.status})`,
         lines: [
           ...server.toolDescriptions.map((td) => {
-          const shortName = td.name.replace(`${server.name}_`, '');
-          const desc = td.description.length > 70 
-            ? td.description.slice(0, 67) + '...' 
-            : td.description;
-          return `${colorize(shortName, 'cyan')}  ${colorize(desc, 'muted')}`;
+            const shortName = td.name.replace(`${server.name}_`, '');
+            const desc = td.description.length > 70
+              ? td.description.slice(0, 67) + '...'
+              : td.description;
+            return `${colorize(shortName, 'cyan')}  ${colorize(desc, 'muted')}`;
           }),
           ...(server.quarantinedTools ?? []).map((item) => colorize(`warning: ${item.name} ${item.warning}`, 'warning')),
         ],
@@ -647,71 +643,6 @@ export class McpCommandsService {
       ],
       footer: 'Use /mcp help for setup. Docs: https://modelcontextprotocol.io',
     }));
-  }
-
-  private printHowToCreate(): void {
-    const w = (s: string) => process.stdout.write(s);
-
-    w(this.ui.panel({
-      title: 'Create an MCP Server',
-      subtitle: 'quick guide',
-      sections: [
-        {
-          lines: [
-            `${colorize('TypeScript', 'cyan')} is the easiest starting point for local stdio servers.`,
-            `${colorize('Python', 'cyan')} works well with the official mcp package.`,
-          ],
-        },
-      ],
-    }));
-
-    w(`${colorize('Option 1: TypeScript/JavaScript (easiest)', 'bold')}\n\n`);
-    w(`${colorize('1.', 'primary')} Create a project:\n`);
-    w(`   ${colorize('mkdir my-mcp && cd my-mcp', 'muted')}\n`);
-    w(`   ${colorize('npm init -y', 'muted')}\n`);
-    w(`   ${colorize('npm install @modelcontextprotocol/sdk zod', 'muted')}\n\n`);
-
-    w(`${colorize('2.', 'primary')} Create the server (index.ts):\n`);
-    w(colorize('   import { Server } from \'@modelcontextprotocol/sdk/server/index.js\';\n', 'muted'));
-    w(colorize('   import { StdioServerTransport } from \'@modelcontextprotocol/sdk/server/stdio.js\';\n', 'muted'));
-    w(colorize('\n', 'muted'));
-    w(colorize('   const server = new Server(\n', 'muted'));
-    w(colorize('     { name: \'my-mcp\', version: \'1.0.0\' },\n', 'muted'));
-    w(colorize('     { capabilities: { tools: {} } }\n', 'muted'));
-    w(colorize('   );\n', 'muted'));
-    w(colorize('\n', 'muted'));
-    w(colorize('   server.setRequestHandler(ListToolsRequestSchema, async () => ({\n', 'muted'));
-    w(colorize('     tools: [{\n', 'muted'));
-    w(colorize('       name: \'my_tool\',\n', 'muted'));
-    w(colorize('       description: \'Does something useful\',\n', 'muted'));
-    w(colorize('       inputSchema: {\n', 'muted'));
-    w(colorize('         type: \'object\',\n', 'muted'));
-    w(colorize('         properties: { name: { type: \'string\' } },\n', 'muted'));
-    w(colorize('         required: [\'name\']\n', 'muted'));
-    w(colorize('       }\n', 'muted'));
-    w(colorize('     }]\n', 'muted'));
-    w(colorize('   }));\n', 'muted'));
-    w(colorize('\n', 'muted'));
-    w(colorize('   server.setRequestHandler(CallToolRequestSchema, async (req) => {\n', 'muted'));
-    w(colorize('     const args = req.params.arguments;\n', 'muted'));
-    w(colorize('     return { content: [{ type: \'text\', text: \'Result!\' }] };\n', 'muted'));
-    w(colorize('   });\n', 'muted'));
-    w(colorize('\n', 'muted'));
-    w(colorize('   const transport = new StdioServerTransport();\n', 'muted'));
-    w(colorize('   await server.connect(transport);\n', 'muted'));
-    w('\n');
-
-    w(`${colorize('Option 2: Python', 'bold')}\n\n`);
-    w(`   ${colorize('pip install mcp', 'muted')}\n\n`);
-    w(`   See: ${colorize('https://github.com/modelcontextprotocol/python-sdk', 'accent')}\n\n`);
-
-    w(`${colorize('3.', 'primary')} Publish to npm (optional):\n`);
-    w(`   Others can use it with: ${colorize('npx -y your-mcp-server', 'muted')}\n\n`);
-
-    w(`${colorize('Resources:', 'bold')}\n`);
-    w(`  ${colorize('•', 'muted')} Documentation: https://modelcontextprotocol.io\n`);
-    w(`  ${colorize('•', 'muted')} TypeScript SDK: @modelcontextprotocol/sdk\n`);
-    w(`  ${colorize('•', 'muted')} Examples: github.com/modelcontextprotocol/servers\n\n`);
   }
 
   private printMcpHelp(): void {

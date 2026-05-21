@@ -31,7 +31,7 @@ describe('SwarmRunStoreService', () => {
   test('creates swarm tables through migrations', async () => {
     await withStore(async (_store, db) => {
       const database = await db.getDb();
-      const tables = database.prepare("select name from sqlite_master where type = 'table' order by name").all()
+      const tables = database.prepare('select name from sqlite_master where type = \'table\' order by name').all()
         .map((row: any) => row.name);
       assert(tables.includes('swarm_plans'));
       assert(tables.includes('swarm_runs'));

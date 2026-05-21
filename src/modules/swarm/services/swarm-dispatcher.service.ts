@@ -31,7 +31,7 @@ export class SwarmDispatcherService {
   }
 
   async dispatch(options: SwarmDispatchOptions): Promise<SwarmRun> {
-    let run = await this.store.getRun(options.runId);
+    const run = await this.store.getRun(options.runId);
     if (!run) {
       throw new Error(`Swarm run not found: ${options.runId}`);
     }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { AddressInfo } from 'node:net';
-import { after, before, describe, test } from 'node:test';
+import { describe, test } from 'node:test';
 
 import { BenchmarkTargetService } from './benchmark-target.service';
 

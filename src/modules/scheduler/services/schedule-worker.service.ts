@@ -51,7 +51,7 @@ export class ScheduleWorkerService {
 
   constructor(
     @Optional()
-    deps?: Partial<ScheduleWorkerDeps>,
+      deps?: Partial<ScheduleWorkerDeps>,
   ) {
     this.deps = {
       platform: deps?.platform ?? process.platform,

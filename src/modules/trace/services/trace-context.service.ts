@@ -33,7 +33,7 @@ export class TraceContextService {
     return this.ensureSession();
   }
 
-  createChildRun(parentRunId: string, label: string): string {
+  createChildRun(_parentRunId: string, label: string): string {
     const context = this.getCurrent();
     this.runCounter += 1;
     const safeLabel = label.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'run';

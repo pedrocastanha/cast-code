@@ -90,7 +90,7 @@ describe('BenchmarkRouteDiscoveryService', () => {
         },
       },
     }));
-    await writeFile(join(root, 'node_modules/ignored/router.ts'), `router.post('/ignored', handler)`);
+    await writeFile(join(root, 'node_modules/ignored/router.ts'), 'router.post(\'/ignored\', handler)');
 
     const service = new BenchmarkRouteDiscoveryService();
     const candidates = await service.discoverProject(root);

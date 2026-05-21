@@ -31,7 +31,6 @@ describe('PlatformCommandsService', () => {
     const calls: Array<{ type: string; value?: unknown }> = [];
 
     const service = new PlatformCommandsService(
-      {} as any,
       {
         readConfig: async () => ({
           enabled: false,
@@ -126,7 +125,6 @@ describe('PlatformCommandsService', () => {
     let captured: Record<string, unknown> | null = null;
 
     const service = new PlatformCommandsService(
-      {} as any,
       {
         readConfig: async () => ({
           enabled: false,
@@ -182,7 +180,6 @@ describe('PlatformCommandsService', () => {
 
   test('cmdPlatform status hides the platform key value', async () => {
     const service = new PlatformCommandsService(
-      {} as any,
       {
         readConfig: async () => ({
           enabled: true,

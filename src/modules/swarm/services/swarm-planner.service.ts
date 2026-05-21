@@ -215,7 +215,7 @@ export class SwarmPlannerService {
   }
 
   private buildTask(unit: WorkUnitTemplate, goal: string, projectRoot: string, index: number): SwarmTaskPlan {
-    const worker = this.buildWorker(unit, goal, projectRoot);
+    const worker = this.buildWorker(unit, goal);
     return {
       id: unit.id,
       title: unit.title,
@@ -234,7 +234,7 @@ export class SwarmPlannerService {
     };
   }
 
-  private buildWorker(unit: WorkUnitTemplate, goal: string, projectRoot: string): SwarmWorkerSpec {
+  private buildWorker(unit: WorkUnitTemplate, goal: string): SwarmWorkerSpec {
     const baseAgent = unit.agentName ? this.agentRegistry.resolveAgent(unit.agentName, this.projectContext.getContextPrompt()) : undefined;
     const promptParts = [
       `# Role\nYou are the ${unit.role} for an Agent Swarm run.`,

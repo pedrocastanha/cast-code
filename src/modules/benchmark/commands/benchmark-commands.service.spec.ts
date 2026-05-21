@@ -164,7 +164,7 @@ test('explicit benchmark target resolves without broad discovery and saves defin
   await mkdir(join(projectRoot, 'src'), { recursive: true });
   await writeFile(
     join(projectRoot, 'src/chat.ts'),
-    `router.post('/chat', (req, res) => res.json({ answer: req.body.message }))`,
+    'router.post(\'/chat\', (req, res) => res.json({ answer: req.body.message }))',
   );
   process.chdir(projectRoot);
 
@@ -215,7 +215,7 @@ test('discovery command lists candidates when no interactive input is available'
   const previousDb = process.env.CAST_STATE_DB_PATH;
   process.env.CAST_STATE_DB_PATH = join(projectRoot, 'state.db');
   await mkdir(join(projectRoot, 'src'), { recursive: true });
-  await writeFile(join(projectRoot, 'src/chat.ts'), `router.post('/chat', handler)`);
+  await writeFile(join(projectRoot, 'src/chat.ts'), 'router.post(\'/chat\', handler)');
   process.chdir(projectRoot);
 
   const db = new StateDbService();

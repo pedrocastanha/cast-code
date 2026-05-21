@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { CastLinkService } from '../../../platform/services/cast-link.service';
 import { PlatformConfigService } from '../../../platform/services/platform-config.service';
 import { PlatformService } from '../../../platform/services/platform.service';
 import { PlatformLinkOptions } from '../../../platform/types';
@@ -19,7 +18,6 @@ export class PlatformCommandsService {
   private readonly ui = new CommandUiService();
 
   constructor(
-    private readonly linkService: CastLinkService,
     private readonly configService: PlatformConfigService,
     private readonly platformService: PlatformService,
     private readonly configManager: ConfigManagerService,

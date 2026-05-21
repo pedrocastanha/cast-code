@@ -2,10 +2,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
-import {
-  isRecommendedModelForPurpose,
-  ProviderType,
-} from '../../config/types/config.types';
+import { ProviderType } from '../../config/types/config.types';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -1604,20 +1601,6 @@ export class ReplService {
       provider: this.configService.getProvider() as ProviderType,
       model: this.configService.getModel(),
     };
-  }
-
-  private getDefaultModelProfileLabel(): string {
-    try {
-      const modelConfig = this.configManager.getModelConfig('default');
-      if (modelConfig) {
-        if (isRecommendedModelForPurpose(modelConfig.provider, 'default', modelConfig.model)) {
-          return 'recommended';
-        }
-        return 'custom';
-      }
-    } catch {
-    }
-    return 'custom';
   }
 
   private getEffortLabel(): string {

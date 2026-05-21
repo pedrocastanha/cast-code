@@ -547,11 +547,6 @@ export class BenchmarkPlatformSyncService {
     }
   }
 
-  private preview(value: string, maxLength = 500): string {
-    const normalized = this.redaction.redact(value).replace(/\s+/g, ' ').trim();
-    return normalized.length > maxLength ? normalized.slice(0, maxLength) : normalized;
-  }
-
   private errorMessage(error: unknown): string {
     if (error instanceof PlatformClientError) {
       return error.message;

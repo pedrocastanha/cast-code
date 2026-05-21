@@ -7,8 +7,6 @@ import type { SwarmIntegrationMode, SwarmPlan } from '../types';
 import { SwarmBridgeRuntimeService } from './swarm-bridge-runtime.service';
 import { SwarmRunStoreService } from './swarm-run-store.service';
 
-type ApprovalChoice = 'approve' | 'reject' | 'modify';
-
 type SmartInputLike = {
   question?: (message: string) => Promise<string>;
   askChoice?: (
@@ -39,7 +37,7 @@ export class SwarmPlanApprovalService {
     for (const task of plan.tasks) {
       lines.push(`  - id: ${task.id}`);
       lines.push(`    worker: ${task.worker.name} (${task.worker.kind})`);
-      lines.push(`    owns:`);
+      lines.push('    owns:');
       for (const ownership of task.fileOwnership) {
         lines.push(`      - ${ownership.glob}`);
       }
@@ -51,7 +49,7 @@ export class SwarmPlanApprovalService {
       }
       lines.push(`    allowedTools: [${task.allowedTools.join(', ')}]`);
       if (task.focusedVerification.length > 0) {
-        lines.push(`    focusedVerification:`);
+        lines.push('    focusedVerification:');
         for (const step of task.focusedVerification) {
           lines.push(`      - ${step.command}`);
         }

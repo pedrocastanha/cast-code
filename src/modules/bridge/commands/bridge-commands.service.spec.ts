@@ -21,7 +21,6 @@ describe('BridgeCommandsService', () => {
       } as any,
       { getManifest: () => ({ tools: [{ name: 'read_file', description: 'read', inputSchema: {} }] }) } as any,
       {} as any,
-      {} as any,
     );
 
     const status = service.getStatusPanel();
@@ -49,7 +48,6 @@ describe('BridgeCommandsService', () => {
       } as any,
       { getManifest: () => ({ tools: [] }) } as any,
       {} as any,
-      { buildHandshakePrompt: () => 'handshake' } as any,
     );
 
     const output = await service.cmdBridge(['claude'], process.cwd());
@@ -74,7 +72,6 @@ describe('BridgeCommandsService', () => {
         write: async () => {},
       } as any,
       { getManifest: () => ({ tools: [] }) } as any,
-      {} as any,
       {} as any,
     );
 
@@ -109,7 +106,6 @@ describe('BridgeCommandsService', () => {
           return { output: 'bridge answer' };
         },
       } as any,
-      {} as any,
     );
 
     const output = await service.cmdBridge(['claude'], process.cwd());
@@ -138,7 +134,6 @@ describe('BridgeCommandsService', () => {
         write: async () => {},
       } as any,
       { getManifest: () => ({ tools: [] }) } as any,
-      {} as any,
       {} as any,
     );
 
@@ -181,7 +176,6 @@ describe('BridgeCommandsService', () => {
       } as any,
       { getManifest: () => ({ tools: [] }) } as any,
       {} as any,
-      {} as any,
     );
 
     await service.cmdBridge(['claude'], process.cwd());
@@ -217,7 +211,6 @@ describe('BridgeCommandsService', () => {
       } as any,
       { getManifest: () => ({ tools: [] }) } as any,
       {} as any,
-      {} as any,
     );
 
     const output = await service.cmdBridge([], projectRoot, {
@@ -247,7 +240,6 @@ describe('BridgeCommandsService', () => {
       } as any,
       { getManifest: () => ({ tools: [] }) } as any,
       {} as any,
-      {} as any,
     );
 
     await service.cmdBridge(['autostart', 'kimi'], projectRoot);
@@ -273,7 +265,6 @@ describe('BridgeCommandsService', () => {
         write: async () => {},
       } as any,
       { getManifest: () => ({ tools: [] }) } as any,
-      {} as any,
       {} as any,
     );
 

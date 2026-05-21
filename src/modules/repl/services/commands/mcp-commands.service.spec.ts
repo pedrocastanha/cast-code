@@ -23,7 +23,6 @@ test('/mcp catalog prints governed metadata and connection state', async () => {
         getUnscopedServerNames: () => ['figma'],
         getServerSummaries: () => [{ name: 'figma', status: 'connected', transport: 'http', toolCount: 0, toolNames: [], toolDescriptions: [] }],
       } as any,
-      {} as any,
     );
 
     await service.cmdMcp(['catalog', 'design'], makeSmartInput());

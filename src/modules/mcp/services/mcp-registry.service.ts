@@ -157,8 +157,8 @@ export class McpRegistryService implements OnModuleDestroy {
       const base = nonNull.length === 0
         ? z.any()
         : nonNull.length === 1
-        ? this.convertPropertyToZod(nonNull[0])
-        : z.union(nonNull.map((candidate: any) => this.convertPropertyToZod(candidate)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+          ? this.convertPropertyToZod(nonNull[0])
+          : z.union(nonNull.map((candidate: any) => this.convertPropertyToZod(candidate)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
       return hasNull ? base.nullable() : base;
     }
 

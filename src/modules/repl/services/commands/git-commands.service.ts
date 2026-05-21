@@ -5,7 +5,6 @@ import * as path from 'path';
 import { colorize } from '../../utils/theme';
 import { CommandUiService } from '../command-ui.service';
 import { CommitGeneratorService } from '../../../git/services/commit-generator.service';
-import { MonorepoDetectorService } from '../../../git/services/monorepo-detector.service';
 import { PrGeneratorService } from '../../../git/services/pr-generator.service';
 import { CodeReviewService } from '../../../git/services/code-review.service';
 import { ReleaseNotesService } from '../../../git/services/release-notes.service';
@@ -18,7 +17,6 @@ export class GitCommandsService {
 
   constructor(
     private readonly commitGenerator: CommitGeneratorService,
-    private readonly monorepoDetector: MonorepoDetectorService,
     private readonly prGenerator: PrGeneratorService,
     private readonly codeReviewService: CodeReviewService,
     private readonly releaseNotesService: ReleaseNotesService,

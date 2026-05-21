@@ -35,7 +35,7 @@ describe('StateDbService', () => {
       const service = new StateDbService();
       const db = await service.getDb();
 
-      const tables = db.prepare("select name from sqlite_master where type in ('table', 'virtual') order by name").all()
+      const tables = db.prepare('select name from sqlite_master where type in (\'table\', \'virtual\') order by name').all()
         .map((row: any) => row.name);
 
       assert.equal(service.getDbPath(), join(homeDir, '.cast', 'state.db'));

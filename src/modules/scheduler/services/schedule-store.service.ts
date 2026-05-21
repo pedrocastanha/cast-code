@@ -5,7 +5,6 @@ import {
   CreateScheduleInput,
   ScheduleDefinition,
   ScheduleRun,
-  ScheduleRunStatus,
 } from '../types';
 import { ScheduleCronService } from './schedule-cron.service';
 
