@@ -12,4 +12,11 @@ describe('package metadata', () => {
 
     assert.deepEqual(latestDeps, []);
   });
+
+  test('uses the LangChain Deep Agents and QuickJS versions validated for native streaming', () => {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
+
+    assert.equal(pkg.dependencies.deepagents, '1.9.0');
+    assert.equal(pkg.dependencies['@langchain/quickjs'], '0.4.0');
+  });
 });
