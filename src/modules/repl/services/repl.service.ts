@@ -1,4 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
@@ -52,6 +53,8 @@ type CastReference = {
   type: 'agent' | 'skill';
   name: string;
   label: string;
+  source: 'builtin' | 'local' | 'project' | 'remote' | 'platform' | 'unknown';
+  version?: string;
   content: string;
 };
 
@@ -500,7 +503,16 @@ export class ReplService {
     const context = [
       'The user referenced Cast agents or skills with $name. These references were injected automatically.',
       'Use the injected reference blocks as the source of truth for these names.',
-      'Do not call list_agents, read_skill, read_file, grep, glob, or other discovery tools just to resolve these $ references; only inspect files or call discovery tools if the user asks for details not present here.',
+      'When a referenced skill or agent is injected here, treat it as already loaded.',
+      'If the user asks for an exact answer contained in an injected reference, answer directly.',
+      'Do not call list_agents, read_skill, read_file, grep, glob, task, or other discovery tools just to resolve these $ references; only inspect files or call discovery tools if the user asks for details not present here.',
+      '',
+      '<cast_reference_policy resolved="true" discovery_needed="false">',
+      '</cast_reference_policy>',
+      '',
+      '<cast_reference_manifest>',
+      ...references.map((ref) => this.formatReferenceManifestLine(ref)),
+      '</cast_reference_manifest>',
       '',
       ...references.map((ref) => ref.content),
     ].join('\n');
@@ -552,6 +564,17 @@ export class ReplService {
           type: 'agent',
           name: agent.name,
           label: 'agent',
+          source: this.normalizeReferenceSource(agent.source),
+          version: this.hashReference({
+            name: agent.name,
+            description: agent.description,
+            model: agent.model,
+            tools: agent.tools?.map((tool: any) => tool?.name).filter(Boolean),
+            mcp: agent.mcp,
+            systemPrompt: agent.systemPrompt,
+            source: agent.source,
+            updatedAt: agent.updatedAt,
+          }),
           content: this.formatAgentReference(agent),
         });
       }
@@ -563,6 +586,16 @@ export class ReplService {
           type: 'skill',
           name: skill.name,
           label: 'skill',
+          source: this.normalizeReferenceSource(skill.source),
+          version: this.hashReference({
+            name: skill.name,
+            description: skill.description,
+            tools: skill.tools,
+            guidelines: skill.guidelines,
+            source: skill.source,
+            sourcePath: skill.sourcePath,
+            updatedAt: skill.updatedAt,
+          }),
           content: this.formatSkillReference(skill),
         });
       }
@@ -577,9 +610,20 @@ export class ReplService {
       .filter(Boolean)
       .join(', ') || 'none';
     const mcp = Array.isArray(agent.mcp) && agent.mcp.length > 0 ? agent.mcp.join(', ') : 'none';
+    const source = this.normalizeReferenceSource(agent.source);
+    const version = this.hashReference({
+      name: agent.name,
+      description: agent.description,
+      model: agent.model,
+      tools: (agent.tools || []).map((tool: any) => tool?.name).filter(Boolean),
+      mcp: agent.mcp,
+      systemPrompt: agent.systemPrompt,
+      source: agent.source,
+      updatedAt: agent.updatedAt,
+    });
 
     return [
-      `<cast_reference type="agent" name="${this.escapeAttribute(agent.name)}">`,
+      `<cast_reference type="agent" name="${this.escapeAttribute(agent.name)}" source="${source}" version="${version}">`,
       `Description: ${agent.description || 'No description'}`,
       `Model: ${agent.model || 'unknown'}`,
       `Tools: ${tools}`,
@@ -592,15 +636,44 @@ export class ReplService {
 
   private formatSkillReference(skill: any): string {
     const tools = Array.isArray(skill.tools) && skill.tools.length > 0 ? skill.tools.join(', ') : 'none';
+    const source = this.normalizeReferenceSource(skill.source);
+    const version = this.hashReference({
+      name: skill.name,
+      description: skill.description,
+      tools: skill.tools,
+      guidelines: skill.guidelines,
+      source: skill.source,
+      sourcePath: skill.sourcePath,
+      updatedAt: skill.updatedAt,
+    });
 
     return [
-      `<cast_reference type="skill" name="${this.escapeAttribute(skill.name)}">`,
+      `<cast_reference type="skill" name="${this.escapeAttribute(skill.name)}" source="${source}" version="${version}">`,
       `Description: ${skill.description || 'No description'}`,
       `Tools: ${tools}`,
       'Guidelines:',
       this.truncateReferenceContent(skill.guidelines || '(none)'),
       '</cast_reference>',
     ].join('\n');
+  }
+
+  private formatReferenceManifestLine(ref: CastReference): string {
+    const version = ref.version ? ` version=${ref.version}` : '';
+    return `- ${ref.type} ${ref.name} source=${ref.source}${version} injected=true`;
+  }
+
+  private normalizeReferenceSource(source: unknown): CastReference['source'] {
+    if (source === 'remote') return 'platform';
+    if (source === 'builtin' || source === 'local') return source;
+    if (source === 'project' || source === 'platform') return source;
+    return 'unknown';
+  }
+
+  private hashReference(value: Record<string, unknown>): string {
+    return createHash('sha256')
+      .update(JSON.stringify(value))
+      .digest('hex')
+      .slice(0, 12);
   }
 
   private truncateReferenceContent(content: string): string {
@@ -932,16 +1005,20 @@ export class ReplService {
     }
 
     case 'kanban':
-      this.kanbanServer.start(!this.remoteServer.getIsRunning());
-      if (this.remoteServer.getIsRunning()) {
-        const remoteUrl = this.remoteServer.getPublicUrl();
-        if (remoteUrl) {
-          process.stdout.write(`  Kanban board → ${remoteUrl}/kanban\r\n`);
-        } else {
-          process.stdout.write('  Kanban board → http://localhost:3333\r\n');
+      {
+        const result = await this.kanbanServer.start(!this.remoteServer.getIsRunning());
+        if (!result.ok) {
+          process.stdout.write(this.ui.error(`Kanban board failed to start: ${result.error}`));
+          break;
         }
-      } else {
-        process.stdout.write('  Kanban board → http://localhost:3333\r\n');
+
+        const localUrl = result.url;
+        const remoteUrl = this.remoteServer.getIsRunning() ? this.remoteServer.getPublicUrl() : null;
+        if (remoteUrl) {
+          process.stdout.write(`  Kanban board -> ${remoteUrl}/kanban\r\n`);
+        } else {
+          process.stdout.write(`  Kanban board -> ${localUrl}\r\n`);
+        }
       }
       break;
 

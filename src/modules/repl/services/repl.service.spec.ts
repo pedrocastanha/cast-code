@@ -546,6 +546,29 @@ describe('ReplService', () => {
     assert.strictEqual(recorded[0], smartInputStub, 'cmdUnitTest receives the current smart input instance');
   });
 
+  test('prints the actual Kanban URL returned by the server', async () => {
+    const service = buildReplService({
+      kanbanServer: {
+        start: async (openBrowser: boolean) => {
+          assert.equal(openBrowser, true);
+          return { ok: true, url: 'http://localhost:3341', port: 3341, alreadyRunning: false };
+        },
+      },
+      remoteServer: {
+        onMessage: () => {},
+        getIsRunning: () => false,
+        getPublicUrl: () => null,
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).handleCommand('/kanban');
+    });
+
+    assert.match(output, /http:\/\/localhost:3341/);
+    assert.doesNotMatch(output, /localhost:3333/);
+  });
+
   test('agent-triggered Cast command asks permission before routing to slash command', async () => {
     const runGitCalls: string[] = [];
     const choices: string[] = [];
@@ -1360,6 +1383,8 @@ describe('ReplService', () => {
             description: 'REST and GraphQL API design patterns',
             tools: ['read_file'],
             guidelines: 'Use resource-oriented URLs and proper status codes.',
+            source: 'remote',
+            updatedAt: '2026-05-22T00:00:00.000Z',
           },
         ],
       },
@@ -1387,9 +1412,15 @@ describe('ReplService', () => {
 
     assert.match(processedMessage, /<cast_reference_context>/);
     assert.match(chatMessage, /type="agent" name="backend"/);
+    assert.match(chatMessage, /source="unknown"/);
     assert.match(chatMessage, /Backend specialist for API and server-side development/);
-    assert.match(chatMessage, /type="skill" name="api-design"/);
+    assert.match(chatMessage, /<cast_reference_manifest>/);
+    assert.match(chatMessage, /skill api-design source=platform version=[a-f0-9]{12} injected=true/);
+    assert.match(chatMessage, /type="skill" name="api-design" source="platform" version="[a-f0-9]{12}"/);
     assert.match(chatMessage, /REST and GraphQL API design patterns/);
+    assert.match(chatMessage, /Use resource-oriented URLs and proper status codes/);
+    assert.match(chatMessage, /<cast_reference_policy resolved="true" discovery_needed="false">/);
+    assert.match(chatMessage, /treat it as already loaded/);
     assert.match(chatMessage, /Do not call list_agents, read_skill, read_file, grep, glob/);
   });
 

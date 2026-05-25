@@ -26,7 +26,7 @@ Core product rule: the provider model thinks, Cast executes tools.
 
 - Direct: `cast bridge <claude|codex|copilot|qwen|kimi|openrouter>`
 - Scripted/direct smoke: `CAST_BRIDGE_SCRIPTED_INPUT='["message","/bridge status","/exit"]' node dist/main.js bridge claude`
-- Assertive fake-provider smoke: `/usr/bin/zsh -lc 'source scripts/bridge-claude-smoke.zsh'`
+- Assertive fake-provider smoke: `npm run smoke:bridge`
 - REPL: `/bridge` picker, `/bridge claude`, `/bridge codex`, `/bridge copilot`, `/bridge qwen`, `/bridge kimi`, `/bridge openrouter`, `/bridge status`, `/bridge stop`, `/bridge reset`, `/bridge autostart <provider>|off`, `/bridge raw on|off`, `/bridge tools`, `/bridge help`
 
 Bridge mode intentionally skips normal model API-key setup. It uses the user's authenticated provider CLI account when the real provider is used. In the REPL, bridge sessions are sticky for normal non-slash prompts until `/bridge stop` or `Stop bridge` in the bare `/bridge` picker; slash commands remain Cast-local. `BridgeCommandsService` owns the active bridge routing flag, while `BridgeSessionService` owns only the provider child process. Do not use provider process status alone for REPL routing: one-shot providers such as Claude stream-json and Codex JSONL may be disconnected between turns and must be reopened by `runPrompt`. Project autostart can be persisted in `.cast/bridge.json` through `/bridge autostart <provider>` or Tab in the bare `/bridge` picker. Claude CLI and Codex CLI are validated against live accounts.

@@ -1252,6 +1252,7 @@ export class DeepAgentService {
   }
 
   private formatToolEnd(toolName: string, output: string): string {
+    output = this.sanitizeTextForDisplay(output);
     if (!output || output.length === 0) return '';
 
     const dim = '\x1b[2m';
@@ -1807,7 +1808,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
         if (envelope && !envelope.rawEvent) {
           const runtimeEvent = envelope.runtimeEvent;
           if (runtimeEvent.type === 'runtime.message.delta') {
-            const text = runtimeEvent.text;
+            const text = this.extractTextFromModelContent(runtimeEvent.text);
             if (text) {
               if (useLeanAgent) {
                 leanResponseBuffer += text;
@@ -1843,7 +1844,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               startedAt: Date.now(),
             };
             const toolName = localTool.name || runtimeEvent.toolName || lastToolName || 'tool';
-            const output = runtimeEvent.outputPreview || runtimeEvent.summary || '';
+            const output = this.extractToolOutputText(runtimeEvent.outputPreview || runtimeEvent.summary || '');
             if (output) {
               this.lastToolOutputs.push({ tool: toolName, output });
               yield this.formatToolEnd(toolName, output);
@@ -1971,16 +1972,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           };
           const toolName = localTool.name || event.name || lastToolName || 'tool';
           const raw = event.data?.output;
-          let output = '';
-          if (typeof raw === 'string') {
-            output = raw;
-          } else if (raw?.content) {
-            output = typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content);
-          } else if (raw?.output) {
-            output = typeof raw.output === 'string' ? raw.output : JSON.stringify(raw.output);
-          } else if (raw) {
-            output = typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
-          }
+          const output = this.extractToolOutputText(raw);
           if (output) {
             this.lastToolOutputs.push({ tool: toolName, output });
             yield this.formatToolEnd(toolName, output);
@@ -2141,6 +2133,37 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
   }
 
+  private extractToolOutputText(output: unknown): string {
+    if (output === undefined || output === null) {
+      return '';
+    }
+
+    if (this.isRuntimeControlObject(output)) {
+      return '';
+    }
+
+    if (typeof output === 'string') {
+      return this.sanitizeTextForDisplay(output);
+    }
+
+    if (typeof output === 'object') {
+      const record = output as Record<string, unknown>;
+      if (record.content !== undefined) {
+        return this.extractTextFromModelContent(record.content);
+      }
+      if (record.output !== undefined) {
+        return this.extractTextFromModelContent(record.output);
+      }
+      try {
+        return this.sanitizeTextForDisplay(JSON.stringify(output));
+      } catch {
+        return '';
+      }
+    }
+
+    return this.sanitizeTextForDisplay(String(output));
+  }
+
   clearHistory() {
     this.messages = [];
     this.tokenCount = 0;
@@ -2153,7 +2176,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     if (!content) return '';
 
     if (typeof content === 'string') {
-      return content;
+      return this.sanitizeTextForDisplay(content);
     }
 
     if (Array.isArray(content)) {
@@ -2165,14 +2188,18 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     if (typeof content === 'object') {
+      if (this.isRuntimeControlObject(content)) {
+        return '';
+      }
+
       const record = content as Record<string, unknown>;
 
       if (typeof record.text === 'string') {
-        return record.text;
+        return this.sanitizeTextForDisplay(record.text);
       }
 
       if (typeof record.content === 'string') {
-        return record.content;
+        return this.sanitizeTextForDisplay(record.content);
       }
 
       if (record.content) {
@@ -2185,6 +2212,53 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     return '';
+  }
+
+  private sanitizeTextForDisplay(value: string): string {
+    if (!value || this.isRuntimeControlText(value)) {
+      return '';
+    }
+    return value;
+  }
+
+  private isRuntimeControlText(value: string): boolean {
+    const text = value.trim();
+    if (!text) {
+      return false;
+    }
+
+    return /"lg_name"\s*:|"lc_kwargs"\s*:|"langchain_core"\s*:|\blangchain_core\b|"\$type"\s*:\s*"Command"|^\s*\{[\s\S]{0,300}"constructor"\s*:[\s\S]{0,300}"Command"/i.test(text);
+  }
+
+  private isRuntimeControlObject(value: unknown): boolean {
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item) => this.isRuntimeControlObject(item));
+    }
+
+    const record = value as Record<string, unknown>;
+    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(record, key);
+    if (
+      hasOwn('lg_name')
+      || hasOwn('lc_kwargs')
+      || hasOwn('langchain_core')
+      || (hasOwn('constructor') && String((record.constructor as any)?.name || record.constructor).includes('Command'))
+    ) {
+      return true;
+    }
+
+    const typeHints = [
+      record.type,
+      record.name,
+      record.id,
+      record.lc_namespace,
+    ];
+    return typeHints.some((hint) => Array.isArray(hint)
+      ? hint.some((part) => String(part).includes('langchain_core'))
+      : /^(Command|langchain_core)$/i.test(String(hint || '')));
   }
 
   async compactHistory(): Promise<{ compacted: boolean; messagesBefore: number; messagesAfter: number }> {

@@ -1223,4 +1223,70 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     assert.doesNotMatch(output, /No commits found/);
     assert.doesNotMatch(output, /executed/i);
   });
+
+  test('drops raw runtime control objects from assistant output', async () => {
+    const service = buildService();
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield {
+          event: 'on_chat_model_stream',
+          data: {
+            chunk: {
+              content: '{"lg_name":"Command","lc_kwargs":{"update":"internal"},"langchain_core":"messages"}',
+            },
+          },
+        };
+        yield { event: 'on_chat_model_stream', data: { chunk: { content: 'Human text.' } } };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    const output = chunks.join('');
+    assert.match(output, /Human text/);
+    assert.doesNotMatch(output, /lg_name|lc_kwargs|langchain_core/);
+  });
+
+  test('sanitizes raw framework metadata from tool output rendering', async () => {
+    const service = buildService();
+    (service as any).agent = {
+      streamEvents: async function* () {
+        yield {
+          event: 'on_tool_start',
+          name: 'shell',
+          run_id: 'tool-1',
+          data: { input: { command: 'echo ok' } },
+        };
+        yield {
+          event: 'on_tool_end',
+          name: 'shell',
+          run_id: 'tool-1',
+          data: {
+            output: {
+              lg_name: 'Command',
+              lc_kwargs: { update: 'internal' },
+              constructor: { name: 'Command' },
+            },
+          },
+        };
+        yield { event: 'on_chat_model_stream', data: { chunk: { content: 'Done.' } } };
+      },
+    };
+    (service as any).cachedBasePrompt = 'base';
+    (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
+
+    const chunks: string[] = [];
+    for await (const chunk of service.chat('run it')) {
+      chunks.push(chunk);
+    }
+
+    const output = chunks.join('');
+    assert.match(output, /Done/);
+    assert.doesNotMatch(output, /lg_name|lc_kwargs|Command/);
+  });
 });

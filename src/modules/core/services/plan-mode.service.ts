@@ -34,6 +34,15 @@ export class PlanModeService {
       return { shouldPlan: false, reason: 'Planning disabled by fast effort' };
     }
 
+    if (
+      this.isSimpleExactResponseRequest(userMessage)
+      || this.isDirectReferenceRequest(userMessage)
+      || this.isDirectRagSearchRequest(userMessage)
+      || this.isSentinelValidationRequest(userMessage)
+    ) {
+      return { shouldPlan: false };
+    }
+
     if (this.isClearSingleFileImplementationTask(userMessage)) {
       return { shouldPlan: false };
     }
@@ -84,6 +93,53 @@ Reply ONLY with: YES or NO`;
     }
 
     return { shouldPlan: false };
+  }
+
+  private isSimpleExactResponseRequest(userMessage: string): boolean {
+    const text = userMessage.trim();
+    if (!text) {
+      return false;
+    }
+
+    const exactInstruction = /\b(answer|reply|respond|responda|responder)\s+(?:exactly|exatamente)\b/i.test(text);
+    const nothingElse = /\b(?:nothing else|and nothing more|e nada mais|sem mais nada)\b/i.test(text);
+    return exactInstruction && (nothingElse || this.containsSentinelToken(text));
+  }
+
+  private isDirectReferenceRequest(userMessage: string): boolean {
+    if (!/(?:^|[^\w])\$[\w.-]+/.test(userMessage)) {
+      return false;
+    }
+
+    const broadImplementation = /\b(refactor|restructure|redesign|migration|implement.*feature|create.*module|arquitetura|refator|reestrutur|redesenh|migrac|migraç|implementar.*feature|criar.*m[oó]dulo)\b/i.test(userMessage);
+    if (broadImplementation) {
+      return false;
+    }
+
+    return this.isSimpleExactResponseRequest(userMessage)
+      || this.containsSentinelToken(userMessage)
+      || /\b(?:use|usar|usa|com|from|usando)\s+\$[\w.-]+/i.test(userMessage);
+  }
+
+  private isDirectRagSearchRequest(userMessage: string): boolean {
+    if (!/\brag_search\b/i.test(userMessage)) {
+      return false;
+    }
+
+    const directLookup = /\b(query|consulta|busca)\b/i.test(userMessage)
+      || this.containsSentinelToken(userMessage);
+    const exactAnswer = /\b(answer|reply|respond|responda|responder)\b/i.test(userMessage)
+      && /\b(exactly|exatamente|nothing else|e nada mais)\b/i.test(userMessage);
+    return directLookup && exactAnswer;
+  }
+
+  private isSentinelValidationRequest(userMessage: string): boolean {
+    return this.containsSentinelToken(userMessage)
+      && /\b(answer|reply|respond|responda|responder|sentinel|sentinela|validation|validacao|validaç[ãa]o)\b/i.test(userMessage);
+  }
+
+  private containsSentinelToken(userMessage: string): boolean {
+    return /\b[A-Z][A-Z0-9_]{8,}\b/.test(userMessage);
   }
 
   private isClearSingleFileImplementationTask(userMessage: string): boolean {

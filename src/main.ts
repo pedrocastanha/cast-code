@@ -207,12 +207,29 @@ async function bootstrap() {
       logger: false,
     });
 
-    if (command === 'link') {
-      console.warn('cast link was removed. Use: cast platform --project <id> --api-url <url>');
+    const platformService = app.get(PlatformService);
+    let changed = false;
+    let commandError: unknown;
+    try {
+      if (command === 'link') {
+        console.warn('cast link was removed. Use: cast platform --project <id> --api-url <url>');
+      }
+      const platformCommands = app.get(PlatformCommandsService);
+      changed = await platformCommands.cmdPlatform(args.slice(1));
+    } catch (error) {
+      commandError = error;
+      throw error;
+    } finally {
+      try {
+        await platformService.close();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!commandError) {
+          console.warn(`Warning: platform shutdown failed: ${message}`);
+        }
+      }
+      await app.close();
     }
-    const platformCommands = app.get(PlatformCommandsService);
-    const changed = await platformCommands.cmdPlatform(args.slice(1));
-    await app.close();
     if (!changed && args[1] !== 'status') {
       process.exitCode = 1;
     }

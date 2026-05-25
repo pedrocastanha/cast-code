@@ -6,13 +6,18 @@ import { TaskManagementService } from '../../tasks/services/task-management.serv
 import { getKanbanHtml } from '../views/kanban-ui';
 import { TaskStatus } from '../../tasks/types/task.types';
 
+export type KanbanStartResult =
+  | { ok: true; url: string; port: number; alreadyRunning: boolean }
+  | { ok: false; error: string; code?: string };
+
 @Injectable()
 export class KanbanServerService {
   private static readonly TASK_TIMEOUT_MS = 10 * 60 * 1000;
   private server: http.Server | null = null;
   private sseClients: http.ServerResponse[] = [];
-  private port = 3333;
+  private port = 3334;
   private deepAgent: any = null;
+  private taskEventListenersAttached = false;
 
   constructor(
     private readonly taskService: TaskManagementService,
@@ -27,40 +32,114 @@ export class KanbanServerService {
     return this.deepAgent;
   }
 
-  start(openBrowser = true): void {
+  async start(openBrowser = true): Promise<KanbanStartResult> {
     if (this.server) {
-      process.stdout.write(`  Kanban already running at http://localhost:${this.port}\r\n`);
-      return;
+      const url = this.getUrl();
+      if (openBrowser) {
+        process.stdout.write(`  Kanban already running at ${url}\r\n`);
+      }
+      return { ok: true, url, port: this.port, alreadyRunning: true };
     }
 
-    this.server = http.createServer((req, res) => this.handleRequest(req, res));
+    const preferredPort = this.getPreferredPort();
+    const maxPort = Math.min(65535, preferredPort + 10);
+    let lastError: NodeJS.ErrnoException | null = null;
 
-    this.server.listen(this.port, () => {
-      if (openBrowser) {
-        process.stdout.write(`  Kanban: http://localhost:${this.port}\r\n`);
-        exec(`xdg-open http://localhost:${this.port}`);
+    for (let port = preferredPort; port <= maxPort; port += 1) {
+      const server = http.createServer((req, res) => {
+        void this.handleRequest(req, res).catch((error) => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+        });
+      });
+
+      const result = await this.listen(server, port);
+      if (result.ok) {
+        this.server = server;
+        this.port = port;
+        this.attachTaskEventListeners();
+        process.on('exit', () => {
+          void this.stop();
+        });
+
+        const url = this.getUrl();
+        if (openBrowser) {
+          process.stdout.write(`  Kanban: ${url}\r\n`);
+          exec(`xdg-open ${url}`);
+        }
+
+        return { ok: true, url, port, alreadyRunning: false };
       }
-    });
 
-    this.taskService.events.on('task:created', (task) => this.broadcast('task:created', task));
-    this.taskService.events.on('task:updated', (task) => this.broadcast('task:updated', task));
-    this.taskService.events.on('plan:created', (plan) => this.broadcast('plan:created', plan));
+      lastError = result.error;
+    }
 
-    process.on('exit', () => this.stop());
+    const message = lastError?.code === 'EADDRINUSE'
+      ? `Kanban ports ${preferredPort}-${maxPort} are already in use.`
+      : `Kanban failed to start: ${lastError?.message || 'unknown error'}`;
+    return { ok: false, error: message, code: lastError?.code };
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (!this.server) return;
     for (const client of this.sseClients) {
       try { client.end(); } catch { }
     }
     this.sseClients = [];
-    this.server.close();
+    const server = this.server;
     this.server = null;
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
   }
 
   isRunning(): boolean {
     return this.server !== null;
+  }
+
+  private getPreferredPort(): number {
+    const value = Number(process.env.CAST_KANBAN_PORT || 3334);
+    if (!Number.isInteger(value) || value < 1 || value > 65535) {
+      return 3334;
+    }
+    return value;
+  }
+
+  private getUrl(): string {
+    return `http://localhost:${this.port}`;
+  }
+
+  private listen(server: http.Server, port: number): Promise<{ ok: true } | { ok: false; error: NodeJS.ErrnoException }> {
+    return new Promise((resolve) => {
+      const onError = (error: NodeJS.ErrnoException) => {
+        server.off('listening', onListening);
+        try {
+          server.close(() => undefined);
+        } catch {
+          // Server may never have reached the listening state.
+        }
+        resolve({ ok: false, error });
+      };
+      const onListening = () => {
+        server.off('error', onError);
+        resolve({ ok: true });
+      };
+
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(port);
+    });
+  }
+
+  private attachTaskEventListeners(): void {
+    if (this.taskEventListenersAttached) {
+      return;
+    }
+
+    this.taskEventListenersAttached = true;
+    this.taskService.events.on('task:created', (task) => this.broadcast('task:created', task));
+    this.taskService.events.on('task:updated', (task) => this.broadcast('task:updated', task));
+    this.taskService.events.on('plan:created', (plan) => this.broadcast('plan:created', plan));
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {

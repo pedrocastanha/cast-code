@@ -22,6 +22,60 @@ describe('PlanModeService', () => {
     assert.equal(llmInvoked, false);
   });
 
+  test('does not enter plan mode for exact sentinel prompts', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
+      createModel: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked for exact sentinel prompts');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Responda exatamente CAST_PLATFORM_REMOTE_AGENT_OK e nada mais.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(llmInvoked, false);
+  });
+
+  test('does not enter plan mode for direct injected reference prompts', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
+      createModel: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked for direct references');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Use $platform-handshake-skill. Quando eu pedir a sentinela, responda exatamente CAST_PLATFORM_REMOTE_SKILL_OK e nada mais.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(llmInvoked, false);
+  });
+
+  test('does not enter plan mode for direct RAG sentinel prompts', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
+      createModel: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked for direct RAG lookup');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Use the rag_search tool with query CAST_PLATFORM_RAG_OK. Answer exactly the sentinel value found in platform memory and nothing else.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(llmInvoked, false);
+  });
+
   test('keeps plan mode for multi-file architecture or refactor requests', async () => {
     const service = new PlanModeService({
       createModel: () => {
