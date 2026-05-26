@@ -98,6 +98,7 @@ export class BridgeCommandsService {
     if (subcommand === 'stop' || subcommand === 'disconnect' || subcommand === 'off') {
       this.session.stop();
       this.bridgeActive = false;
+      await this.writeSettings(projectRoot, { autostart: { enabled: false } });
       return this.getStatusPanel('Bridge disconnected. Cast runtime restored.', await this.getAutostartLabel(projectRoot));
     }
 
@@ -146,7 +147,7 @@ export class BridgeCommandsService {
     }
 
     await this.startProvider(provider, projectRoot);
-    return this.getStatusPanel(`${this.session.getProviderLabel()} bridge autostarted.`, await this.getAutostartLabel(projectRoot));
+    return null;
   }
 
   getStatusPanel(message?: string, autostartLabel = 'off'): string {
@@ -231,6 +232,7 @@ export class BridgeCommandsService {
     if (selected === 'stop') {
       this.session.stop();
       this.bridgeActive = false;
+      await this.writeSettings(projectRoot, { autostart: { enabled: false } });
       return this.getStatusPanel('Bridge disconnected. Cast runtime restored.', await this.getAutostartLabel(projectRoot));
     }
 

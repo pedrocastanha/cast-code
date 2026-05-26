@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
+import { Colors } from '../utils/theme';
 import { SmartInput, type SmartInputOptions } from './smart-input';
 
 const buildInput = (overrides: Partial<SmartInputOptions> = {}) => new SmartInput({
@@ -31,6 +32,40 @@ function captureStdout(run: () => void): string {
 }
 
 describe('SmartInput render layout', () => {
+  test('renders the prompt row as a full-width highlighted input band', () => {
+    const input = buildInput({
+      getFooterLines: () => ['tab to queue message'],
+    });
+    (input as any).terminalWidth = 24;
+    (input as any).buffer = '[Image #1]';
+    (input as any).cursor = '[Image #1]'.length;
+
+    const output = captureStdout(() => {
+      (input as any).render();
+    });
+
+    assert.match(output, /\x1b\[48;5;236m/);
+    assert.match(output, /› \[Image #1\] {12}\x1b\[0m\x1b\[J\r\ntab to queue message/);
+  });
+
+  test('keeps the input band active after ANSI resets in the prompt', () => {
+    const input = buildInput({
+      prompt: `${Colors.cyan}›${Colors.reset} `,
+      promptVisibleLen: 2,
+    });
+    (input as any).terminalWidth = 16;
+
+    const output = captureStdout(() => {
+      (input as any).render();
+    });
+
+    assert.match(
+      output,
+      /\x1b\[38;5;45m›\x1b\[0m\x1b\[48;5;236m\x1b\[38;5;250m/,
+      'background should be restored after the colored prompt resets ANSI styles',
+    );
+  });
+
   test('hard-wraps long input before rendering footer lines', () => {
     const input = buildInput({
       getFooterLines: () => ['footer'],
@@ -45,7 +80,7 @@ describe('SmartInput render layout', () => {
 
     assert.match(
       output,
-      /› aaaaaaaa\r\naa\x1b\[J\r\nfooter/,
+      /› aaaaaaaa\x1b\[0m\r\n\x1b\[48;5;236m\x1b\[38;5;250maa {8}\x1b\[0m\x1b\[J\r\nfooter/,
       'input rows should be physically separated before footer is drawn',
     );
   });

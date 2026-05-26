@@ -1099,11 +1099,12 @@ describe('ReplService', () => {
     }
   });
 
-  test('input footer exposes input, cached input, output, effort, and model', () => {
+  test('input footer shows queue hint and remaining context only', () => {
     const service = buildReplService({
       deepAgent: {
         initialize: async () => ({ toolCount: 0, projectPath: '' }),
         reinitializeModel: async () => {},
+        getTokenCount: () => 104_758,
         getSessionTokenUsage: () => ({ input: 20_000, output: 4_000, cachedInput: 6_000 }),
       },
       configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
@@ -1113,17 +1114,13 @@ describe('ReplService', () => {
     const lines = (service as any).getInputFooterLines();
     const combined = stripAnsi(lines.join(' '));
 
-    assert(lines.length >= 2, 'footer should render a divider and telemetry lines');
-    assert.match(combined, /tokens/i);
-    assert.match(combined, /in 20k \[6k cached\]/i);
-    assert.match(combined, /out 4k/i);
-    assert.match(combined, /effort/i);
-    assert.match(combined, /balanced/i);
-    assert.match(combined, /model/i);
-    assert.match(combined, /gpt-4\.1-mini/);
+    assert.equal(lines.length, 1, 'footer should render one compact line');
+    assert.match(combined, /tab to queue message/i);
+    assert.match(combined, /90% context left/i);
+    assert.doesNotMatch(combined, /tokens|cost|effort|model/i);
   });
 
-  test('input footer shows active bridge provider when bridge is connected', () => {
+  test('input footer does not expose active bridge provider', () => {
     const service = buildReplService({
       bridgeCommands: {
         cmdBridge: async () => '',
@@ -1135,10 +1132,11 @@ describe('ReplService', () => {
 
     const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
 
-    assert.match(combined, /model bridge\/Codex CLI/);
+    assert.doesNotMatch(combined, /bridge\/Codex CLI/);
+    assert.match(combined, /tab to queue message/i);
   });
 
-  test('input footer includes estimated session cost when available', () => {
+  test('input footer omits estimated session cost when available', () => {
     const service = buildReplService({
       deepAgent: {
         initialize: async () => ({ toolCount: 0, projectPath: '' }),
@@ -1154,10 +1152,10 @@ describe('ReplService', () => {
 
     const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
 
-    assert.match(combined, /cost \$0\.01/i);
+    assert.doesNotMatch(combined, /\$0\.01|cost/i);
   });
 
-  test('input footer wraps telemetry at separators on narrow terminals', () => {
+  test('input footer fits queue hint and context on narrow terminals', () => {
     const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
     Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 56 });
 
@@ -1177,15 +1175,13 @@ describe('ReplService', () => {
 
       const lines = (service as any).getInputFooterLines();
 
-      assert(lines.length > 2, 'narrow footer should split into multiple telemetry rows');
       assert(
         lines.every((line: string) => visibleWidth(line) <= 56),
         `footer lines should fit terminal width: ${lines.join(' | ')}`,
       );
       const combined = stripAnsi(lines.join(' '));
-      assert.match(combined, /queue/i);
-      assert.match(combined, /thinking/i);
-      assert.match(combined, /cached/i);
+      assert.match(combined, /tab to queue message/i);
+      assert.match(combined, /context left/i);
     } finally {
       if (originalColumns) {
         Object.defineProperty(process.stdout, 'columns', originalColumns);

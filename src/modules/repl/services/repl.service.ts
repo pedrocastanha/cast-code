@@ -4,6 +4,7 @@ import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
 import { ProviderType } from '../../config/types/config.types';
+import { getModelContextUsage } from '../../config/utils/model-context';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
@@ -1680,102 +1681,43 @@ export class ReplService {
     };
   }
 
-  private getEffortLabel(): string {
-    try {
-      if (typeof (this.configManager as any).getEffort === 'function') {
-        return (this.configManager as any).getEffort();
-      }
-    } catch {
-    }
-    return 'balanced';
-  }
-
   private getInputFooterLines(): string[] {
-    const usage = typeof (this.deepAgent as any).getSessionTokenUsage === 'function'
-      ? (this.deepAgent as any).getSessionTokenUsage()
-      : this.deepAgent.getLastInteractionTokens();
-    const inTok = usage.input || 0;
-    const outTok = usage.output || 0;
-    const cachedInTok = usage.cachedInput || 0;
     const terminalWidth = process.stdout.columns || 80;
-    const parts: string[] = [];
+    const left = `${Colors.dim}tab to queue message${Colors.reset}`;
+    const right = this.getContextLeftFooterLabel();
 
-    if (this.isProcessing && this.spinnerLabel) {
-      const spinner = Icons.spinner[this.spinnerFrameIndex % Icons.spinner.length];
-      parts.push(
-        `${Colors.subtle}${spinner}${Colors.reset} ${Colors.muted}${this.spinnerLabel.toLowerCase()}${Colors.reset}`,
-      );
+    if (!right) {
+      return [left];
     }
 
-    if (this.pendingLines.length > 0) {
-      parts.push(
-        `${Colors.subtle}queue${Colors.reset} ${Colors.yellow}${this.pendingLines.length}${Colors.reset}`,
-      );
+    const gap = Math.max(2, terminalWidth - visibleWidth(left) - visibleWidth(right));
+    const combined = `${left}${' '.repeat(gap)}${right}`;
+
+    if (visibleWidth(combined) <= terminalWidth) {
+      return [combined];
     }
 
-    const inputLabel = cachedInTok > 0
-      ? `${this.formatCompactNumber(inTok)} [${this.formatCompactNumber(cachedInTok)} cached]`
-      : this.formatCompactNumber(inTok);
-    const outputLabel = this.formatCompactNumber(outTok);
-    const costLabel = typeof (this.statsCommandsService as any).getSessionCostLabel === 'function'
-      ? (this.statsCommandsService as any).getSessionCostLabel()
-      : '';
-
-    parts.push(
-      `${Colors.subtle}tokens${Colors.reset} ${Colors.cyan}in ${inputLabel}${Colors.reset}`,
-      `${Colors.subtle}out${Colors.reset} ${Colors.cyan}${outputLabel}${Colors.reset}`,
-      ...(costLabel ? [`${Colors.subtle}cost${Colors.reset} ${Colors.success}${costLabel}${Colors.reset}`] : []),
-      `${Colors.subtle}effort${Colors.reset} ${Colors.accent}${this.getEffortLabel()}${Colors.reset}`,
-      `${Colors.subtle}model${Colors.reset} ${Colors.secondary}${this.getActiveRuntimeDisplayName()}${Colors.reset}`,
-    );
-
-    return [
-      `${Colors.subtle}${'─'.repeat(Math.max(24, Math.min(terminalWidth - 4, 96)))}${Colors.reset}`,
-      ...this.wrapFooterParts(parts, Math.max(24, terminalWidth - 1)),
-    ];
+    return [left];
   }
 
-  private getActiveRuntimeDisplayName(): string {
-    if (this.bridgeCommands?.isConnected()) {
-      return `bridge/${this.bridgeCommands.getProviderLabel()}`;
-    }
-
-    return this.getModelDisplayName();
-  }
-
-  private wrapFooterParts(parts: string[], maxWidth: number): string[] {
-    const separator = `  ${Colors.subtle}·${Colors.reset}  `;
-    const indent = '  ';
-    const lines: string[] = [];
-    let current = '';
-
-    for (const part of parts) {
-      const next = current ? `${current}${separator}${part}` : `${indent}${part}`;
-
-      if (visibleWidth(next) <= maxWidth) {
-        current = next;
-        continue;
+  private getContextLeftFooterLabel(): string {
+    try {
+      const modelConfig = typeof (this.configManager as any).getModelConfig === 'function'
+        ? (this.configManager as any).getModelConfig()
+        : undefined;
+      const provider = modelConfig?.provider ?? this.configService.getProvider();
+      const model = modelConfig?.model ?? this.configService.getModel();
+      const tokenCount = typeof (this.deepAgent as any).getTokenCount === 'function'
+        ? (this.deepAgent as any).getTokenCount()
+        : 0;
+      const usage = getModelContextUsage(provider, model, tokenCount);
+      if (!usage) {
+        return '';
       }
-
-      if (current) {
-        lines.push(current);
-      }
-      current = `${indent}${part}`;
+      return `${Colors.dim}${Math.round(usage.remainingPercent)}% context left${Colors.reset}`;
+    } catch {
+      return '';
     }
-
-    if (current) {
-      lines.push(current);
-    }
-
-    return lines.length > 0 ? lines : [indent.trimEnd()];
-  }
-
-  private formatCompactNumber(value: number): string {
-    if (value >= 1000) {
-      const compact = value >= 10000 ? Math.round(value / 1000) : Math.round((value / 1000) * 10) / 10;
-      return `${compact}k`;
-    }
-    return value.toString();
   }
 
   stop(): void {

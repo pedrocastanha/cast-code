@@ -976,23 +976,31 @@ export class SmartInput implements ISmartInput {
 
     if (firstInputWidth > 0) {
       const firstChunk = this.buffer.slice(0, firstInputWidth);
-      lines.push(this.prompt + firstChunk);
+      lines.push(this.formatInputBandLine(this.prompt + firstChunk));
       offset = firstChunk.length;
     } else {
-      lines.push(this.prompt);
+      lines.push(this.formatInputBandLine(this.prompt));
     }
 
     while (offset < this.buffer.length) {
-      lines.push(this.buffer.slice(offset, offset + width));
+      lines.push(this.formatInputBandLine(this.buffer.slice(offset, offset + width)));
       offset += width;
     }
 
     const totalLength = this.promptLen + this.buffer.length;
     if (totalLength > 0 && totalLength % width === 0) {
-      lines.push('');
+      lines.push(this.formatInputBandLine(''));
     }
 
     return lines;
+  }
+
+  private formatInputBandLine(content: string): string {
+    const width = this.getTerminalWidth();
+    const padding = ' '.repeat(Math.max(0, width - visibleWidth(content)));
+    const bandStyle = '\x1b[48;5;236m\x1b[38;5;250m';
+    const styledContent = content.replace(/\x1b\[0m/g, `${Colors.reset}${bandStyle}`);
+    return `${bandStyle}${styledContent}${padding}${Colors.reset}`;
   }
 
   private clearSuggestions() {

@@ -245,10 +245,11 @@ describe('BridgeCommandsService', () => {
     await service.cmdBridge(['autostart', 'kimi'], projectRoot);
     const output = await service.startAutostart(projectRoot);
 
-    assert.match(output || '', /Kimi CLI bridge autostarted/);
+    assert.equal(output, null);
   });
 
-  test('disconnects active bridge from /bridge stop', async () => {
+  test('disconnects active bridge and disables autostart from /bridge stop', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'cast-bridge-'));
     let stopped = false;
     let status = 'connected';
     const service = new BridgeCommandsService(
@@ -268,10 +269,14 @@ describe('BridgeCommandsService', () => {
       {} as any,
     );
 
-    const output = await service.cmdBridge(['stop'], process.cwd());
+    await service.cmdBridge(['autostart', 'codex'], projectRoot);
+    const output = await service.cmdBridge(['stop'], projectRoot);
+    const settings = JSON.parse(await readFile(join(projectRoot, '.cast', 'bridge.json'), 'utf-8'));
 
     assert.equal(stopped, true);
+    assert.deepEqual(settings, { autostart: { enabled: false } });
     assert.match(output, /Bridge disconnected\. Cast runtime restored\./);
     assert.match(stripAnsi(output), /Status\s+disconnected/);
+    assert.match(stripAnsi(output), /Autostart\s+off/);
   });
 });
