@@ -1,7 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool, CastTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
-import { StructuredTool } from '@langchain/core/tools';
 import { McpClientService } from './mcp-client.service';
 import { McpConfig, McpServerSummary } from '../types';
 import { getTemplate } from '../catalog/mcp-templates';
@@ -64,7 +63,7 @@ export class McpRegistryService implements OnModuleDestroy {
     return results;
   }
 
-  getMcpTools(name: string): StructuredTool[] {
+  getMcpTools(name: string): CastTool[] {
     if (!this.isServerInActiveScope(name)) {
       return [];
     }
@@ -82,7 +81,7 @@ export class McpRegistryService implements OnModuleDestroy {
 
       const schema = this.convertSchemaToZod(mcpTool.inputSchema);
 
-      return [tool(
+      return [castTool(
         async (input) => {
           const policy = this.approvalPolicy.evaluateTool(name, mcpTool.name);
           if (!policy.allowed) {
@@ -107,8 +106,8 @@ export class McpRegistryService implements OnModuleDestroy {
     return [...registeredTools, ...utilityTools];
   }
 
-  getAllMcpTools(): StructuredTool[] {
-    const allTools: StructuredTool[] = [];
+  getAllMcpTools(): CastTool[] {
+    const allTools: CastTool[] = [];
 
     for (const name of this.configs.keys()) {
       if (!this.isServerInActiveScope(name)) {
@@ -267,9 +266,9 @@ export class McpRegistryService implements OnModuleDestroy {
     return summaries;
   }
 
-  getDiscoveryTools(): StructuredTool[] {
+  getDiscoveryTools(): CastTool[] {
     return [
-      tool(
+      castTool(
         async () => {
           const summaries = this.getServerSummaries();
           if (summaries.length === 0) {
@@ -285,7 +284,7 @@ export class McpRegistryService implements OnModuleDestroy {
           schema: z.object({}),
         },
       ),
-      tool(
+      castTool(
         async (input) => {
           const summaries = this.getServerSummaries();
 

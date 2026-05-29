@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool, StructuredTool } from '@langchain/core/tools';
+import { castTool, CastTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import { McpClientService } from './mcp-client.service';
 import { McpRiskScannerService } from './mcp-risk-scanner.service';
@@ -12,12 +12,12 @@ export class McpCapabilityService {
     private readonly riskScanner: McpRiskScannerService = new McpRiskScannerService(),
   ) {}
 
-  getUtilityTools(serverName: string, capabilities: McpCapabilities): StructuredTool[] {
-    const tools: StructuredTool[] = [];
+  getUtilityTools(serverName: string, capabilities: McpCapabilities): CastTool[] {
+    const tools: CastTool[] = [];
 
     if (capabilities.resources) {
       tools.push(
-        tool(
+        castTool(
           async () => this.safeResult(serverName, 'list_resources', await this.mcpClient.listResources(serverName)),
           {
             name: `mcp_${serverName}_list_resources`,
@@ -25,7 +25,7 @@ export class McpCapabilityService {
             schema: z.object({}),
           },
         ),
-        tool(
+        castTool(
           async (input) => this.safeResult(serverName, 'read_resource', await this.mcpClient.readResource(serverName, input.uri)),
           {
             name: `mcp_${serverName}_read_resource`,
@@ -40,7 +40,7 @@ export class McpCapabilityService {
 
     if (capabilities.prompts) {
       tools.push(
-        tool(
+        castTool(
           async () => this.safeResult(serverName, 'list_prompts', await this.mcpClient.listPrompts(serverName)),
           {
             name: `mcp_${serverName}_list_prompts`,
@@ -48,7 +48,7 @@ export class McpCapabilityService {
             schema: z.object({}),
           },
         ),
-        tool(
+        castTool(
           async (input) => this.safeResult(serverName, 'get_prompt', await this.mcpClient.getPrompt(serverName, input.name, input.arguments ?? {})),
           {
             name: `mcp_${serverName}_get_prompt`,
