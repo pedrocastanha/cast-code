@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { tool as createTool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { castTool as createTool } from '../../../common/interfaces/cast-tool.interface';
 import { BridgeToolExecutorService } from './bridge-tool-executor.service';
 
 const fakeTool = (name: string, response: string) =>

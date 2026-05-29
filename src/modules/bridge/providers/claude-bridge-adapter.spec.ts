@@ -42,7 +42,7 @@ describe('ClaudeBridgeAdapter', () => {
     assert.equal(input.message.content[0].text, 'hello');
 
     const chunk = [
-      JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-sonnet-4-6' }),
+      JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-sonnet-4-5' }),
       JSON.stringify({
         type: 'assistant',
         message: { content: [{ type: 'text', text: 'Bridge ready<cast_turn_done/>' }] },
