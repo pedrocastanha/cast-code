@@ -16,10 +16,7 @@
     "useDefineForClassFields": false,
     "skipLibCheck": true,
     "types": ["node"],
-    "baseUrl": ".",
-    "paths": {
-      "@langchain/core/tools": ["src/types/langchain-core-tools-shim.d.ts"]
-    }
+    "baseUrl": "."
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
