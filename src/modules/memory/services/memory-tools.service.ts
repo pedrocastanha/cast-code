@@ -1,5 +1,5 @@
 import { Inject, Injectable, forwardRef } from '@nestjs/common';
-import { StructuredTool, tool } from '@langchain/core/tools';
+import { CastTool, castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import { MemoryService } from './memory.service';
 import { PlatformService } from '../../platform/services/platform.service';
@@ -12,7 +12,7 @@ export class MemoryToolsService {
     private readonly platformService: PlatformService,
   ) {}
 
-  getTools(): StructuredTool[] {
+  getTools(): CastTool[] {
     return [
       this.createMemoryWriteTool(),
       this.createMemoryReadTool(),
@@ -21,8 +21,8 @@ export class MemoryToolsService {
     ];
   }
 
-  private createMemoryWriteTool(): StructuredTool {
-    return tool(
+  private createMemoryWriteTool(): CastTool {
+    return castTool(
       async (input: { filename: string; content: string }) => {
         const { filename, content } = input;
         return this.memoryService.write(filename, content);
@@ -45,8 +45,8 @@ export class MemoryToolsService {
     );
   }
 
-  private createMemoryReadTool(): StructuredTool {
-    return tool(
+  private createMemoryReadTool(): CastTool {
+    return castTool(
       async (input: { filename?: string }) => {
         const { filename } = input;
         return this.memoryService.read(filename);
@@ -67,8 +67,8 @@ export class MemoryToolsService {
     );
   }
 
-  private createMemorySearchTool(): StructuredTool {
-    return tool(
+  private createMemorySearchTool(): CastTool {
+    return castTool(
       async (input: { query: string }) => {
         const { query } = input;
         return this.memoryService.search(query);
@@ -84,8 +84,8 @@ export class MemoryToolsService {
     );
   }
 
-  private createRagSearchTool(): StructuredTool {
-    return tool(
+  private createRagSearchTool(): CastTool {
+    return castTool(
       async (input: { query?: string; topK?: number }) => {
         const query = String(input.query ?? '').trim();
         const { topK } = input;
