@@ -8,7 +8,7 @@ describe('PlanModeService', () => {
   test('does not enter plan mode for clear single-file implementation tasks', async () => {
     let llmInvoked = false;
     const service = new PlanModeService({
-      createModel: () => {
+      create: () => {
         llmInvoked = true;
         throw new Error('planner should not be invoked for clear single-file work');
       },
@@ -26,7 +26,7 @@ describe('PlanModeService', () => {
     let llmInvoked = false;
     const service = new PlanModeService({
       getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
-      createModel: () => {
+      create: () => {
         llmInvoked = true;
         throw new Error('planner should not be invoked for exact sentinel prompts');
       },
@@ -44,7 +44,7 @@ describe('PlanModeService', () => {
     let llmInvoked = false;
     const service = new PlanModeService({
       getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
-      createModel: () => {
+      create: () => {
         llmInvoked = true;
         throw new Error('planner should not be invoked for direct references');
       },
@@ -62,7 +62,7 @@ describe('PlanModeService', () => {
     let llmInvoked = false;
     const service = new PlanModeService({
       getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
-      createModel: () => {
+      create: () => {
         llmInvoked = true;
         throw new Error('planner should not be invoked for direct RAG lookup');
       },
@@ -78,7 +78,7 @@ describe('PlanModeService', () => {
 
   test('keeps plan mode for multi-file architecture or refactor requests', async () => {
     const service = new PlanModeService({
-      createModel: () => {
+      create: () => {
         throw new Error('planner should not be needed for obvious complex work');
       },
     } as any);
@@ -94,7 +94,7 @@ describe('PlanModeService', () => {
     let llmInvoked = false;
     const service = new PlanModeService({
       getCurrentEffortProfile: () => EFFORT_PROFILES.fast,
-      createModel: () => {
+      create: () => {
         llmInvoked = true;
         throw new Error('planner should not be invoked while fast effort disables planning');
       },
@@ -113,7 +113,7 @@ describe('PlanModeService', () => {
     let llmInvoked = false;
     const service = new PlanModeService({
       getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
-      createModel: () => {
+      create: () => {
         llmInvoked = true;
         throw new Error('planner should not be needed when deep effort prefers planning');
       },

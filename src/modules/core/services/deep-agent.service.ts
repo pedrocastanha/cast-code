@@ -1,33 +1,17 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
+import * as fs from 'fs/promises';
 import { randomUUID } from 'node:crypto';
 import * as path from 'path';
-import {
-  createDeepAgent,
-  FilesystemBackend,
-  type BackendProtocolV2,
-  type EditResult,
-  type FileDownloadResponse,
-  type FileInfo,
-  type FileUploadResponse,
-  type GlobResult,
-  type GrepMatch,
-  type GrepResult,
-  type LsResult,
-  type ReadRawResult,
-  type ReadResult,
-  type WriteResult,
-} from 'deepagents';
-import {
-  ClearToolUsesEdit,
-  contextEditingMiddleware,
-  createAgent,
-  createMiddleware,
-} from 'langchain';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { glob } from 'glob';
+import { getQuickJS } from 'quickjs-emscripten';
+import { z } from 'zod';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import type { LlmClient } from '../../../common/interfaces/llm-client.interface';
+import { castTool, type CastTool } from '../../../common/interfaces/cast-tool.interface';
+import type { Message } from '../../../common/types/llm.types';
+import { CastAgentEngine } from './cast-agent-engine.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
@@ -58,6 +42,91 @@ import {
   DeepAgentRuntimeEnvelope,
   DeepAgentStreamVersion,
 } from './deep-agent-event-adapter.service';
+
+interface FileInfo {
+  path: string;
+  isDirectory?: boolean;
+  size?: number;
+}
+
+interface LsResult {
+  files?: FileInfo[];
+  error?: string;
+}
+
+interface ReadResult {
+  content?: string;
+  error?: string;
+}
+
+interface ReadRawResult {
+  content?: Uint8Array;
+  error?: string;
+}
+
+interface WriteResult {
+  error?: string;
+}
+
+interface EditResult {
+  error?: string;
+}
+
+interface GrepMatch {
+  path: string;
+  line: number;
+  text: string;
+}
+
+interface GrepResult {
+  matches?: GrepMatch[];
+  error?: string;
+}
+
+interface GlobResult {
+  files?: FileInfo[];
+  error?: string;
+}
+
+interface FileUploadResponse {
+  path: string;
+  error: 'permission_denied' | null;
+}
+
+interface FileDownloadResponse {
+  path: string;
+  content: Uint8Array | null;
+  error: 'permission_denied' | null;
+}
+
+type BaseMessage = {
+  role?: string;
+  content: unknown;
+  name?: string;
+  toolName?: string;
+  tool_call_id?: string;
+  toolCallId?: string;
+  lc_kwargs?: Record<string, unknown>;
+  _getType?: () => string;
+};
+
+class HumanMessage {
+  readonly role = 'user';
+  constructor(public readonly content: string) {}
+  _getType(): string { return 'human'; }
+}
+
+class AIMessage {
+  readonly role = 'assistant';
+  constructor(public readonly content: string) {}
+  _getType(): string { return 'ai'; }
+}
+
+class SystemMessage {
+  readonly role = 'system';
+  constructor(public readonly content: string) {}
+  _getType(): string { return 'system'; }
+}
 
 const SUMMARIZE_THRESHOLD = 40;
 const KEEP_RECENT = 10;
@@ -96,18 +165,12 @@ const COMPACT_CHAT_PATTERNS = [
   /^(what can you do|what do you do|how can you help|what are you able to do)\??$/i,
 ];
 const MAX_GIT_STATUS_PROMPT_LINES = 20;
-type QuickJsModule = typeof import('@langchain/quickjs');
-const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<QuickJsModule>;
 
-class WorkspaceFilesystemBackend implements BackendProtocolV2 {
-  private readonly backend: FilesystemBackend;
-
+class WorkspaceFilesystemBackend {
   constructor(
     private readonly projectRoot: string,
     private readonly workspaceRoot: string,
-  ) {
-    this.backend = new FilesystemBackend({ rootDir: workspaceRoot });
-  }
+  ) {}
 
   private resolvePath(key: string): string {
     const root = path.resolve(this.projectRoot);
@@ -125,7 +188,18 @@ class WorkspaceFilesystemBackend implements BackendProtocolV2 {
 
   async ls(dirPath: string): Promise<LsResult> {
     try {
-      return await this.backend.ls(this.resolvePath(dirPath));
+      const resolved = this.resolvePath(dirPath);
+      const entries = await fs.readdir(resolved, { withFileTypes: true });
+      const files = await Promise.all(entries.map(async (entry) => {
+        const entryPath = path.join(resolved, entry.name);
+        const stat = await fs.stat(entryPath);
+        return {
+          path: entryPath,
+          isDirectory: entry.isDirectory(),
+          size: stat.size,
+        };
+      }));
+      return { files };
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -138,7 +212,14 @@ class WorkspaceFilesystemBackend implements BackendProtocolV2 {
 
   async read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
     try {
-      return await this.backend.read(this.resolvePath(filePath), offset, limit);
+      const content = await fs.readFile(this.resolvePath(filePath), 'utf-8');
+      if (offset === undefined && limit === undefined) {
+        return { content };
+      }
+      const lines = content.split('\n');
+      const start = Math.max(0, offset ?? 0);
+      const end = limit === undefined ? undefined : start + Math.max(0, limit);
+      return { content: lines.slice(start, end).join('\n') };
     } catch (error) {
       return { error: `Error reading file '${filePath}': ${(error as Error).message}` };
     }
@@ -146,7 +227,7 @@ class WorkspaceFilesystemBackend implements BackendProtocolV2 {
 
   async readRaw(filePath: string): Promise<ReadRawResult> {
     try {
-      return await this.backend.readRaw(this.resolvePath(filePath));
+      return { content: new Uint8Array(await fs.readFile(this.resolvePath(filePath))) };
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -154,7 +235,10 @@ class WorkspaceFilesystemBackend implements BackendProtocolV2 {
 
   async write(filePath: string, content: string): Promise<WriteResult> {
     try {
-      return await this.backend.write(this.resolvePath(filePath), content);
+      const resolved = this.resolvePath(filePath);
+      await fs.mkdir(path.dirname(resolved), { recursive: true });
+      await fs.writeFile(resolved, content, 'utf-8');
+      return {};
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -162,28 +246,77 @@ class WorkspaceFilesystemBackend implements BackendProtocolV2 {
 
   async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult> {
     try {
-      return await this.backend.edit(this.resolvePath(filePath), oldString, newString, replaceAll);
+      const resolved = this.resolvePath(filePath);
+      const content = await fs.readFile(resolved, 'utf-8');
+      if (!content.includes(oldString)) {
+        return { error: `String not found in ${filePath}` };
+      }
+      const updated = replaceAll
+        ? content.split(oldString).join(newString)
+        : content.replace(oldString, newString);
+      await fs.writeFile(resolved, updated, 'utf-8');
+      return {};
     } catch (error) {
       return { error: (error as Error).message };
     }
   }
 
-  async grep(pattern: string, dirPath?: string | null, glob?: string | null): Promise<GrepResult> {
+  async grep(pattern: string, dirPath?: string | null, globPattern?: string | null): Promise<GrepResult> {
     try {
-      return await this.backend.grep(pattern, this.resolvePath(dirPath || '.'), glob);
+      const root = this.resolvePath(dirPath || '.');
+      const regex = new RegExp(pattern);
+      const matches: GrepMatch[] = [];
+      const filePaths = await glob(globPattern || '**/*', {
+        cwd: root,
+        dot: true,
+        nodir: true,
+        ignore: ['**/node_modules/**', '**/.git/**'],
+      });
+
+      for (const filePath of filePaths) {
+        const absolutePath = path.join(root, filePath);
+        try {
+          const content = await fs.readFile(absolutePath, 'utf-8');
+          const lines = content.split('\n');
+          lines.forEach((line, index) => {
+            if (regex.test(line)) {
+              matches.push({ path: absolutePath, line: index + 1, text: line });
+            }
+          });
+        } catch {
+          // Ignore unreadable or binary files during grep, matching shell grep behavior.
+        }
+      }
+
+      return { matches };
     } catch (error) {
       return { error: (error as Error).message };
     }
   }
 
-  async grepRaw(pattern: string, dirPath?: string, glob?: string | null): Promise<GrepMatch[] | string> {
-    const result = await this.grep(pattern, dirPath, glob);
+  async grepRaw(pattern: string, dirPath?: string, globPattern?: string | null): Promise<GrepMatch[] | string> {
+    const result = await this.grep(pattern, dirPath, globPattern);
     return result.error ? `Error: ${result.error}` : result.matches ?? [];
   }
 
   async glob(pattern: string, searchPath?: string): Promise<GlobResult> {
     try {
-      return await this.backend.glob(pattern, this.resolvePath(searchPath || '.'));
+      const root = this.resolvePath(searchPath || '.');
+      const matches = await glob(pattern, {
+        cwd: root,
+        dot: true,
+        ignore: ['**/node_modules/**', '**/.git/**'],
+      });
+      const files = await Promise.all(matches.map(async (match) => {
+        const entryPath = path.join(root, match);
+        const stat = await fs.stat(entryPath);
+        return {
+          path: entryPath,
+          isDirectory: stat.isDirectory(),
+          size: stat.size,
+        };
+      }));
+      return { files };
     } catch (error) {
       return { error: (error as Error).message };
     }
@@ -195,35 +328,31 @@ class WorkspaceFilesystemBackend implements BackendProtocolV2 {
   }
 
   async uploadFiles(files: Array<[string, Uint8Array]>): Promise<FileUploadResponse[]> {
-    const resolved: Array<[string, Uint8Array]> = [];
     const responses: Array<{ path: string; error: 'permission_denied' | null }> = [];
     for (const [filePath, content] of files) {
       try {
-        resolved.push([this.resolvePath(filePath), content]);
+        const resolved = this.resolvePath(filePath);
+        await fs.mkdir(path.dirname(resolved), { recursive: true });
+        await fs.writeFile(resolved, content);
         responses.push({ path: filePath, error: null });
       } catch {
         responses.push({ path: filePath, error: 'permission_denied' });
       }
     }
-    const uploaded = resolved.length ? await this.backend.uploadFiles(resolved) : [];
-    let uploadedIndex = 0;
-    return responses.map((response) => response.error ? response : uploaded[uploadedIndex++]);
+    return responses;
   }
 
   async downloadFiles(paths: string[]): Promise<FileDownloadResponse[]> {
-    const resolved: string[] = [];
     const responses: Array<{ path: string; content: Uint8Array | null; error: 'permission_denied' | null }> = [];
     for (const filePath of paths) {
       try {
-        resolved.push(this.resolvePath(filePath));
-        responses.push({ path: filePath, content: null, error: null });
+        const content = new Uint8Array(await fs.readFile(this.resolvePath(filePath)));
+        responses.push({ path: filePath, content, error: null });
       } catch {
         responses.push({ path: filePath, content: null, error: 'permission_denied' });
       }
     }
-    const downloaded = resolved.length ? await this.backend.downloadFiles(resolved) : [];
-    let downloadedIndex = 0;
-    return responses.map((response) => response.error ? response : downloaded[downloadedIndex++]);
+    return responses;
   }
 }
 
@@ -231,7 +360,7 @@ class WorkspaceFilesystemBackend implements BackendProtocolV2 {
 export class DeepAgentService {
   private agent: any;
   private leanAgent: any;
-  private model: BaseChatModel | null = null;
+  private model: LlmClient | null = null;
   private messages: BaseMessage[] = [];
   private tokenCount = 0;
   private cumulativeInputTokens = 0;
@@ -242,6 +371,7 @@ export class DeepAgentService {
   private cachedSystemPrompt: string = '';
   private cachedLeanSystemPrompt: string = '';
   private cachedBasePrompt: string = '';
+  private cachedBuiltinTools: any[] = [];
   private cachedExtraTools: any[] = [];
   private cachedLeanTools: any[] = [];
   private cachedMcpTools: any[] = [];
@@ -255,10 +385,10 @@ export class DeepAgentService {
   private cachedProjectStructure: string = '';
   private cachedEnvironmentPrompt: string = '';
   private localSessionId: string | null = null;
-  private codeInterpreterMiddlewareFactory?: QuickJsModule['createCodeInterpreterMiddleware'];
+  private codeInterpreterTool?: CastTool;
 
   constructor(
-    private readonly multiLlmService: MultiLlmService,
+    private readonly llmClientFactory: LlmClientFactory,
     private readonly agentRegistry: AgentRegistryService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly mcpRegistry: McpRegistryService,
@@ -352,13 +482,13 @@ export class DeepAgentService {
 
     await this.refreshEnvironmentPrompt();
 
-    this.model = this.multiLlmService.createStreamingModel('default');
+    this.model = this.llmClientFactory.create('default');
     this.statsService.setUsageListener((event) => {
       this.platformService.track('tokens.consumed', event);
     });
 
     const modelConfig = (() => {
-      try { return (this.multiLlmService as any).configManager?.getModelConfig('default'); } catch { return null; }
+      try { return (this.llmClientFactory as any).configManager?.getModelConfig('default'); } catch { return null; }
     })();
     if (modelConfig?.model) {
       this.replayService.setModel(`${modelConfig.provider}/${modelConfig.model}`);
@@ -371,6 +501,7 @@ export class DeepAgentService {
     const allTools = this.toolsRegistry.getAllTools();
     const mcpTools = this.mcpRegistry.getAllMcpTools();
 
+    const builtinTools = allTools.filter(t => DEEPAGENT_BUILTIN_TOOLS.has(t.name));
     const extraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
     const leanTools = this.selectLeanTools(allTools);
     const mcpDiscoveryTools = this.mcpRegistry.getDiscoveryTools();
@@ -378,6 +509,7 @@ export class DeepAgentService {
     const systemPrompt = this.cachedBasePrompt;
 
     this.cachedSystemPrompt = systemPrompt;
+    this.cachedBuiltinTools = builtinTools;
     this.cachedExtraTools = extraTools;
     this.cachedLeanTools = leanTools;
     this.cachedMcpTools = mcpTools;
@@ -388,7 +520,7 @@ export class DeepAgentService {
     this.cachedAgentToolKey = this.getToolKey(initialTools);
     this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
 
-    this.agent = await this.createDeepAgentInstance({
+    this.agent = await this.createAgentInstance({
       systemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
@@ -398,12 +530,12 @@ export class DeepAgentService {
       projectPath,
       hasContext: this.projectContext.hasContext(),
       agentCount: subagents.length,
-      toolCount: extraTools.length + mcpTools.length,
+      toolCount: allTools.length + mcpTools.length,
     };
   }
 
   async reinitializeModel(): Promise<void> {
-    this.model = this.multiLlmService.createStreamingModel('default');
+    this.model = this.llmClientFactory.create('default');
     await this.refreshEnvironmentPrompt();
     this.cachedBasePrompt = this.buildBasePrompt(this.cachedExtraTools, this.cachedSubagents);
     this.cachedSystemPrompt = this.cachedBasePrompt;
@@ -413,7 +545,7 @@ export class DeepAgentService {
     const initialSubagents = this.selectContextSubagents('', []);
     this.cachedAgentToolKey = this.getToolKey(initialTools);
     this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
-    this.agent = await this.createDeepAgentInstance({
+    this.agent = await this.createAgentInstance({
       systemPrompt: this.cachedSystemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
@@ -425,6 +557,7 @@ export class DeepAgentService {
 
     const allTools = this.toolsRegistry.getAllTools();
     const mcpTools = this.mcpRegistry.getAllMcpTools();
+    this.cachedBuiltinTools = allTools.filter(t => DEEPAGENT_BUILTIN_TOOLS.has(t.name));
     this.cachedExtraTools = allTools.filter(t => !DEEPAGENT_BUILTIN_TOOLS.has(t.name));
     this.cachedLeanTools = this.selectLeanTools(allTools);
     this.cachedMcpTools = mcpTools;
@@ -438,55 +571,79 @@ export class DeepAgentService {
     const initialSubagents = this.selectContextSubagents('', []);
     this.cachedAgentToolKey = this.getToolKey(initialTools);
     this.cachedAgentSubagentKey = this.getSubagentKey(initialSubagents);
-    this.model = this.model ?? this.multiLlmService.createStreamingModel('default');
-    this.agent = await this.createDeepAgentInstance({
+    this.model = this.model ?? this.llmClientFactory.create('default');
+    this.agent = await this.createAgentInstance({
       systemPrompt: this.cachedSystemPrompt,
       tools: initialTools,
       subagents: initialSubagents,
     });
   }
 
-  private async createDeepAgentInstance(input: {
+  private async createAgentInstance(input: {
     systemPrompt: string;
     tools: any[];
     subagents: any[];
   }): Promise<any> {
-    const skillSources = this.getDeepAgentSkillSources();
-    return createDeepAgent({
-      model: this.model ?? undefined,
+    return new CastAgentEngine({
+      client: this.model ?? this.llmClientFactory.create('default'),
       systemPrompt: input.systemPrompt,
-      tools: input.tools,
+      tools: this.dedupeTools([...input.tools, this.getCodeInterpreterTool()]),
       subagents: input.subagents,
-      backend: () => this.createFilesystemBackend(),
-      middleware: await this.buildDeepAgentMiddleware(),
-      skills: skillSources.length > 0 ? skillSources : undefined,
-    } as any);
+    });
   }
 
   private async buildDeepAgentMiddleware(): Promise<any[]> {
-    const createCodeInterpreterMiddleware = await this.getCodeInterpreterMiddlewareFactory();
-    const skillSources = this.getDeepAgentSkillSources();
-
     return [
-      createCodeInterpreterMiddleware({
-        toolName: 'eval',
-        ptc: ['ls', 'read_file', 'glob', 'grep'],
-        skillsBackend: skillSources.length > 0 ? () => this.createFilesystemBackend() : undefined,
-        executionTimeoutMs: 5_000,
-        maxPtcCalls: 64,
-        maxResultChars: 4_000,
-        captureConsole: true,
-      }),
+      {
+        name: 'CodeInterpreterMiddleware',
+        tools: [this.getCodeInterpreterTool()],
+      },
     ];
   }
 
-  private async getCodeInterpreterMiddlewareFactory(): Promise<QuickJsModule['createCodeInterpreterMiddleware']> {
-    if (!this.codeInterpreterMiddlewareFactory) {
-      const module = await dynamicImport('@langchain/quickjs');
-      this.codeInterpreterMiddlewareFactory = module.createCodeInterpreterMiddleware;
+  private getCodeInterpreterTool(): CastTool {
+    if (!this.codeInterpreterTool) {
+      this.codeInterpreterTool = castTool(
+        async ({ code }) => this.runQuickJsSnippet(code),
+        {
+          name: 'eval',
+          description: 'Run JavaScript in a sandboxed REPL for quick calculations and transformations.',
+          schema: z.object({ code: z.string().min(1) }),
+        },
+      );
     }
 
-    return this.codeInterpreterMiddlewareFactory;
+    return this.codeInterpreterTool;
+  }
+
+  private async runQuickJsSnippet(code: string): Promise<string> {
+    const quickjs = await getQuickJS();
+    const vm = quickjs.newContext();
+    try {
+      const result = vm.evalCode(code);
+      if (result.error) {
+        const dumped = vm.dump(result.error);
+        result.error.dispose();
+        return `Error: ${String(dumped)}`;
+      }
+
+      const dumped = vm.dump(result.value);
+      result.value.dispose();
+      return typeof dumped === 'string' ? dumped : JSON.stringify(dumped);
+    } finally {
+      vm.dispose();
+    }
+  }
+
+  private dedupeTools(tools: CastTool[]): CastTool[] {
+    const seen = new Set<string>();
+    return tools.filter((tool) => {
+      if (!tool?.name || seen.has(tool.name)) {
+        return false;
+      }
+      seen.add(tool.name);
+      return true;
+    });
   }
 
   private getDeepAgentSkillSources(): string[] {
@@ -509,7 +666,7 @@ export class DeepAgentService {
   }
 
   private selectContextTools(layers: PromptLayer[]): any[] {
-    const selected = [...this.cachedExtraTools, ...this.cachedMcpDiscoveryTools];
+    const selected = [...this.cachedBuiltinTools, ...this.cachedExtraTools, ...this.cachedMcpDiscoveryTools];
     if (layers.includes('mcp')) {
       selected.push(...this.cachedMcpTools);
     }
@@ -848,18 +1005,7 @@ export class DeepAgentService {
 
   private buildLeanMiddleware(): any[] {
     return [
-      contextEditingMiddleware({
-        edits: [
-          new ClearToolUsesEdit({
-            trigger: { messages: 4 },
-            keep: { messages: 2 },
-            clearToolInputs: true,
-            placeholder: '[lean mode: older tool output omitted]',
-          }),
-        ],
-        tokenCountMethod: 'approx',
-      }),
-      createMiddleware({
+      {
         name: 'lean_tool_budget',
         wrapModelCall: async (request: any, handler: any) => {
           const tools = this.selectLeanStepTools(request.messages ?? [], request.tools ?? []);
@@ -871,7 +1017,7 @@ export class DeepAgentService {
           const toolChoice = this.getLeanToolChoice(tools);
           return handler(toolChoice ? { ...leanRequest, toolChoice } : leanRequest);
         },
-      }),
+      },
     ];
   }
 
@@ -916,9 +1062,9 @@ export class DeepAgentService {
 
   private getLeanToolMessages(messages: BaseMessage[]): Array<{ name: string; content: string }> {
     return messages
-      .filter((message: any) => message?._getType?.() === 'tool')
+      .filter((message: any) => message?.role === 'tool' || message?._getType?.() === 'tool')
       .map((message: any) => ({
-        name: message.name || message.lc_kwargs?.name || '',
+        name: message.name || message.toolName || message.lc_kwargs?.name || '',
         content: this.extractTextFromModelContent(message.content),
       }))
       .filter((message) => message.name);
@@ -983,7 +1129,7 @@ export class DeepAgentService {
   }
 
   private async *streamCompactChat(message: string): AsyncGenerator<string> {
-    const activeModel = this.model ?? this.multiLlmService.createStreamingModel('default');
+    const activeModel = this.model ?? this.llmClientFactory.create('default');
     const outboundMessages = [
       new SystemMessage(COMPACT_CHAT_SYSTEM_PROMPT),
       new HumanMessage(message),
@@ -1000,24 +1146,33 @@ export class DeepAgentService {
 
     try {
       if (typeof (activeModel as any).stream === 'function') {
-        const stream = await (activeModel as any).stream(outboundMessages);
+        const stream = await (activeModel as any).stream(outboundMessages, {});
         for await (const chunk of stream) {
-          const text = this.extractTextFromModelContent((chunk as any)?.content ?? chunk);
+          const text = (chunk as any)?.type === 'text_delta'
+            ? String((chunk as any).delta ?? '')
+            : this.extractTextFromModelContent((chunk as any)?.content ?? chunk);
           if (text) {
             fullResponse += text;
             yield text;
           }
 
-          const usage = this.extractUsage(chunk);
-          if (usage.input > 0 || usage.output > 0) {
-            interactionInputTokens += usage.input;
-            interactionOutputTokens += usage.output;
-            interactionCachedInputTokens += usage.cachedInput;
+          if ((chunk as any)?.type === 'usage') {
+            interactionInputTokens += (chunk as any).usage?.inputTokens ?? 0;
+            interactionOutputTokens += (chunk as any).usage?.outputTokens ?? 0;
+            interactionCachedInputTokens += (chunk as any).usage?.cachedInputTokens ?? 0;
             hasExactUsage = true;
+          } else {
+            const usage = this.extractUsage(chunk);
+            if (usage.input > 0 || usage.output > 0) {
+              interactionInputTokens += usage.input;
+              interactionOutputTokens += usage.output;
+              interactionCachedInputTokens += usage.cachedInput;
+              hasExactUsage = true;
+            }
           }
         }
       } else {
-        const response = await activeModel.invoke(outboundMessages);
+        const response = await activeModel.invoke(outboundMessages as Message[]);
         const text = this.extractTextFromModelContent((response as any)?.content ?? response);
         if (text) {
           fullResponse += text;
@@ -1054,7 +1209,7 @@ export class DeepAgentService {
     this.cumulativeCachedInputTokens += interactionCachedInputTokens;
 
     if (hasExactUsage && (interactionInputTokens > 0 || interactionOutputTokens > 0)) {
-      const modelName = (activeModel as any)?.modelName || (activeModel as any)?.model || 'unknown';
+      const modelName = this.getModelName(activeModel);
       this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens, interactionCachedInputTokens);
     }
   }
@@ -1347,14 +1502,14 @@ export class DeepAgentService {
     const recentMessages = this.messages.slice(this.messages.length - KEEP_RECENT);
 
     const conversationText = oldMessages.map((m) => {
-      const role = m._getType() === 'human' ? 'User' : 'Assistant';
+      const role = this.getMessageType(m) === 'human' ? 'User' : 'Assistant';
       const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
       const truncated = content.length > 500 ? content.slice(0, 500) + '...' : content;
       return `${role}: ${truncated}`;
     }).join('\n');
 
     try {
-      const summaryModel = this.multiLlmService.createModel('cheap', false);
+      const summaryModel = this.llmClientFactory.create('cheap');
       const summaryResponse = await summaryModel.invoke([
         new SystemMessage(
           `You are a conversation summarizer. Produce a concise summary of the following conversation between a user and an AI assistant. Focus on:
@@ -1365,7 +1520,7 @@ export class DeepAgentService {
 Keep the summary under 500 words. Output ONLY the summary, no preamble.`
         ),
         new HumanMessage(conversationText),
-      ]);
+      ] as Message[]);
 
       const summaryText = typeof summaryResponse.content === 'string'
         ? summaryResponse.content
@@ -1438,7 +1593,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     }
 
     try {
-      const summaryModel = this.multiLlmService.createModel('cheap', false);
+      const summaryModel = this.llmClientFactory.create('cheap');
       const response = await this.withTimeout(
         summaryModel.invoke([
           new SystemMessage([
@@ -1448,7 +1603,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             'Keep it under 350 words. Output only the summary.',
           ].join('\n')),
           new HumanMessage(conversationText),
-        ]),
+        ] as Message[]),
         timeoutMs,
       );
       const text = typeof response.content === 'string'
@@ -1468,9 +1623,10 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
     for (let index = recentMessages.length - 1; index >= 0; index--) {
       const message = recentMessages[index];
-      const role = message._getType() === 'human'
+      const messageType = this.getMessageType(message);
+      const role = messageType === 'human'
         ? 'User'
-        : message._getType() === 'ai'
+        : messageType === 'ai'
           ? 'Assistant'
           : 'System';
       const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
@@ -1519,6 +1675,32 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
   private truncateText(value: string, max: number): string {
     return value.length <= max ? value : `${value.slice(0, max)}...`;
+  }
+
+  private getMessageType(message: BaseMessage): string {
+    const explicitType = message._getType?.();
+    if (explicitType) {
+      return explicitType;
+    }
+    if (message.role === 'user') return 'human';
+    if (message.role === 'assistant') return 'ai';
+    if (message.role === 'tool') return 'tool';
+    return 'system';
+  }
+
+  private getModelName(model: unknown): string {
+    const candidate = model as {
+      getModelName?: () => string;
+      modelName?: string;
+      model?: string;
+    } | null | undefined;
+    if (!candidate) {
+      return 'unknown';
+    }
+    return candidate.getModelName?.()
+      || candidate.modelName
+      || candidate.model
+      || 'unknown';
   }
 
   private isDelegationTool(toolName?: string): boolean {
@@ -1723,14 +1905,15 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     if (useLeanAgent) {
       const leanPrompt = this.buildLeanSystemPrompt();
       if (!this.leanAgent || leanPrompt !== this.cachedLeanSystemPrompt) {
-        const leanModel = this.model ?? this.multiLlmService.createStreamingModel('default');
+        const leanModel = this.model ?? this.llmClientFactory.create('default');
         this.model = leanModel;
         this.cachedLeanSystemPrompt = leanPrompt;
-        this.leanAgent = createAgent({
-          model: leanModel,
+        this.leanAgent = new CastAgentEngine({
+          client: leanModel,
           systemPrompt: leanPrompt,
           tools: this.cachedLeanTools,
-          middleware: this.buildLeanMiddleware(),
+          toolFilter: (history, tools) => this.selectLeanStepTools(history as BaseMessage[], tools),
+          toolChoice: 'required',
         });
       }
       activeAgent = this.leanAgent;
@@ -1749,7 +1932,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
         this.cachedSystemPrompt = contextualPrompt;
         this.cachedAgentToolKey = toolKey;
         this.cachedAgentSubagentKey = subagentKey;
-        this.agent = await this.createDeepAgentInstance({
+        this.agent = await this.createAgentInstance({
           systemPrompt: contextualPrompt,
           tools: activeTools,
           subagents: activeSubagents,
@@ -1763,7 +1946,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     this.replayService.recordEntry({ role: 'user', content: message });
     this.lastToolOutputs = [];
 
-    const effort = this.multiLlmService.getCurrentEffortProfile();
+    const effort = this.llmClientFactory.getCurrentEffortProfile();
     const streamPayload = { messages: useLeanAgent ? [currentUserMessage] : this.messages };
     const recursionLimit = Math.max(8, effort.maxToolCalls * 2);
     let stream: AsyncIterable<any>;
@@ -1775,7 +1958,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           recursionLimit,
           scope: { kind: 'main', runId: randomUUID() },
           streamVersion: this.getDeepAgentStreamVersion(),
-          model: (this.model as any)?.modelName || (this.model as any)?.model,
+          model: this.getModelName(this.model),
         })
         : activeAgent.streamEvents(
           streamPayload,
@@ -2042,7 +2225,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     this.cumulativeCachedInputTokens += interactionCachedInputTokens;
 
     if (interactionInputTokens > 0 || interactionOutputTokens > 0) {
-      const modelName = (this.model as any)?.modelName || (this.model as any)?.model || 'unknown';
+      const modelName = this.getModelName(this.model);
       this.statsService.trackUsage(modelName, interactionInputTokens, interactionOutputTokens, interactionCachedInputTokens);
     }
   }

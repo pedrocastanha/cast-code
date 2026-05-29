@@ -3,16 +3,49 @@ import { describe, test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 
 import { DeepAgentService } from './deep-agent.service';
 import { EFFORT_PROFILES } from '../../config/types/config.types';
 
+class HumanMessage {
+  readonly role = 'user';
+  constructor(public readonly content: string) {}
+  _getType(): string { return 'human'; }
+}
+
+class AIMessage {
+  readonly role = 'assistant';
+  constructor(public readonly content: string) {}
+  _getType(): string { return 'ai'; }
+}
+
+class ToolMessage {
+  readonly role = 'tool';
+  readonly content: string;
+  readonly name: string;
+  readonly tool_call_id: string;
+
+  constructor(input: { content: string; name: string; tool_call_id: string }) {
+    this.content = input.content;
+    this.name = input.name;
+    this.tool_call_id = input.tool_call_id;
+  }
+
+  _getType(): string { return 'tool'; }
+}
+
 const buildService = (overrides: Record<string, any> = {}) => {
+  const defaultLlmClientFactory = {
+    getCurrentEffortProfile: () => EFFORT_PROFILES.balanced,
+    create: () => ({
+      getModelName: () => 'test-model',
+      getProviderName: () => 'test',
+      invoke: async () => ({ role: 'assistant', content: '' }),
+      stream: async function* () {},
+    }),
+  };
+  const llmClientFactory = overrides.llmClientFactory ?? defaultLlmClientFactory;
   const deps = {
-    multiLlmService: {
-      getCurrentEffortProfile: () => EFFORT_PROFILES.balanced,
-    },
     agentRegistry: {},
     toolsRegistry: {},
     mcpRegistry: { getServerSummaries: () => [] },
@@ -46,10 +79,11 @@ const buildService = (overrides: Record<string, any> = {}) => {
     environmentResolver: undefined,
     agentRunService: undefined,
     ...overrides,
+    llmClientFactory,
   };
 
   return new DeepAgentService(
-    deps.multiLlmService as any,
+    deps.llmClientFactory as any,
     deps.agentRegistry as any,
     deps.toolsRegistry as any,
     deps.mcpRegistry as any,
@@ -410,9 +444,9 @@ describe('DeepAgentService compact chat route', () => {
   test('saves a shutdown session summary with replay path in local memory', async () => {
     const writes: Array<{ filename: string; content: string }> = [];
     const service = buildService({
-      multiLlmService: {
+      llmClientFactory: {
         getCurrentEffortProfile: () => EFFORT_PROFILES.balanced,
-        createModel: () => ({
+        create: () => ({
           invoke: async () => ({
             content: 'Implementamos memoria persistente com SQLite e mantivemos guardrails.',
           }),
@@ -528,7 +562,7 @@ describe('DeepAgentService system prompt engineering workflow', () => {
 
   test('contextual prompt does not preload full project structure by effort', () => {
     const service = buildService({
-      multiLlmService: {
+      llmClientFactory: {
         getCurrentEffortProfile: () => EFFORT_PROFILES.max,
       },
     });
@@ -557,15 +591,13 @@ describe('DeepAgentService system prompt engineering workflow', () => {
   test('initialization loads persistent memory into the prompt cache', async () => {
     let loadedMemory = false;
     const service = buildService({
-      multiLlmService: {
+      llmClientFactory: {
         getCurrentEffortProfile: () => EFFORT_PROFILES.balanced,
-        createStreamingModel: () => ({
-          getName: () => 'gpt-4.1-mini',
-          bindTools: () => ({
-            getName: () => 'gpt-4.1-mini',
-            stream: async function* () {},
-            streamEvents: async function* () {},
-          }),
+        create: () => ({
+          getModelName: () => 'gpt-4.1-mini',
+          getProviderName: () => 'test',
+          invoke: async () => ({ role: 'assistant', content: '' }),
+          stream: async function* () {},
         }),
       },
       projectLoader: {
@@ -746,7 +778,7 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     }
   });
 
-  test('deep agent middleware enables the LangChain QuickJS interpreter safely', async () => {
+  test('deep agent middleware enables the native QuickJS interpreter safely', async () => {
     const service = buildService();
 
     const middleware = await (service as any).buildDeepAgentMiddleware();
@@ -1059,7 +1091,7 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     assert.match(calls[2][2][0].content, /Test coverage is acceptable/);
   });
 
-  test('hydrates delegated task runs from pending LangChain parsed tool calls', async () => {
+  test('hydrates delegated task runs from pending parsed tool calls', async () => {
     const calls: any[] = [];
     const agentRunService = {
       createRun: (input: any) => {

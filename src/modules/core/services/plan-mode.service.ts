@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 
 export interface PlanStep {
   id: number;
@@ -23,11 +23,11 @@ export interface Plan {
 
 @Injectable()
 export class PlanModeService {
-  constructor(private readonly multiLlmService: MultiLlmService) {}
+  constructor(private readonly llmClientFactory: LlmClientFactory) {}
 
   async shouldEnterPlanMode(userMessage: string): Promise<{ shouldPlan: boolean; reason?: string }> {
-    const effort = typeof (this.multiLlmService as any).getCurrentEffortProfile === 'function'
-      ? (this.multiLlmService as any).getCurrentEffortProfile()
+    const effort = typeof (this.llmClientFactory as any).getCurrentEffortProfile === 'function'
+      ? (this.llmClientFactory as any).getCurrentEffortProfile()
       : null;
 
     if (effort?.planning === 'off') {
@@ -66,7 +66,7 @@ export class PlanModeService {
     }
     
     if (userMessage.length > 100) {
-      const llm = this.multiLlmService.createModel('planner');
+      const llm = this.llmClientFactory.create('planner');
       const prompt = `Should this request use a structured plan mode?
 
 Request: "${userMessage}"
@@ -80,11 +80,11 @@ Reply ONLY with: YES or NO`;
 
       try {
         const response = await llm.invoke([
-          new SystemMessage('You are a task analyzer. Be concise.'),
-          new HumanMessage(prompt),
+          { role: 'system', content: 'You are a task analyzer. Be concise.' },
+          { role: 'user', content: prompt },
         ]);
 
-        const text = this.extractContent(response.content).toUpperCase();
+        const text = extractText(response).toUpperCase();
         if (text.includes('YES')) {
           return { shouldPlan: true, reason: 'AI analysis suggests planning is beneficial' };
         }
@@ -168,7 +168,7 @@ Reply ONLY with: YES or NO`;
   }
 
   async generatePlan(userMessage: string, context?: string): Promise<Plan> {
-    const llm = this.multiLlmService.createModel('planner');
+    const llm = this.llmClientFactory.create('planner');
     
     const prompt = `Create a detailed implementation plan for this request.
 
@@ -193,11 +193,11 @@ STEPS:
 3. [Description] | Files: file4.ts | Time: 5min | Depends on: 1,2`;
 
     const response = await llm.invoke([
-      new SystemMessage('You are a senior software architect. Create clear, actionable plans.'),
-      new HumanMessage(prompt),
+      { role: 'system', content: 'You are a senior software architect. Create clear, actionable plans.' },
+      { role: 'user', content: prompt },
     ]);
 
-    const text = this.extractContent(response.content);
+    const text = extractText(response);
     return this.parsePlan(text, userMessage);
   }
 
@@ -229,7 +229,7 @@ STEPS:
   }
 
   async generateClarifyingQuestions(userMessage: string): Promise<string[]> {
-    const llm = this.multiLlmService.createModel('planner');
+    const llm = this.llmClientFactory.create('planner');
     const prompt = `Given this software request, ask up to 3 short clarifying questions that help produce a better implementation plan.
 
 Request: ${userMessage}
@@ -242,15 +242,15 @@ Rules:
 
     try {
       const response = await llm.invoke([
-        new SystemMessage('You create concise planning questions for software tasks.'),
-        new HumanMessage(prompt),
+        { role: 'system', content: 'You create concise planning questions for software tasks.' },
+        { role: 'user', content: prompt },
       ]);
-      const text = this.extractContent(response.content).trim();
+      const text = extractText(response).trim();
       if (!text || text.toUpperCase() === 'NONE') return [];
 
       return text
         .split('\n')
-        .map((line) => line.replace(/^\s*\d+[).\s-]*/, '').trim())
+        .map((line: string) => line.replace(/^\s*\d+[).\s-]*/, '').trim())
         .filter(Boolean)
         .slice(0, 3);
     } catch {
@@ -259,7 +259,7 @@ Rules:
   }
 
   async refinePlan(plan: Plan, feedback: string): Promise<Plan> {
-    const llm = this.multiLlmService.createModel('planner');
+    const llm = this.llmClientFactory.create('planner');
     
     const currentPlan = plan.steps.map(s => 
       `${s.id}. ${s.description} | Files: ${s.files.join(', ')}`
@@ -275,11 +275,11 @@ ${currentPlan}
 Update the plan accordingly. Use the same output format.`;
 
     const response = await llm.invoke([
-      new SystemMessage('You are a senior software architect. Refine plans based on feedback.'),
-      new HumanMessage(prompt),
+      { role: 'system', content: 'You are a senior software architect. Refine plans based on feedback.' },
+      { role: 'user', content: prompt },
     ]);
 
-    const text = this.extractContent(response.content);
+    const text = extractText(response);
     return this.parsePlan(text, plan.title);
   }
 
