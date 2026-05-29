@@ -5,6 +5,15 @@ export type ProviderType =
   | 'kimi'
   | 'qwen'
   | 'glm'
+  | 'mistral'
+  | 'xai'
+  | 'groq'
+  | 'cohere'
+  | 'perplexity'
+  | 'together'
+  | 'fireworks'
+  | 'huggingface'
+  | 'cerebras'
   | 'ollama'
   | 'selfhosted'
   | 'deepseek'
@@ -21,6 +30,15 @@ export interface GeminiConfig extends BaseProviderConfig { }
 export interface KimiConfig extends BaseProviderConfig { }
 export interface QwenConfig extends BaseProviderConfig { }
 export interface GlmConfig extends BaseProviderConfig { }
+export interface MistralConfig extends BaseProviderConfig { }
+export interface XaiConfig extends BaseProviderConfig { }
+export interface GroqConfig extends BaseProviderConfig { }
+export interface CohereConfig extends BaseProviderConfig { }
+export interface PerplexityConfig extends BaseProviderConfig { }
+export interface TogetherConfig extends BaseProviderConfig { }
+export interface FireworksConfig extends BaseProviderConfig { }
+export interface HuggingFaceConfig extends BaseProviderConfig { }
+export interface CerebrasConfig extends BaseProviderConfig { }
 export interface DeepSeekConfig extends BaseProviderConfig { }
 export interface OpenRouterConfig extends BaseProviderConfig { }
 export interface SelfHostedConfig extends BaseProviderConfig { }
@@ -36,6 +54,15 @@ export interface ProvidersConfig {
   kimi?: KimiConfig;
   qwen?: QwenConfig;
   glm?: GlmConfig;
+  mistral?: MistralConfig;
+  xai?: XaiConfig;
+  groq?: GroqConfig;
+  cohere?: CohereConfig;
+  perplexity?: PerplexityConfig;
+  together?: TogetherConfig;
+  fireworks?: FireworksConfig;
+  huggingface?: HuggingFaceConfig;
+  cerebras?: CerebrasConfig;
   deepseek?: DeepSeekConfig;
   openrouter?: OpenRouterConfig;
   ollama?: OllamaConfig;
@@ -127,8 +154,18 @@ export const OPENAI_COMPATIBLE_PROVIDERS = [
   'kimi',
   'qwen',
   'glm',
+  'mistral',
+  'xai',
+  'groq',
+  'cohere',
+  'perplexity',
+  'together',
+  'fireworks',
+  'huggingface',
+  'cerebras',
   'deepseek',
   'openrouter',
+  'ollama',
   'selfhosted',
 ] as const satisfies readonly ProviderType[];
 
@@ -215,51 +252,54 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
   openai: {
     type: 'openai',
     name: 'OpenAI',
-    description: 'GPT-5.5, GPT-5.4, Codex e família GPT atual',
+    description: 'GPT-5.4, GPT-5 Codex, GPT-5 mini e família GPT atual',
     requiresApiKey: true,
     defaultBaseUrl: 'https://api.openai.com/v1',
     websiteUrl: 'https://platform.openai.com',
     popularModels: [
-      'gpt-5.5',
-      'gpt-5.5-pro',
       'gpt-5.4',
-      'gpt-5.4-mini',
-      'gpt-5.4-nano',
-      'gpt-5-codex',
+      'gpt-5.4-pro',
+      'gpt-5.3-codex',
+      'gpt-5.2',
+      'gpt-5.2-codex',
+      'gpt-5-mini',
+      'gpt-5-nano',
       'gpt-4.1',
       'gpt-4.1-mini',
     ],
     recommendedModels: {
-      default: 'gpt-5.4-mini',
-      subAgent: 'gpt-5.4-mini',
-      coder: 'gpt-5.5',
-      architect: 'gpt-5.5',
-      reviewer: 'gpt-5.5',
+      default: 'gpt-5-mini',
+      subAgent: 'gpt-5-mini',
+      coder: 'gpt-5.3-codex',
+      architect: 'gpt-5.4',
+      reviewer: 'gpt-5.4',
       planner: 'gpt-5.4',
-      tester: 'gpt-5.4-mini',
+      tester: 'gpt-5-mini',
       cheap: 'gpt-4.1-mini',
     },
   },
   anthropic: {
     type: 'anthropic',
     name: 'Anthropic',
-    description: 'Claude Opus 4.7, Sonnet 4.6 e Haiku 4.5',
+    description: 'Claude Sonnet 4.5, Haiku 4.5 e Opus 4.1',
     requiresApiKey: true,
     defaultBaseUrl: 'https://api.anthropic.com',
     websiteUrl: 'https://console.anthropic.com',
     popularModels: [
-      'claude-opus-4-7',
-      'claude-sonnet-4-6',
+      'claude-sonnet-4-5',
+      'claude-sonnet-4-5-20250929',
       'claude-haiku-4-5',
       'claude-haiku-4-5-20251001',
+      'claude-opus-4-1',
+      'claude-opus-4-1-20250805',
     ],
     recommendedModels: {
-      default: 'claude-sonnet-4-6',
+      default: 'claude-sonnet-4-5',
       subAgent: 'claude-haiku-4-5',
-      coder: 'claude-sonnet-4-6',
-      architect: 'claude-opus-4-7',
-      reviewer: 'claude-sonnet-4-6',
-      planner: 'claude-sonnet-4-6',
+      coder: 'claude-sonnet-4-5',
+      architect: 'claude-opus-4-1',
+      reviewer: 'claude-sonnet-4-5',
+      planner: 'claude-sonnet-4-5',
       tester: 'claude-haiku-4-5',
       cheap: 'claude-haiku-4-5',
     },
@@ -290,7 +330,7 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
   kimi: {
     type: 'kimi',
     name: 'Moonshot Kimi',
-    description: 'Kimi K2.6/K2.5 com OpenAI compatibility',
+    description: 'Kimi K2.6 e modelos K2 via OpenAI compatibility',
     requiresApiKey: true,
     defaultBaseUrl: 'https://api.moonshot.ai/v1',
     websiteUrl: 'https://platform.kimi.ai',
@@ -302,7 +342,7 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
       'kimi-k2-0905-preview',
     ],
     recommendedModels: {
-      default: 'kimi-k2.5',
+      default: 'kimi-k2.6',
       subAgent: 'kimi-k2-turbo-preview',
       coder: 'kimi-k2.6',
       architect: 'kimi-k2-thinking',
@@ -320,32 +360,33 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     websiteUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-via-dashscope',
     popularModels: [
-      'qwen3.6-max-preview',
-      'qwen3.6-plus',
-      'qwen3-max-preview',
-      'qwen-plus',
-      'qwen-flash',
+      'qwen3-235b-a22b-instruct-2507',
+      'qwen3-235b-a22b-thinking-2507',
+      'qwen-max-latest',
+      'qwen-plus-latest',
+      'qwen-turbo-latest',
+      'qwen3-coder-plus',
     ],
     recommendedModels: {
-      default: 'qwen3.6-plus',
-      subAgent: 'qwen-flash',
-      coder: 'qwen3.6-max-preview',
-      architect: 'qwen3.6-max-preview',
-      reviewer: 'qwen3.6-plus',
-      planner: 'qwen3.6-plus',
-      tester: 'qwen-flash',
-      cheap: 'qwen-flash',
+      default: 'qwen-plus-latest',
+      subAgent: 'qwen-turbo-latest',
+      coder: 'qwen3-coder-plus',
+      architect: 'qwen3-235b-a22b-thinking-2507',
+      reviewer: 'qwen-plus-latest',
+      planner: 'qwen3-235b-a22b-thinking-2507',
+      tester: 'qwen-turbo-latest',
+      cheap: 'qwen-turbo-latest',
     },
   },
   glm: {
     type: 'glm',
     name: 'GLM / BigModel',
-    description: 'GLM-5 e GLM-4.5 via endpoint OpenAI-compatible da Zhipu',
+    description: 'GLM-4.6 e GLM-4.5 via endpoint OpenAI-compatible da Zhipu',
     requiresApiKey: true,
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    websiteUrl: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-5',
+    websiteUrl: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-4.6',
     popularModels: [
-      'glm-5',
+      'glm-4.6',
       'glm-4.5',
       'glm-4.5-air',
       'glm-4.5-flash',
@@ -353,12 +394,247 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
     recommendedModels: {
       default: 'glm-4.5-air',
       subAgent: 'glm-4.5-flash',
-      coder: 'glm-5',
-      architect: 'glm-5',
+      coder: 'glm-4.6',
+      architect: 'glm-4.6',
       reviewer: 'glm-4.5-air',
       planner: 'glm-4.5-air',
       tester: 'glm-4.5-flash',
       cheap: 'glm-4.5-flash',
+    },
+  },
+  mistral: {
+    type: 'mistral',
+    name: 'Mistral AI',
+    description: 'Mistral Large/Medium, Codestral, Devstral e Magistral',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.mistral.ai/v1',
+    websiteUrl: 'https://docs.mistral.ai/models/overview',
+    popularModels: [
+      'mistral-large-latest',
+      'mistral-medium-latest',
+      'mistral-small-latest',
+      'codestral-latest',
+      'devstral-latest',
+      'magistral-medium-latest',
+      'ministral-14b-latest',
+      'ministral-8b-latest',
+    ],
+    recommendedModels: {
+      default: 'mistral-medium-latest',
+      subAgent: 'mistral-small-latest',
+      coder: 'codestral-latest',
+      architect: 'mistral-large-latest',
+      reviewer: 'mistral-medium-latest',
+      planner: 'magistral-medium-latest',
+      tester: 'mistral-small-latest',
+      cheap: 'ministral-8b-latest',
+    },
+  },
+  xai: {
+    type: 'xai',
+    name: 'xAI Grok',
+    description: 'Grok 4.3, Grok 4.1 Fast e Grok Code via API xAI',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.x.ai/v1',
+    websiteUrl: 'https://docs.x.ai/docs/models',
+    popularModels: [
+      'grok-4.3',
+      'grok-4.20',
+      'grok-4-1-fast-reasoning',
+      'grok-4-1-fast-non-reasoning',
+      'grok-code-fast-1',
+      'grok-4',
+    ],
+    recommendedModels: {
+      default: 'grok-4.3',
+      subAgent: 'grok-4-1-fast-non-reasoning',
+      coder: 'grok-code-fast-1',
+      architect: 'grok-4.3',
+      reviewer: 'grok-4.3',
+      planner: 'grok-4-1-fast-reasoning',
+      tester: 'grok-4-1-fast-non-reasoning',
+      cheap: 'grok-4-1-fast-non-reasoning',
+    },
+  },
+  groq: {
+    type: 'groq',
+    name: 'Groq',
+    description: 'Inferencia rapida para GPT-OSS, Llama, Qwen e DeepSeek',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.groq.com/openai/v1',
+    websiteUrl: 'https://console.groq.com/docs/models',
+    popularModels: [
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'qwen/qwen3-32b',
+      'deepseek-r1-distill-llama-70b',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
+    ],
+    recommendedModels: {
+      default: 'openai/gpt-oss-120b',
+      subAgent: 'openai/gpt-oss-20b',
+      coder: 'qwen/qwen3-32b',
+      architect: 'openai/gpt-oss-120b',
+      reviewer: 'openai/gpt-oss-120b',
+      planner: 'deepseek-r1-distill-llama-70b',
+      tester: 'llama-3.1-8b-instant',
+      cheap: 'llama-3.1-8b-instant',
+    },
+  },
+  cohere: {
+    type: 'cohere',
+    name: 'Cohere',
+    description: 'Command A+, Command A e Command R via Compatibility API',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.cohere.ai/compatibility/v1',
+    websiteUrl: 'https://docs.cohere.com/docs/models',
+    popularModels: [
+      'command-a-plus-05-2026',
+      'command-a-03-2025',
+      'command-a-reasoning-08-2025',
+      'command-r7b-12-2024',
+      'command-r-plus',
+      'c4ai-aya-expanse-32b',
+      'tiny-aya-global',
+    ],
+    recommendedModels: {
+      default: 'command-a-plus-05-2026',
+      subAgent: 'command-r7b-12-2024',
+      coder: 'command-a-plus-05-2026',
+      architect: 'command-a-plus-05-2026',
+      reviewer: 'command-a-03-2025',
+      planner: 'command-a-reasoning-08-2025',
+      tester: 'command-r7b-12-2024',
+      cheap: 'command-r7b-12-2024',
+    },
+  },
+  perplexity: {
+    type: 'perplexity',
+    name: 'Perplexity Sonar',
+    description: 'Sonar com busca, reasoning e deep research',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.perplexity.ai',
+    websiteUrl: 'https://docs.perplexity.ai',
+    popularModels: [
+      'sonar',
+      'sonar-pro',
+      'sonar-reasoning',
+      'sonar-reasoning-pro',
+      'sonar-deep-research',
+    ],
+    recommendedModels: {
+      default: 'sonar-pro',
+      subAgent: 'sonar',
+      coder: 'sonar-pro',
+      architect: 'sonar-reasoning-pro',
+      reviewer: 'sonar-pro',
+      planner: 'sonar-reasoning-pro',
+      tester: 'sonar',
+      cheap: 'sonar',
+    },
+  },
+  together: {
+    type: 'together',
+    name: 'Together AI',
+    description: 'Open models e frontier alternatives via API OpenAI-compatible',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.together.ai/v1',
+    websiteUrl: 'https://docs.together.ai',
+    popularModels: [
+      'moonshotai/Kimi-K2.5',
+      'deepseek-ai/DeepSeek-R1',
+      'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+      'Qwen/Qwen3-235B-A22B',
+      'Qwen/Qwen3-32B',
+      'google/gemma-3-27b-it',
+    ],
+    recommendedModels: {
+      default: 'moonshotai/Kimi-K2.5',
+      subAgent: 'Qwen/Qwen3-32B',
+      coder: 'Qwen/Qwen3-235B-A22B',
+      architect: 'deepseek-ai/DeepSeek-R1',
+      reviewer: 'moonshotai/Kimi-K2.5',
+      planner: 'deepseek-ai/DeepSeek-R1',
+      tester: 'Qwen/Qwen3-32B',
+      cheap: 'google/gemma-3-27b-it',
+    },
+  },
+  fireworks: {
+    type: 'fireworks',
+    name: 'Fireworks AI',
+    description: 'Serverless inference para modelos open-weight e agenticos',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.fireworks.ai/inference/v1',
+    websiteUrl: 'https://docs.fireworks.ai/guides/querying-text-models',
+    popularModels: [
+      'accounts/fireworks/models/deepseek-v3p1',
+      'accounts/fireworks/models/kimi-k2-instruct-0905',
+      'accounts/fireworks/models/qwen3-235b-a22b',
+      'accounts/fireworks/models/llama-v3p3-70b-instruct',
+      'accounts/fireworks/models/gpt-oss-120b',
+    ],
+    recommendedModels: {
+      default: 'accounts/fireworks/models/deepseek-v3p1',
+      subAgent: 'accounts/fireworks/models/gpt-oss-120b',
+      coder: 'accounts/fireworks/models/qwen3-235b-a22b',
+      architect: 'accounts/fireworks/models/kimi-k2-instruct-0905',
+      reviewer: 'accounts/fireworks/models/deepseek-v3p1',
+      planner: 'accounts/fireworks/models/deepseek-v3p1',
+      tester: 'accounts/fireworks/models/gpt-oss-120b',
+      cheap: 'accounts/fireworks/models/gpt-oss-120b',
+    },
+  },
+  huggingface: {
+    type: 'huggingface',
+    name: 'Hugging Face Inference Router',
+    description: 'Inference Providers com endpoint OpenAI-compatible',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://router.huggingface.co/v1',
+    websiteUrl: 'https://huggingface.co/docs/inference-providers',
+    popularModels: [
+      'openai/gpt-oss-120b',
+      'deepseek-ai/DeepSeek-R1:fastest',
+      'Qwen/Qwen3-32B',
+      'google/gemma-3-27b-it',
+      'meta-llama/Llama-3.3-70B-Instruct',
+      'mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+    ],
+    recommendedModels: {
+      default: 'openai/gpt-oss-120b',
+      subAgent: 'Qwen/Qwen3-32B',
+      coder: 'Qwen/Qwen3-32B',
+      architect: 'deepseek-ai/DeepSeek-R1:fastest',
+      reviewer: 'openai/gpt-oss-120b',
+      planner: 'deepseek-ai/DeepSeek-R1:fastest',
+      tester: 'google/gemma-3-27b-it',
+      cheap: 'google/gemma-3-27b-it',
+    },
+  },
+  cerebras: {
+    type: 'cerebras',
+    name: 'Cerebras Inference',
+    description: 'Inferencia de baixa latencia para GPT-OSS, Qwen e GLM',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.cerebras.ai/v1',
+    websiteUrl: 'https://inference-docs.cerebras.ai',
+    popularModels: [
+      'gpt-oss-120b',
+      'gpt-oss-20b',
+      'qwen-3-32b',
+      'qwen-3-235b-a22b-instruct-2507',
+      'zai-glm-4.7',
+    ],
+    recommendedModels: {
+      default: 'gpt-oss-120b',
+      subAgent: 'gpt-oss-20b',
+      coder: 'qwen-3-32b',
+      architect: 'gpt-oss-120b',
+      reviewer: 'gpt-oss-120b',
+      planner: 'zai-glm-4.7',
+      tester: 'gpt-oss-20b',
+      cheap: 'gpt-oss-20b',
     },
   },
   deepseek: {
@@ -388,25 +664,30 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
   openrouter: {
     type: 'openrouter',
     name: 'OpenRouter',
-    description: 'Acesso a múltiplos modelos via uma API',
+    description: 'Acesso a múltiplos modelos via uma API OpenAI-compatible',
     requiresApiKey: true,
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     websiteUrl: 'https://openrouter.ai',
     popularModels: [
-      'openai/gpt-5',
-      'anthropic/claude-sonnet-4',
+      'moonshotai/kimi-k2.6',
+      'openai/gpt-5.4',
+      'anthropic/claude-sonnet-4.5',
       'google/gemini-2.5-pro',
-      'meta-llama/llama-3.1-70b-instruct',
+      'z-ai/glm-4.6',
+      'qwen/qwen3-235b-a22b',
+      'deepseek/deepseek-v4-pro',
+      'google/gemma-3-27b-it',
+      'meta-llama/llama-4-maverick',
     ],
     recommendedModels: {
-      default: 'openai/gpt-5',
+      default: 'moonshotai/kimi-k2.6',
       subAgent: 'google/gemini-2.5-pro',
-      coder: 'openai/gpt-5',
-      architect: 'anthropic/claude-sonnet-4',
-      reviewer: 'anthropic/claude-sonnet-4',
+      coder: 'moonshotai/kimi-k2.6',
+      architect: 'anthropic/claude-sonnet-4.5',
+      reviewer: 'anthropic/claude-sonnet-4.5',
       planner: 'google/gemini-2.5-pro',
-      tester: 'google/gemini-2.5-pro',
-      cheap: 'google/gemini-2.5-pro',
+      tester: 'google/gemma-3-27b-it',
+      cheap: 'google/gemma-3-27b-it',
     },
   },
   ollama: {
@@ -423,6 +704,7 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
       'gemma3',
       'deepseek-r1',
       'mistral',
+      'glm4',
     ],
     recommendedModels: {
       default: 'gpt-oss:20b',
@@ -449,6 +731,7 @@ export const PROVIDER_METADATA: Record<ProviderType, ProviderMetadata> = {
     popularModels: [
       'openai/gpt-oss-20b',
       'qwen3-32b',
+      'google/gemma-3-27b-it',
       'llama-3.3-70b-instruct',
       'deepseek-r1-distill-qwen-32b',
     ],

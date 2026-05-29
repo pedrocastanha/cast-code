@@ -29,7 +29,7 @@ const DEFAULT_CONFIG: CastConfig = {
   models: {
     default: {
       provider: 'openai',
-      model: 'gpt-5.4-mini',
+      model: 'gpt-5-mini',
     },
   },
   effort: DEFAULT_EFFORT,
