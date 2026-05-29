@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 import { PromptLoaderService } from '../../core/services/prompt-loader.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -25,7 +25,7 @@ export interface ReleaseNotesData {
 @Injectable()
 export class ReleaseNotesService {
   constructor(
-    private readonly multiLlmService: MultiLlmService,
+    private readonly llmClientFactory: LlmClientFactory,
     private readonly promptLoader: PromptLoaderService,
   ) {}
 
@@ -161,7 +161,7 @@ export class ReleaseNotesService {
   }
 
   private async generateAIAnalysis(commits: string[], changedFiles: string[]): Promise<Partial<ReleaseNotesData>> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     
     const commitMessages = commits.map(c => {
       const parts = c.split('|');
@@ -206,11 +206,11 @@ Categorize into these sections (return empty array if none):
 
     try {
       const response = await llm.invoke([
-        new SystemMessage(this.promptLoader.getPrompt('release')),
-        new HumanMessage(prompt),
+        { role: 'system', content: this.promptLoader.getPrompt('release') },
+        { role: 'user', content: prompt },
       ]);
 
-      const content = this.extractContent(response.content);
+      const content = extractText(response);
       const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
       
       if (jsonMatch) {

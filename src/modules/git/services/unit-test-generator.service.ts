@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import type { LlmClient } from '../../../common/interfaces/llm-client.interface';
+import { extractText, type Message } from '../../../common/types/llm.types';
 
 export interface GeneratedTestFile {
   path: string;
@@ -43,7 +44,7 @@ export class UnitTestGeneratorService {
   private readonly MAX_FILES_PER_RUN = 12;
   private readonly LLM_TIMEOUT_MS = 70000;
 
-  constructor(private readonly multiLlmService: MultiLlmService) {}
+  constructor(private readonly llmClientFactory: LlmClientFactory) {}
 
   detectDefaultBaseBranch(): string {
     try {
@@ -135,11 +136,11 @@ export class UnitTestGeneratorService {
       });
       try {
         const firstResponse = await this.invokeWithTimeout(llm, [
-          new SystemMessage(this.getSystemPrompt()),
-          new HumanMessage(this.buildFilePrompt(plan)),
+          { role: 'system', content: this.getSystemPrompt() },
+          { role: 'user', content: this.buildFilePrompt(plan) },
         ]);
 
-        const firstContent = this.extractContent(firstResponse.content);
+        const firstContent = extractText(firstResponse);
         const firstParsed = this.parseJson(firstContent);
         if (!firstParsed || !firstParsed.content) {
           notes.push(`Failed to parse generated tests for ${plan.sourcePath}.`);
@@ -328,11 +329,11 @@ OUTPUT FORMAT (JSON):
   ): Promise<string | null> {
     try {
       const response = await this.invokeWithTimeout(llm, [
-        new SystemMessage(this.getSystemPrompt()),
-        new HumanMessage(this.buildRevisionPrompt(plan, previousContent, issues)),
+        { role: 'system', content: this.getSystemPrompt() },
+        { role: 'user', content: this.buildRevisionPrompt(plan, previousContent, issues) },
       ]);
 
-      const content = this.extractContent(response.content);
+      const content = extractText(response);
       const parsed = this.parseJson(content);
       if (!parsed || !parsed.content) return null;
       const revised = String(parsed.content).trimEnd();
@@ -391,18 +392,18 @@ OUTPUT FORMAT (JSON):
     }
   }
 
-  private createTestModel() {
+  private createTestModel(): LlmClient {
     try {
-      return this.multiLlmService.createModel('tester');
+      return this.llmClientFactory.create('tester');
     } catch {
-      return this.multiLlmService.createModel('cheap');
+      return this.llmClientFactory.create('cheap');
     }
   }
 
-  private async invokeWithTimeout(llm: any, messages: any[]): Promise<any> {
+  private async invokeWithTimeout(llm: LlmClient, messages: Message[]): Promise<Message> {
     return Promise.race([
       llm.invoke(messages),
-      new Promise((_, reject) =>
+      new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`LLM timeout after ${this.LLM_TIMEOUT_MS / 1000}s`)), this.LLM_TIMEOUT_MS)
       ),
     ]);

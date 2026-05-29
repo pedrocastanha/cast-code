@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 
 export interface ReviewIssue {
   severity: 'error' | 'warning' | 'suggestion' | 'praise';
@@ -22,7 +22,7 @@ export interface ReviewResult {
 
 @Injectable()
 export class CodeReviewService {
-  constructor(private readonly multiLlmService: MultiLlmService) {}
+  constructor(private readonly llmClientFactory: LlmClientFactory) {}
 
   async reviewFile(filePath: string): Promise<ReviewResult> {
     const content = this.readFile(filePath);
@@ -35,15 +35,15 @@ export class CodeReviewService {
       };
     }
 
-    const llm = this.multiLlmService.createModel('reviewer');
+    const llm = this.llmClientFactory.create('reviewer');
     const prompt = this.buildReviewPrompt(filePath, content);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getReviewSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getReviewSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const responseText = this.extractContent(response.content);
+    const responseText = extractText(response);
     return this.parseReviewResponse(filePath, responseText, content);
   }
 
@@ -67,15 +67,15 @@ export class CodeReviewService {
       return { success: false, error: 'Could not read file' };
     }
 
-    const llm = this.multiLlmService.createModel('reviewer');
+    const llm = this.llmClientFactory.create('reviewer');
     const prompt = this.buildFixPrompt(filePath, content);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getFixSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getFixSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const responseText = this.extractContent(response.content);
+    const responseText = extractText(response);
     const fixedCode = this.extractCodeBlock(responseText);
 
     if (fixedCode) {
@@ -98,7 +98,7 @@ export class CodeReviewService {
       }
 
       try {
-        const llm = this.multiLlmService.createModel('reviewer');
+        const llm = this.llmClientFactory.create('reviewer');
         const prompt = `Format and indent this code properly. Maintain all functionality, only fix indentation and formatting:
 
 File: ${filePath}
@@ -110,11 +110,11 @@ ${content}
 Return ONLY the formatted code in a code block.`;
 
         const response = await llm.invoke([
-          new SystemMessage('You are a code formatter. Fix indentation and formatting only.'),
-          new HumanMessage(prompt),
+          { role: 'system', content: 'You are a code formatter. Fix indentation and formatting only.' },
+          { role: 'user', content: prompt },
         ]);
 
-        const responseText = this.extractContent(response.content);
+        const responseText = extractText(response);
         const formattedCode = this.extractCodeBlock(responseText);
 
         if (formattedCode) {

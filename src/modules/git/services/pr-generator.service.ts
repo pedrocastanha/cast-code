@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { execSync, spawnSync } from 'child_process';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 import { MonorepoDetectorService } from './monorepo-detector.service';
 import { PromptLoaderService } from '../../core/services/prompt-loader.service';
 import { I18nService } from '../../i18n/services/i18n.service';
@@ -109,7 +109,7 @@ export class PrGeneratorService {
   private readonly prTemplatePath = '/home/pedro-castanheira/Downloads/pull-request.template.md';
 
   constructor(
-    private readonly multiLlmService: MultiLlmService,
+    private readonly llmClientFactory: LlmClientFactory,
     private readonly monorepoDetector: MonorepoDetectorService,
     private readonly promptLoader: PromptLoaderService,
     private readonly i18nService: I18nService,
@@ -232,16 +232,16 @@ export class PrGeneratorService {
   }
 
   async analyzeCommit(commit: CommitInfo): Promise<{ summary: string; details: string }> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
 
     const prompt = this.buildCommitAnalysisPrompt(commit);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getCommitAnalysisSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getCommitAnalysisSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const content = this.extractContent(response.content);
+    const content = extractText(response);
     return this.parseCommitAnalysis(content);
   }
 
@@ -250,15 +250,15 @@ export class PrGeneratorService {
     commits: CommitInfo[],
     baseBranch: string = 'develop',
   ): Promise<PRDescription> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     const prompt = this.buildSinglePrompt(branchName, commits, baseBranch);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getSingleAgentSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getSingleAgentSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const content = this.extractContent(response.content);
+    const content = extractText(response);
     const { title, description, commitSummaries } = this.parseSingleResponse(content, commits);
 
     return {
