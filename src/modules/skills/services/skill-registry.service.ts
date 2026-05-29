@@ -1,5 +1,5 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
-import { StructuredTool } from '@langchain/core/tools';
+import { CastTool } from '../../../common/interfaces/cast-tool.interface';
 import { SkillLoaderService } from './skill-loader.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { ResolvedSkill, SkillDefinition } from '../types';
@@ -33,12 +33,12 @@ export class SkillRegistryService {
       .filter((s): s is ResolvedSkill => s !== undefined);
   }
 
-  getToolsForSkills(skillNames: string[]): StructuredTool[] {
+  getToolsForSkills(skillNames: string[]): CastTool[] {
     const skills = this.resolveSkills(skillNames);
-    const toolsMap = new Map<string, StructuredTool>();
+    const toolsMap = new Map<string, CastTool>();
 
     for (const skill of skills) {
-      for (const t of skill.tools as StructuredTool[]) {
+      for (const t of skill.tools as CastTool[]) {
         toolsMap.set(t.name, t);
       }
     }
@@ -46,8 +46,8 @@ export class SkillRegistryService {
     return Array.from(toolsMap.values());
   }
 
-  getIsolatedToolsForSkills(skillNames: string[]): StructuredTool[] {
-    const toolsMap = new Map<string, StructuredTool>();
+  getIsolatedToolsForSkills(skillNames: string[]): CastTool[] {
+    const toolsMap = new Map<string, CastTool>();
 
     for (const skillName of skillNames) {
       const skill = this.skillLoader.getSkill(skillName);

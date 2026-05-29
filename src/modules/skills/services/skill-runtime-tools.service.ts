@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 
 import { SkillAssetService } from './skill-asset.service';
@@ -16,7 +16,7 @@ export class SkillRuntimeToolsService {
   }
 
   private createListSkillFilesTool() {
-    return tool(
+    return castTool(
       async (input) => {
         const skillName = readString(input, 'skillName', 'skill_name', 'name');
         if (!skillName) {
@@ -46,7 +46,7 @@ export class SkillRuntimeToolsService {
   }
 
   private createSkillViewTool() {
-    return tool(
+    return castTool(
       async (input) => {
         const skillName = readString(input, 'skillName', 'skill_name', 'name');
         const filePath = readString(input, 'filePath', 'file_path', 'path');

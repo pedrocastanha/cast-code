@@ -1,4 +1,4 @@
-import { StructuredTool } from '@langchain/core/tools';
+import { CastTool } from '../../../common/interfaces/cast-tool.interface';
 
 export type SkillTrust = 'builtin' | 'trusted' | 'community' | 'local' | 'quarantined';
 export type SkillRisk = 'low' | 'medium' | 'high' | 'critical';
@@ -59,6 +59,6 @@ export interface SkillDefinition {
 export interface ResolvedSkill {
   name: string;
   description: string;
-  tools: StructuredTool[];
+  tools: CastTool[];
   guidelines: string;
 }
