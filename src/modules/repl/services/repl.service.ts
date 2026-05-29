@@ -59,6 +59,8 @@ type CastReference = {
   content: string;
 };
 
+type ReplInputMode = 'request-always' | 'accept-edits' | 'plan';
+
 @Injectable()
 export class ReplService {
   private readonly ui = new CommandUiService();
@@ -70,6 +72,7 @@ export class ReplService {
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
   private spinnerFrameIndex = 0;
   private spinnerLabel = '';
+  private inputMode: ReplInputMode = 'request-always';
   private localSessionId: string | null = null;
   private localStateWarningShown = false;
 
@@ -167,9 +170,11 @@ export class ReplService {
       getMentionSuggestions: (partial) => this.getMentionSuggestions(partial),
       getReferenceSuggestions: (partial) => this.getReferenceSuggestions(partial),
       getFooterLines: () => this.getInputFooterLines(),
+      placeholder: 'Ask Cast anything...',
       onSubmit: (line) => this.handleLine(line),
       onCancel: () => this.handleCancel(),
       onExit: () => this.handleExit(),
+      onCycleMode: () => this.cycleInputMode(),
     });
 
     this.permissionService.setPermissionHandler((command, dangerLevel) =>
@@ -241,6 +246,10 @@ export class ReplService {
   }
 
   private async handleFileWritePrompt(filePath: string, diffPreview: string, isNew: boolean): Promise<boolean> {
+    if (this.inputMode === 'accept-edits') {
+      return true;
+    }
+
     this.stopSpinner();
     this.smartInput?.pause();
 
@@ -1344,22 +1353,12 @@ export class ReplService {
     try {
       let messageToProcess = message;
 
-      const planCheck = await this.planMode.shouldEnterPlanMode(message);
+      const forcePlanMode = this.inputMode === 'plan';
+      const planCheck = forcePlanMode
+        ? { shouldPlan: true }
+        : await this.planMode.shouldEnterPlanMode(message);
       if (planCheck.shouldPlan) {
-        const usePlan = await this.smartInput!.askChoice(
-          '📝 Complex task. Create a plan?',
-          [
-            { key: 'y', label: 'yes', description: 'Create structured plan' },
-            { key: 'n', label: 'no', description: 'Proceed without plan' },
-          ]
-        );
-
-        if (!usePlan) {
-          this.smartInput?.refresh();
-          return;
-        }
-
-        if (usePlan === 'y') {
+        if (forcePlanMode) {
           const plannedMessage = await this.runInteractivePlanMode(message);
           if (!plannedMessage) {
             this.smartInput?.refresh();
@@ -1367,8 +1366,30 @@ export class ReplService {
           }
           messageToProcess = plannedMessage;
         } else {
-          // No plan selected: wrap with execution directive so the agent acts immediately
-          messageToProcess = `[EXECUTE NOW — no explanation, no questions, use tools immediately]\n\n${message}`;
+          const usePlan = await this.smartInput!.askChoice(
+            '📝 Complex task. Create a plan?',
+            [
+              { key: 'y', label: 'yes', description: 'Create structured plan' },
+              { key: 'n', label: 'no', description: 'Proceed without plan' },
+            ]
+          );
+
+          if (!usePlan) {
+            this.smartInput?.refresh();
+            return;
+          }
+
+          if (usePlan === 'y') {
+            const plannedMessage = await this.runInteractivePlanMode(message);
+            if (!plannedMessage) {
+              this.smartInput?.refresh();
+              return;
+            }
+            messageToProcess = plannedMessage;
+          } else {
+            // No plan selected: wrap with execution directive so the agent acts immediately
+            messageToProcess = `[EXECUTE NOW — no explanation, no questions, use tools immediately]\n\n${message}`;
+          }
         }
       }
 
@@ -1683,8 +1704,8 @@ export class ReplService {
 
   private getInputFooterLines(): string[] {
     const terminalWidth = process.stdout.columns || 80;
-    const left = `${Colors.dim}tab to queue message${Colors.reset}`;
     const right = this.getContextLeftFooterLabel();
+    const left = this.getFooterLeftLabel('full');
 
     if (!right) {
       return [left];
@@ -1697,7 +1718,65 @@ export class ReplService {
       return [combined];
     }
 
+    const compactLeft = this.getFooterLeftLabel('compact');
+    const compactGap = Math.max(2, terminalWidth - visibleWidth(compactLeft) - visibleWidth(right));
+    const compactCombined = `${compactLeft}${' '.repeat(compactGap)}${right}`;
+
+    if (visibleWidth(compactCombined) <= terminalWidth) {
+      return [compactCombined];
+    }
+
+    const minimalLeft = this.getFooterLeftLabel('minimal');
+    const minimalGap = Math.max(2, terminalWidth - visibleWidth(minimalLeft) - visibleWidth(right));
+    const minimalCombined = `${minimalLeft}${' '.repeat(minimalGap)}${right}`;
+
+    if (visibleWidth(minimalCombined) <= terminalWidth) {
+      return [minimalCombined];
+    }
+
     return [left];
+  }
+
+  private getFooterLeftLabel(mode: 'full' | 'compact' | 'minimal'): string {
+    const parts: string[] = [];
+
+    if (this.isProcessing && this.spinnerLabel) {
+      const spinner = Icons.spinner[this.spinnerFrameIndex % Icons.spinner.length];
+      parts.push(`${Colors.accent}${spinner} ${this.spinnerLabel.toLowerCase()}${Colors.reset}`);
+    }
+
+    if (mode !== 'minimal') {
+      parts.push(this.getInputModeLabel());
+      parts.push(`${Colors.dim}${mode === 'full' ? 'Shift+Tab mode' : 'Shift+Tab'}${Colors.reset}`);
+    }
+
+    parts.push(`${Colors.dim}${mode === 'full' ? 'Tab queue' : 'Tab'}${Colors.reset}`);
+
+    if (this.pendingLines.length > 0) {
+      parts.push(`${Colors.magenta}queue ${this.pendingLines.length}${Colors.reset}`);
+    }
+
+    const separator = mode === 'full' ? '  ·  ' : ' · ';
+    return parts.join(`${Colors.subtle}${separator}${Colors.reset}`);
+  }
+
+  private cycleInputMode(): void {
+    const order: ReplInputMode[] = ['request-always', 'accept-edits', 'plan'];
+    const currentIndex = order.indexOf(this.inputMode);
+    this.inputMode = order[(currentIndex + 1) % order.length] ?? 'request-always';
+    this.smartInput?.refresh();
+  }
+
+  private getInputModeLabel(): string {
+    switch (this.inputMode) {
+    case 'accept-edits':
+      return `${Colors.green}ACCEPT EDITS${Colors.reset}`;
+    case 'plan':
+      return `${Colors.accent}PLAN MODE${Colors.reset}`;
+    case 'request-always':
+    default:
+      return `${Colors.cyan}REQUEST ALWAYS${Colors.reset}`;
+    }
   }
 
   private getContextLeftFooterLabel(): string {

@@ -996,7 +996,7 @@ describe('ReplService', () => {
       configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
       configManager: {
         loadConfig: async () => {},
-        getModelConfig: () => ({ provider: 'openai', model: 'gpt-5.4-mini' }),
+        getModelConfig: () => ({ provider: 'openai', model: 'gpt-5-mini' }),
       },
       replCommands: {
         printHelp: () => {},
@@ -1017,7 +1017,7 @@ describe('ReplService', () => {
     await (service as any).handleCommand('/model');
 
     assert.strictEqual(reinitializeCalls, 1, 'model changes should reinitialize the active model once');
-    assert.strictEqual(statsModel, 'openai/gpt-5.4-mini', 'stats should refresh to the new model display name');
+    assert.strictEqual(statsModel, 'openai/gpt-5-mini', 'stats should refresh to the new model display name');
   });
 
   test('routes /effort and reinitializes the active model after a change', async () => {
@@ -1099,7 +1099,7 @@ describe('ReplService', () => {
     }
   });
 
-  test('input footer shows queue hint and remaining context only', () => {
+  test('input footer shows input mode, shortcuts, and remaining context only', () => {
     const service = buildReplService({
       deepAgent: {
         initialize: async () => ({ toolCount: 0, projectPath: '' }),
@@ -1115,9 +1115,26 @@ describe('ReplService', () => {
     const combined = stripAnsi(lines.join(' '));
 
     assert.equal(lines.length, 1, 'footer should render one compact line');
-    assert.match(combined, /tab to queue message/i);
+    assert.match(combined, /REQUEST ALWAYS/);
+    assert.match(combined, /Shift\+Tab mode/);
+    assert.match(combined, /Tab queue/);
     assert.match(combined, /90% context left/i);
     assert.doesNotMatch(combined, /tokens|cost|effort|model/i);
+  });
+
+  test('input footer cycles request, accept edits, and plan modes', () => {
+    const service = buildReplService();
+
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /REQUEST ALWAYS/);
+
+    (service as any).cycleInputMode();
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /ACCEPT EDITS/);
+
+    (service as any).cycleInputMode();
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /PLAN MODE/);
+
+    (service as any).cycleInputMode();
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /REQUEST ALWAYS/);
   });
 
   test('input footer does not expose active bridge provider', () => {
@@ -1133,7 +1150,41 @@ describe('ReplService', () => {
     const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
 
     assert.doesNotMatch(combined, /bridge\/Codex CLI/);
-    assert.match(combined, /tab to queue message/i);
+    assert.match(combined, /REQUEST ALWAYS/);
+    assert.match(combined, /Tab queue/);
+  });
+
+  test('input footer keeps live processing status visible without telemetry', () => {
+    const service = buildReplService();
+    (service as any).isProcessing = true;
+    (service as any).spinnerLabel = 'Thinking';
+    (service as any).spinnerFrameIndex = 0;
+    (service as any).pendingLines = ['queued prompt'];
+
+    const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
+
+    assert.match(combined, /thinking/i);
+    assert.match(combined, /queue 1/i);
+    assert.match(combined, /REQUEST ALWAYS/);
+    assert.match(combined, /tab/i);
+    assert.doesNotMatch(combined, /tokens|cost|effort|model/i);
+  });
+
+  test('accept edits mode applies file writes without prompting', async () => {
+    const service = buildReplService();
+    let pauses = 0;
+    let resumes = 0;
+    (service as any).smartInput = {
+      pause: () => { pauses += 1; },
+      resume: () => { resumes += 1; },
+    };
+
+    (service as any).inputMode = 'accept-edits';
+    const allowed = await (service as any).handleFileWritePrompt('/repo/file.ts', '+new line', false);
+
+    assert.equal(allowed, true);
+    assert.equal(pauses, 0);
+    assert.equal(resumes, 0);
   });
 
   test('input footer omits estimated session cost when available', () => {
@@ -1180,7 +1231,9 @@ describe('ReplService', () => {
         `footer lines should fit terminal width: ${lines.join(' | ')}`,
       );
       const combined = stripAnsi(lines.join(' '));
-      assert.match(combined, /tab to queue message/i);
+      assert.match(combined, /thinking/i);
+      assert.match(combined, /queue 1/i);
+      assert.match(combined, /tab/i);
       assert.match(combined, /context left/i);
     } finally {
       if (originalColumns) {
@@ -1240,6 +1293,51 @@ describe('ReplService', () => {
       assert.equal(beginExternalOutputCalls, 1, 'response text should enter an external output block once');
       assert.equal(endExternalOutputCalls, 1, 'response text should leave the external output block once');
       assert.equal(outputLines.length, 1, 'a separator should be written after the response block');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('plan mode forces the interactive plan flow before normal chat', async () => {
+    let plannedFrom = '';
+    let chatMessage = '';
+    const originalWrite = process.stdout.write;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* (message: string) {
+          chatMessage = message;
+          yield 'Plano aprovado.';
+        },
+      },
+      mentionsService: {
+        processMessage: async (message: string) => ({ expandedMessage: message, mentions: [] }),
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    try {
+      process.stdout.write = (() => true) as typeof process.stdout.write;
+      (service as any).inputMode = 'plan';
+      (service as any).runInteractivePlanMode = async (message: string) => {
+        plannedFrom = message;
+        return `planned:${message}`;
+      };
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => {},
+        endExternalOutput: () => {},
+        printExternal: () => {},
+        writeOutputLine: () => {},
+      };
+
+      await (service as any).handleMessage('build feature');
+
+      assert.equal(plannedFrom, 'build feature');
+      assert.equal(chatMessage, 'planned:build feature');
     } finally {
       process.stdout.write = originalWrite;
     }

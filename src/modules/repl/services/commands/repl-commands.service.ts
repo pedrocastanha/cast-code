@@ -278,20 +278,31 @@ export class ReplCommandsService {
       return false;
     }
 
+    if (subcommand === 'all') {
+      return this.changeModelForPurpose('default', smartInput, { applyAll: true });
+    }
+
     if (subcommand && MODEL_PURPOSES.some((purpose) => purpose.value === subcommand)) {
-      return this.changeModelForPurpose(subcommand as ModelPurpose, smartInput);
+      return this.changeModelForPurpose(subcommand as ModelPurpose, smartInput, {
+        offerApplyAll: subcommand === 'default',
+      });
     }
 
     this.printModelSummary();
 
     const action = await smartInput.askChoice('Model actions', [
+      { key: 'all', label: 'Change all model routes', description: 'Default, coder, reviewer, planner, tester and cheap' },
       { key: 'default', label: 'Change default model', description: 'Primary conversation model' },
       { key: 'purpose', label: 'Change purpose-specific model', description: 'Coder, reviewer, planner, etc.' },
       { key: 'show', label: 'Keep current setup', description: 'Exit without changes' },
     ]);
 
+    if (action === 'all') {
+      return this.changeModelForPurpose('default', smartInput, { applyAll: true });
+    }
+
     if (action === 'default') {
-      return this.changeModelForPurpose('default', smartInput);
+      return this.changeModelForPurpose('default', smartInput, { offerApplyAll: true });
     }
 
     if (action === 'purpose') {
@@ -343,6 +354,7 @@ export class ReplCommandsService {
   private async changeModelForPurpose(
     purpose: ModelPurpose,
     smartInput: ISmartInput,
+    options: { applyAll?: boolean; offerApplyAll?: boolean } = {},
   ): Promise<boolean> {
     const providerCatalog = Object.keys(PROVIDER_METADATA) as ProviderType[];
 
@@ -398,10 +410,35 @@ export class ReplCommandsService {
       model = typed.trim() || recommendedModel || currentModel;
     }
 
-    await this.configManager.setModel(purpose, {
+    const modelConfig = {
       provider,
       model,
-    });
+    };
+
+    if (options.applyAll) {
+      for (const modelPurpose of MODEL_PURPOSES) {
+        await this.configManager.setModel(modelPurpose.value, modelConfig);
+      }
+      process.stdout.write(this.ui.success(`all purposes -> ${provider}/${model}`));
+      return true;
+    }
+
+    if (options.offerApplyAll) {
+      const scope = await smartInput.askChoice('Apply this model to:', [
+        { key: 'default', label: 'Default only', description: 'Leave purpose-specific routes unchanged' },
+        { key: 'all', label: 'All purposes', description: 'Use this model for coder, reviewer, planner, tester and cheap routes' },
+      ]);
+
+      if (scope === 'all') {
+        for (const modelPurpose of MODEL_PURPOSES) {
+          await this.configManager.setModel(modelPurpose.value, modelConfig);
+        }
+        process.stdout.write(this.ui.success(`all purposes -> ${provider}/${model}`));
+        return true;
+      }
+    }
+
+    await this.configManager.setModel(purpose, modelConfig);
 
     process.stdout.write(this.ui.success(`${purpose} -> ${provider}/${model}`));
     return true;

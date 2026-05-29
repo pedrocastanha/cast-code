@@ -43,6 +43,26 @@ export class GitCommandsService {
     this.w(`\r\n  ${colorize(message, 'info')}\r\n`);
   }
 
+  private providerErrorMessage(error: unknown): string {
+    if (error && typeof error === 'object') {
+      const typed = error as {
+        message?: string;
+        status?: number;
+        error?: {
+          message?: string;
+          metadata?: { raw?: string; provider_name?: string };
+        };
+      };
+      const raw = typed.error?.metadata?.raw || typed.error?.message || typed.message;
+      if (raw) {
+        const prefix = typed.status ? `Provider error ${typed.status}` : 'Provider error';
+        return `${prefix}: ${raw}`;
+      }
+    }
+
+    return error instanceof Error ? error.message : String(error);
+  }
+
   runGit(cmd: string): void {
     const check = spawnSync('git', ['--version'], { encoding: 'utf-8' });
     if (check.error) {
@@ -222,7 +242,13 @@ export class GitCommandsService {
 
     this.info('Analyzing changes for split commits...');
 
-    const proposedCommits = await this.commitGenerator.splitCommits();
+    let proposedCommits;
+    try {
+      proposedCommits = await this.commitGenerator.splitCommits();
+    } catch (error) {
+      this.error(`Failed to split commits: ${this.providerErrorMessage(error)}`);
+      return;
+    }
     const commits = (proposedCommits || []).filter(c => c.files && c.files.length > 0);
 
     if (commits.length === 0) {

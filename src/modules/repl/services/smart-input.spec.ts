@@ -44,8 +44,25 @@ describe('SmartInput render layout', () => {
       (input as any).render();
     });
 
-    assert.match(output, /\x1b\[48;5;236m/);
-    assert.match(output, /› \[Image #1\] {12}\x1b\[0m\x1b\[J\r\ntab to queue message/);
+    assert.match(output, /\x1b\[48;2;48;25;40m/);
+    assert.match(
+      output,
+      /\x1b\[48;2;48;25;40m\x1b\[38;5;250m {24}\x1b\[0m\r\n.*› \[Image #1\] {12}\x1b\[0m\r\n\x1b\[48;2;48;25;40m\x1b\[38;5;250m {24}\x1b\[0m\x1b\[J\r\ntab to queue message/,
+    );
+  });
+
+  test('shows a dim placeholder when the input is empty', () => {
+    const input = buildInput({
+      placeholder: 'Ask Cast anything...',
+    });
+    (input as any).terminalWidth = 40;
+
+    const output = captureStdout(() => {
+      (input as any).render();
+    });
+
+    assert.match(stripAnsi(output), /›  Ask Cast anything\.\.\./);
+    assert.match(output, /\x1b\[2mAsk Cast anything\.\.\./);
   });
 
   test('keeps the input band active after ANSI resets in the prompt', () => {
@@ -61,7 +78,7 @@ describe('SmartInput render layout', () => {
 
     assert.match(
       output,
-      /\x1b\[38;5;45m›\x1b\[0m\x1b\[48;5;236m\x1b\[38;5;250m/,
+      /\x1b\[38;5;45m›\x1b\[0m\x1b\[48;2;48;25;40m\x1b\[38;5;250m/,
       'background should be restored after the colored prompt resets ANSI styles',
     );
   });
@@ -80,7 +97,7 @@ describe('SmartInput render layout', () => {
 
     assert.match(
       output,
-      /› aaaaaaaa\x1b\[0m\r\n\x1b\[48;5;236m\x1b\[38;5;250maa {8}\x1b\[0m\x1b\[J\r\nfooter/,
+      /\x1b\[48;2;48;25;40m\x1b\[38;5;250m {10}\x1b\[0m\r\n.*› aaaaaaaa\x1b\[0m\r\n\x1b\[48;2;48;25;40m\x1b\[38;5;250maa {8}\x1b\[0m\r\n\x1b\[48;2;48;25;40m\x1b\[38;5;250m {10}\x1b\[0m\x1b\[J\r\nfooter/,
       'input rows should be physically separated before footer is drawn',
     );
   });
@@ -97,9 +114,25 @@ describe('SmartInput render layout', () => {
 
     assert.match(
       output,
-      /\x1b\[3A\x1b\[3G$/,
-      'footer wraps to three visual rows, so cursor restore must move up three rows',
+      /\x1b\[3A\x1b\[1A\x1b\[3G$/,
+      'footer wraps to three visual rows, then cursor restore moves over the input padding row',
     );
+  });
+
+  test('shift-tab invokes the mode cycle handler without editing the buffer', () => {
+    let cycles = 0;
+    const input = buildInput({
+      onCycleMode: () => {
+        cycles += 1;
+      },
+    });
+
+    captureStdout(() => {
+      (input as any).handleData('\x1b[Z');
+    });
+
+    assert.equal(cycles, 1);
+    assert.equal((input as any).buffer, '');
   });
 
   test('shows dollar-reference suggestions and accepts the selected token', () => {

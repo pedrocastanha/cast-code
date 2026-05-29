@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { ReplCommandsService } from './repl-commands.service';
+import { MODEL_PURPOSES } from '../../../config/types/config.types';
 
 function captureStdout(run: () => void): string {
   const originalWrite = process.stdout.write;
@@ -28,7 +29,7 @@ test('cmdContext displays the active configured model instead of the legacy fall
     } as any,
     {
       getProvider: () => 'openai',
-      getModel: () => 'gpt-5.4-mini',
+      getModel: () => 'gpt-5-mini',
     } as any,
     {
       getModelConfig: () => ({ provider: 'openai', model: 'gpt-4.1-mini' }),
@@ -43,7 +44,7 @@ test('cmdContext displays the active configured model instead of the legacy fall
   const output = captureStdout(() => service.cmdContext());
 
   assert.match(output, /openai\/gpt-4\.1-mini/);
-  assert.doesNotMatch(output, /openai\/gpt-5\.4-mini/);
+  assert.doesNotMatch(output, /openai\/gpt-5-mini/);
   assert.match(output, /Context/i);
   assert.match(output, /98\.1%/);
   assert.match(output, /1M/);
@@ -112,7 +113,7 @@ test('cmdModel can configure an unconfigured provider inline before saving the p
     { isInitialized: () => false } as any,
   );
 
-  const answers = ['purpose', 'default', 'anthropic', 'sk-ant-1234567890', 'default', 'claude-sonnet-4-6'];
+  const answers = ['purpose', 'default', 'anthropic', 'sk-ant-1234567890', 'default', 'claude-sonnet-4-5'];
   const smartInput = {
     askChoice: async () => {
       const next = answers.shift();
@@ -147,10 +148,129 @@ test('cmdModel can configure an unconfigured provider inline before saving the p
       purpose: 'default',
       modelConfig: {
         provider: 'anthropic',
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-4-5',
       },
     },
   ]);
+});
+
+test('cmdModel can apply a changed default model to all purpose routes', async () => {
+  const setModelCalls: Array<{ purpose: string; modelConfig: { provider: string; model: string } }> = [];
+
+  const service = new ReplCommandsService(
+    {
+      getMessageCount: () => 0,
+      getTokenCount: () => 0,
+    } as any,
+    {
+      getProvider: () => 'openrouter',
+      getModel: () => 'moonshotai/kimi-k2.6:free',
+    } as any,
+    {
+      loadConfig: async () => {},
+      getConfig: () => ({
+        models: {
+          default: { provider: 'openrouter', model: 'moonshotai/kimi-k2.6:free' },
+          cheap: { provider: 'openrouter', model: 'moonshotai/kimi-k2.6:free' },
+        },
+      }),
+      getConfiguredProviders: () => ['openai', 'openrouter'],
+      isProviderConfigured: (provider: string) => provider === 'openai' || provider === 'openrouter',
+      getModelConfig: () => ({ provider: 'openrouter', model: 'moonshotai/kimi-k2.6:free' }),
+      setModel: async (purpose: string, modelConfig: { provider: string; model: string }) => {
+        setModelCalls.push({ purpose, modelConfig });
+      },
+    } as any,
+    { getServerSummaries: () => [] } as any,
+    { getAllAgents: () => [] } as any,
+    { getAllSkills: () => [] } as any,
+    { hasContext: () => false } as any,
+    { isInitialized: () => false } as any,
+  );
+
+  const answers = ['default', 'openai', 'gpt-4.1-mini', 'all'];
+  const smartInput = {
+    askChoice: async () => {
+      const next = answers.shift();
+      if (!next) {
+        throw new Error('No more askChoice answers');
+      }
+      return next;
+    },
+    question: async () => {
+      throw new Error('question should not be called');
+    },
+  };
+
+  const changed = await service.cmdModel([], smartInput as any);
+
+  assert.strictEqual(changed, true);
+  assert.deepStrictEqual(
+    setModelCalls.map((call) => call.purpose),
+    MODEL_PURPOSES.map((purpose) => purpose.value),
+  );
+  assert.ok(setModelCalls.some((call) => call.purpose === 'cheap'));
+  assert.deepStrictEqual(
+    setModelCalls.find((call) => call.purpose === 'cheap')?.modelConfig,
+    { provider: 'openai', model: 'gpt-4.1-mini' },
+  );
+});
+
+test('cmdModel exposes a top-level action to change all purpose routes', async () => {
+  const setModelCalls: Array<{ purpose: string; modelConfig: { provider: string; model: string } }> = [];
+
+  const service = new ReplCommandsService(
+    {
+      getMessageCount: () => 0,
+      getTokenCount: () => 0,
+    } as any,
+    {
+      getProvider: () => 'openrouter',
+      getModel: () => 'moonshotai/kimi-k2.6:free',
+    } as any,
+    {
+      loadConfig: async () => {},
+      getConfig: () => ({
+        models: {
+          default: { provider: 'openrouter', model: 'moonshotai/kimi-k2.6:free' },
+          cheap: { provider: 'openrouter', model: 'moonshotai/kimi-k2.6:free' },
+        },
+      }),
+      getConfiguredProviders: () => ['openai', 'openrouter'],
+      isProviderConfigured: (provider: string) => provider === 'openai' || provider === 'openrouter',
+      getModelConfig: () => ({ provider: 'openrouter', model: 'moonshotai/kimi-k2.6:free' }),
+      setModel: async (purpose: string, modelConfig: { provider: string; model: string }) => {
+        setModelCalls.push({ purpose, modelConfig });
+      },
+    } as any,
+    { getServerSummaries: () => [] } as any,
+    { getAllAgents: () => [] } as any,
+    { getAllSkills: () => [] } as any,
+    { hasContext: () => false } as any,
+    { isInitialized: () => false } as any,
+  );
+
+  const answers = ['all', 'openai', 'gpt-4.1-mini'];
+  const smartInput = {
+    askChoice: async () => {
+      const next = answers.shift();
+      if (!next) {
+        throw new Error('No more askChoice answers');
+      }
+      return next;
+    },
+    question: async () => {
+      throw new Error('question should not be called');
+    },
+  };
+
+  const changed = await service.cmdModel([], smartInput as any);
+
+  assert.strictEqual(changed, true);
+  assert.deepStrictEqual(
+    setModelCalls.map((call) => call.purpose),
+    MODEL_PURPOSES.map((purpose) => purpose.value),
+  );
 });
 
 test('cmdEffort opens an interactive menu and persists the selected level', async () => {

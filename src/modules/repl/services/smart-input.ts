@@ -61,9 +61,11 @@ export interface SmartInputOptions {
   getMentionSuggestions: (partial: string) => Suggestion[];
   getReferenceSuggestions?: (partial: string) => Suggestion[];
   getFooterLines?: () => string[];
+  placeholder?: string;
   onSubmit: (line: string) => void;
   onCancel: () => void;
   onExit: () => void;
+  onCycleMode?: () => void;
   onExpandToolOutput?: () => void;
 }
 
@@ -471,6 +473,7 @@ export class SmartInput implements ISmartInput {
         if (rest.startsWith('\x1b[B')) { this.keyDown(); i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[C')) { this.keyRight(); i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[D')) { this.keyLeft(); i += 3; needsRender = true; continue; }
+        if (rest.startsWith('\x1b[Z')) { this.keyShiftTab(); i += 3; continue; }
         if (rest.startsWith('\x1b[H')) { this.cursor = 0; i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[F')) { this.cursor = this.buffer.length; i += 3; needsRender = true; continue; }
         if (rest.startsWith('\x1b[3~')) { this.keyDelete(); i += 4; needsRender = true; bufferChanged = true; continue; }
@@ -659,6 +662,11 @@ export class SmartInput implements ISmartInput {
     }
   }
 
+  private keyShiftTab() {
+    this.clearSuggestions();
+    this.opts.onCycleMode?.();
+  }
+
   private lastCtrlCTime = 0;
 
   private keyCtrlC() {
@@ -804,7 +812,7 @@ export class SmartInput implements ISmartInput {
   private calculateCursorPosition(): { row: number; col: number } {
     const width = this.getTerminalWidth();
     const totalLength = this.promptLen + this.cursor;
-    const row = Math.floor(totalLength / width);
+    const row = Math.floor(totalLength / width) + 1;
     const col = (totalLength % width) + 1;
     return { row, col };
   }
@@ -823,7 +831,7 @@ export class SmartInput implements ISmartInput {
     const width = this.getTerminalWidth();
     const linesUsed = Math.max(1, Math.ceil(Math.max(1, totalLength) / width));
     const exactWrap = totalLength > 0 && totalLength % width === 0;
-    return linesUsed + (exactWrap ? 1 : 0);
+    return linesUsed + (exactWrap ? 1 : 0) + 2;
   }
 
   private getFooterLines(): string[] {
@@ -971,12 +979,15 @@ export class SmartInput implements ISmartInput {
   private buildInputLines(): string[] {
     const width = this.getTerminalWidth();
     const firstInputWidth = Math.max(0, width - this.promptLen);
-    const lines: string[] = [];
+    const lines: string[] = [this.formatInputBandLine('')];
     let offset = 0;
 
     if (firstInputWidth > 0) {
       const firstChunk = this.buffer.slice(0, firstInputWidth);
-      lines.push(this.formatInputBandLine(this.prompt + firstChunk));
+      const firstLine = firstChunk.length > 0
+        ? this.prompt + firstChunk
+        : this.formatPlaceholderLine();
+      lines.push(this.formatInputBandLine(firstLine));
       offset = firstChunk.length;
     } else {
       lines.push(this.formatInputBandLine(this.prompt));
@@ -991,6 +1002,7 @@ export class SmartInput implements ISmartInput {
     if (totalLength > 0 && totalLength % width === 0) {
       lines.push(this.formatInputBandLine(''));
     }
+    lines.push(this.formatInputBandLine(''));
 
     return lines;
   }
@@ -998,9 +1010,17 @@ export class SmartInput implements ISmartInput {
   private formatInputBandLine(content: string): string {
     const width = this.getTerminalWidth();
     const padding = ' '.repeat(Math.max(0, width - visibleWidth(content)));
-    const bandStyle = '\x1b[48;5;236m\x1b[38;5;250m';
+    const bandStyle = '\x1b[48;2;48;25;40m\x1b[38;5;250m';
     const styledContent = content.replace(/\x1b\[0m/g, `${Colors.reset}${bandStyle}`);
     return `${bandStyle}${styledContent}${padding}${Colors.reset}`;
+  }
+
+  private formatPlaceholderLine(): string {
+    const placeholder = this.opts.placeholder;
+    if (!placeholder) {
+      return this.prompt;
+    }
+    return `${this.prompt} ${Colors.dim}${placeholder}${Colors.reset}`;
   }
 
   private clearSuggestions() {
