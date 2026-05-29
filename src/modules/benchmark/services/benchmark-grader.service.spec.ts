@@ -46,7 +46,7 @@ describe('BenchmarkGraderService', () => {
   test('keeps llm_judge behind explicit budget permission', async () => {
     let invoked = false;
     const service = new BenchmarkGraderService({
-      createModel: () => ({
+      create: () => ({
         invoke: async () => {
           invoked = true;
           return { content: '{"passed":true,"score":1,"reason":"good"}' };

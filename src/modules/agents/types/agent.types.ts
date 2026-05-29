@@ -1,4 +1,4 @@
-import { StructuredTool } from '@langchain/core/tools';
+import { CastTool } from '../../../common/interfaces/cast-tool.interface';
 
 export interface AgentFrontmatter {
   name: string;
@@ -32,7 +32,7 @@ export interface ResolvedAgent {
   description: string;
   model: string;
   temperature: number;
-  tools: StructuredTool[];
+  tools: CastTool[];
   systemPrompt: string;
   mcp: string[];
 }
@@ -41,6 +41,6 @@ export interface SubagentDefinition {
   name: string;
   description: string;
   systemPrompt: string;
-  tools: StructuredTool[];
+  tools: CastTool[];
   mcp?: string[];
 }

@@ -1,5 +1,5 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
-import { StructuredTool } from '@langchain/core/tools';
+import { CastTool } from '../../../common/interfaces/cast-tool.interface';
 import { AgentLoaderService } from './agent-loader.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
@@ -43,7 +43,7 @@ export class AgentRegistryService {
         : this.toolsRegistry.getTools(FALLBACK_TOOL_NAMES);
     }
 
-    const mcpTools: StructuredTool[] = [];
+    const mcpTools: CastTool[] = [];
     if (agent.mcp && agent.mcp.length > 0) {
       for (const mcpName of agent.mcp) {
         mcpTools.push(...this.mcpRegistry.getMcpTools(mcpName));

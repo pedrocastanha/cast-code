@@ -1,6 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 import {
   BenchmarkAgentExecutor,
   BenchmarkTargetType,
@@ -20,7 +20,7 @@ export class BenchmarkTargetService {
 
   constructor(
     @Optional()
-    private readonly multiLlmService?: MultiLlmService,
+    private readonly llmClientFactory?: LlmClientFactory,
   ) {}
 
   setAgentExecutor(executor: BenchmarkAgentExecutor): void {
@@ -56,7 +56,7 @@ export class BenchmarkTargetService {
       };
     }
 
-    if (!this.multiLlmService) {
+    if (!this.llmClientFactory) {
       throw new Error('Target type model_prompt requires a configured model provider.');
     }
 
@@ -68,19 +68,18 @@ export class BenchmarkTargetService {
       ? input.target.config.systemPrompt
       : undefined;
 
-    const model = this.multiLlmService.createModel('default', false);
+    const model = this.llmClientFactory.create('default');
     const messages = systemPrompt
-      ? [new SystemMessage(systemPrompt), new HumanMessage(prompt)]
-      : [new HumanMessage(prompt)];
+      ? [{ role: 'system' as const, content: systemPrompt }, { role: 'user' as const, content: prompt }]
+      : [{ role: 'user' as const, content: prompt }];
     const response = await model.invoke(messages);
-    const output = this.extractText((response as any)?.content ?? response);
-    const usage = this.extractUsage(response);
+    const output = extractText(response);
 
     return {
       output,
-      tokens: usage.input + usage.output || this.estimateTokens(prompt + output),
+      tokens: this.estimateTokens(prompt + output),
       cost: 0,
-      model: (model as any).modelName || (model as any).model,
+      model: model.getModelName(),
     };
   }
 
@@ -186,17 +185,6 @@ export class BenchmarkTargetService {
       return value.map((part: any) => typeof part === 'string' ? part : part?.text ?? JSON.stringify(part)).join('');
     }
     return value === undefined || value === null ? '' : String(value);
-  }
-
-  private extractUsage(output: any): { input: number; output: number } {
-    const usage = output?.usage_metadata
-      || output?.usageMetadata
-      || output?.response_metadata?.usage
-      || output?.additional_kwargs?.usage;
-    return {
-      input: usage?.input_tokens || usage?.prompt_tokens || usage?.inputTokens || 0,
-      output: usage?.output_tokens || usage?.completion_tokens || usage?.outputTokens || 0,
-    };
   }
 
   private estimateTokens(text: string): number {

@@ -1,6 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 import {
   BenchmarkBudget,
   BenchmarkCase,
@@ -14,7 +14,7 @@ import { BenchmarkCostService } from './benchmark-cost.service';
 export class BenchmarkGraderService {
   constructor(
     @Optional()
-    private readonly multiLlmService?: MultiLlmService,
+    private readonly llmClientFactory?: LlmClientFactory,
     private readonly costService: BenchmarkCostService = new BenchmarkCostService(),
   ) {}
 
@@ -182,26 +182,26 @@ export class BenchmarkGraderService {
     if (!this.costService.canRunLlmJudge(budget, usedCalls)) {
       return this.fail(grader, 'llm_judge skipped because budget does not allow LLM judging');
     }
-    if (!this.multiLlmService) {
+    if (!this.llmClientFactory) {
       return this.fail(grader, 'llm_judge requires a configured model service');
     }
 
     try {
-      const model = this.multiLlmService.createModel('reviewer', false);
+      const model = this.llmClientFactory.create('reviewer');
       const response = await model.invoke([
-        new SystemMessage([
+        { role: 'system', content: [
           'You are a strict benchmark judge.',
           'Return only JSON with boolean passed, number score between 0 and 1, and string reason.',
-        ].join(' ')),
-        new HumanMessage(JSON.stringify({
+        ].join(' ') },
+        { role: 'user', content: JSON.stringify({
           rubric: grader.config.rubric ?? grader.config.prompt ?? 'Judge whether the output satisfies the expected answer.',
           input: benchmarkCase.input,
           expected: benchmarkCase.expected,
           output,
-        })),
+        }) },
       ]);
 
-      const text = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+      const text = extractText(response);
       const parsed = JSON.parse(text);
       const score = Math.max(0, Math.min(1, Number(parsed.score ?? (parsed.passed ? 1 : 0))));
       return {

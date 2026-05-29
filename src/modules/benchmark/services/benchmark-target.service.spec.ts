@@ -8,11 +8,11 @@ import { BenchmarkTargetService } from './benchmark-target.service';
 describe('BenchmarkTargetService', () => {
   test('executes model_prompt through configured model path', async () => {
     const service = new BenchmarkTargetService({
-      createModel: () => ({
+      create: () => ({
         invoke: async (messages: any[]) => ({
           content: `model saw ${messages.at(-1).content}`,
-          usage_metadata: { input_tokens: 4, output_tokens: 6 },
         }),
+        getModelName: () => 'test-model',
       }),
     } as any);
 
@@ -22,7 +22,7 @@ describe('BenchmarkTargetService', () => {
     });
 
     assert.equal(result.output, 'model saw Answer: hello');
-    assert.equal(result.tokens, 10);
+    assert.equal(result.tokens, 9);
   });
 
   test('executes api_endpoint with case input body', async () => {

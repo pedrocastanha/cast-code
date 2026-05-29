@@ -217,7 +217,7 @@ describe('BenchmarkRunnerService', () => {
       store,
       new BenchmarkArtifactService(new StateRedactionService()),
       new BenchmarkGraderService({
-        createModel: () => ({
+        create: () => ({
           invoke: async () => {
             judgeCalls += 1;
             return { content: '{"passed":true,"score":1,"reason":"ok"}' };
