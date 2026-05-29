@@ -13,10 +13,17 @@ describe('package metadata', () => {
     assert.deepEqual(latestDeps, []);
   });
 
-  test('uses the LangChain Deep Agents and QuickJS versions validated for native streaming', () => {
+  test('uses native SDK dependencies instead of LangChain or DeepAgents', () => {
     const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
 
-    assert.equal(pkg.dependencies.deepagents, '1.9.0');
-    assert.equal(pkg.dependencies['@langchain/quickjs'], '0.4.0');
+    for (const dependency of Object.keys(pkg.dependencies ?? {})) {
+      assert.equal(dependency.startsWith('@langchain/'), false);
+    }
+    assert.equal(pkg.dependencies.langchain, undefined);
+    assert.equal(pkg.dependencies.deepagents, undefined);
+    assert.equal(typeof pkg.dependencies.openai, 'string');
+    assert.equal(typeof pkg.dependencies['@anthropic-ai/sdk'], 'string');
+    assert.equal(typeof pkg.dependencies['@google/generative-ai'], 'string');
+    assert.equal(typeof pkg.dependencies['quickjs-emscripten'], 'string');
   });
 });
