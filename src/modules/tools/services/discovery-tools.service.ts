@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import { AgentLoaderService } from '../../agents/services/agent-loader.service';
 import { SkillLoaderService } from '../../skills/services/skill-loader.service';
@@ -61,7 +61,7 @@ export class DiscoveryToolsService {
   }
 
   private createListSkillsTool() {
-    return tool(
+    return castTool(
       async () => {
         const skills = this.skillLoader.getAllSkills();
         if (skills.length === 0) return 'No skills loaded.';
@@ -94,7 +94,7 @@ export class DiscoveryToolsService {
   }
 
   private createReadSkillTool() {
-    return tool(
+    return castTool(
       async (input: { name: string }) => {
         const skill = this.skillLoader.getSkill(input.name);
         if (!skill) {
@@ -130,7 +130,7 @@ export class DiscoveryToolsService {
   }
 
   private createListAgentsTool() {
-    return tool(
+    return castTool(
       async () => {
         const agents = this.agentLoader.getAllAgents();
         if (agents.length === 0) return 'No sub-agents loaded.';
@@ -172,7 +172,7 @@ export class DiscoveryToolsService {
   }
 
   private createSaveSnippetTool() {
-    return tool(
+    return castTool(
       async (input: { name: string; code: string; description: string; language?: string }) => {
         this.vaultService.saveSnippet(input.name, input.code, input.description, input.language || 'typescript');
         return `Snippet "${input.name}" saved to vault. User can view it with /vault show "${input.name}".`;
@@ -268,7 +268,7 @@ export class DiscoveryToolsService {
       },
     ];
 
-    return tool(
+    return castTool(
       async (input: { command?: string }) => {
         const query = input.command?.trim().toLowerCase().replace(/^\//, '');
 
@@ -316,7 +316,7 @@ export class DiscoveryToolsService {
   }
 
   private createCastCommandTool() {
-    return tool(
+    return castTool(
       async (input: { command: string }) => {
         const command = String(input.command || '').trim();
 
@@ -354,7 +354,7 @@ export class DiscoveryToolsService {
   }
 
   private createAnalyzeImpactTool() {
-    return tool(
+    return castTool(
       async (input: { file: string }) => {
         const result = this.impactAnalysisService.analyze(input.file);
         return result.summary;

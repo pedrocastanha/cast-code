@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -75,7 +75,7 @@ export class ShellToolsService {
   }
 
   private createShellTool() {
-    return tool(
+    return castTool(
       async ({ command, cwd, timeout }) => {
         const resolvedCwd = this.resolveWorkingDirectory(cwd);
         if (!resolvedCwd.ok) {
@@ -133,7 +133,7 @@ export class ShellToolsService {
   }
 
   private createBackgroundShellTool(state: ShellSessionState) {
-    return tool(
+    return castTool(
       async ({ command, cwd }) => {
         const resolvedCwd = this.resolveWorkingDirectory(cwd);
         if (!resolvedCwd.ok) {
@@ -199,7 +199,7 @@ export class ShellToolsService {
   }
 
   private createBackgroundOutputTool(state: ShellSessionState) {
-    return tool(
+    return castTool(
       async ({ processId }) => {
         const bgProcess = state.backgroundProcesses.get(processId);
         if (!bgProcess) {
@@ -224,7 +224,7 @@ export class ShellToolsService {
   }
 
   private createBackgroundKillTool(state: ShellSessionState) {
-    return tool(
+    return castTool(
       async ({ processId }) => {
         const bgProcess = state.backgroundProcesses.get(processId);
         if (!bgProcess) {

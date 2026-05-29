@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -106,7 +106,7 @@ export class FilesystemToolsService {
   }
 
   private createReadFileTool(readFiles: Set<string>) {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const filePath = (input as any).filePath || (input as any).file_path;
@@ -218,7 +218,7 @@ export class FilesystemToolsService {
   }
 
   private createWriteFileTool(readFiles: Set<string>) {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const filePath = (input as any).filePath || (input as any).file_path;
@@ -282,7 +282,7 @@ export class FilesystemToolsService {
   }
 
   private createEditFileTool(readFiles: Set<string>) {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const filePath = (input as any).filePath || (input as any).file_path;
@@ -373,7 +373,7 @@ export class FilesystemToolsService {
   }
 
   private createGlobTool() {
-    return tool(
+    return castTool(
       async ({ pattern, cwd }) => {
         try {
           const resolved = this.resolveInsideRoot(cwd || '.');
@@ -423,7 +423,7 @@ export class FilesystemToolsService {
   }
 
   private createGrepTool() {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const pattern = (input as any).pattern;
@@ -596,7 +596,7 @@ export class FilesystemToolsService {
   }
 
   private createLsTool() {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const directory =
