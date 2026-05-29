@@ -1,124 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { HumanMessage } from '@langchain/core/messages';
-import {
-  createDeepAgent,
-  FilesystemBackend,
-  type BackendProtocolV2,
-  type EditResult,
-  type FileInfo,
-  type GlobResult,
-  type GrepMatch,
-  type GrepResult,
-  type LsResult,
-  type ReadRawResult,
-  type ReadResult,
-  type WriteResult,
-} from 'deepagents';
-import * as path from 'node:path';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { CastAgentEngine } from '../../core/services/cast-agent-engine.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { FilesystemToolsService } from '../../tools/services/filesystem-tools.service';
 import { ShellToolsService } from '../../tools/services/shell-tools.service';
 import type { SwarmWorkerRunInput } from '../types';
-
-class SwarmWorktreeBackend implements BackendProtocolV2 {
-  private readonly backend: FilesystemBackend;
-
-  constructor(
-    private readonly worktreePath: string,
-    private readonly workspaceRoot: string,
-  ) {
-    this.backend = new FilesystemBackend({ rootDir: path.resolve(this.workspaceRoot) });
-  }
-
-  private resolvePath(key: string): string {
-    const root = path.resolve(this.worktreePath);
-    const workspace = path.resolve(this.workspaceRoot);
-    const resolved = path.isAbsolute(key) ? path.resolve(key) : path.resolve(root, key);
-    if (resolved === workspace || resolved.startsWith(workspace + path.sep) || resolved.startsWith(root + path.sep)) {
-      return resolved;
-    }
-    throw new Error(`Path ${resolved} outside swarm worktree ${root}`);
-  }
-
-  async ls(dirPath: string): Promise<LsResult> {
-    try {
-      return await this.backend.ls(this.resolvePath(dirPath));
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-  }
-
-  async lsInfo(dirPath: string): Promise<FileInfo[]> {
-    const result = await this.ls(dirPath);
-    return result.files ?? [];
-  }
-
-  async read(filePath: string, offset?: number, limit?: number): Promise<ReadResult> {
-    try {
-      return await this.backend.read(this.resolvePath(filePath), offset, limit);
-    } catch (error) {
-      return { error: `Error reading file '${filePath}': ${(error as Error).message}` };
-    }
-  }
-
-  async readRaw(filePath: string): Promise<ReadRawResult> {
-    try {
-      return await this.backend.readRaw(this.resolvePath(filePath));
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-  }
-
-  async write(filePath: string, content: string): Promise<WriteResult> {
-    try {
-      return await this.backend.write(this.resolvePath(filePath), content);
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-  }
-
-  async edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult> {
-    try {
-      return await this.backend.edit(this.resolvePath(filePath), oldString, newString, replaceAll);
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-  }
-
-  async grep(pattern: string, dirPath?: string | null, glob?: string | null): Promise<GrepResult> {
-    try {
-      return await this.backend.grep(pattern, this.resolvePath(dirPath || '.'), glob);
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-  }
-
-  async grepRaw(pattern: string, dirPath?: string, glob?: string | null): Promise<GrepMatch[] | string> {
-    const result = await this.grep(pattern, dirPath, glob);
-    return result.error ? `Error: ${result.error}` : result.matches ?? [];
-  }
-
-  async glob(pattern: string, searchPath?: string): Promise<GlobResult> {
-    try {
-      return await this.backend.glob(pattern, this.resolvePath(searchPath || '.'));
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-  }
-
-  async globInfo(pattern: string, searchPath?: string): Promise<FileInfo[]> {
-    const result = await this.glob(pattern, searchPath);
-    return result.files ?? [];
-  }
-}
 
 @Injectable()
 export class SwarmIsolatedAgentService {
   private tail: Promise<void> = Promise.resolve();
 
   constructor(
-    private readonly multiLlm: MultiLlmService,
+    private readonly llmClientFactory: LlmClientFactory,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly filesystemTools: FilesystemToolsService,
     private readonly shellTools: ShellToolsService,
@@ -135,15 +28,12 @@ export class SwarmIsolatedAgentService {
     this.shellTools.setRootDir(input.worktree.worktreePath, input.worktree.workspaceRoot);
 
     const tools = this.toolsRegistry.getIsolatedTools(input.planTask.allowedTools);
-    const model = this.multiLlm.createStreamingModel('default');
-    const backend = new SwarmWorktreeBackend(input.worktree.worktreePath, input.worktree.workspaceRoot);
-    // @ts-expect-error deepagents graph types exceed the TS recursion limit in this build.
-    const agent: { invoke: (input: unknown, config?: unknown) => Promise<unknown> } = createDeepAgent({
-      model,
+    const model = this.llmClientFactory.create('default');
+    const agent = new CastAgentEngine({
+      client: model,
       systemPrompt: this.buildSystemPrompt(input),
       tools,
       subagents: [],
-      backend: () => backend as any,
     });
 
     const prompt = [
@@ -154,12 +44,20 @@ export class SwarmIsolatedAgentService {
       'When finished, respond with a concise summary of changes, decisions, and verification.',
     ].join('\n');
 
-    const result = await agent.invoke(
-      { messages: [new HumanMessage(prompt)] },
+    let output = '';
+    for await (const event of agent.streamEvents(
+      { messages: [{ role: 'user', content: prompt }] },
       { recursionLimit: 32 },
-    );
+    )) {
+      const item = event as any;
+      if (item.event === 'on_chat_model_stream') {
+        output += this.extractChunkText(item.data?.chunk?.content);
+      }
+      if (!output && item.event === 'on_chat_model_end') {
+        output = this.extractChunkText(item.data?.output?.content);
+      }
+    }
 
-    const output = this.extractAgentOutput(result);
     if (output && input.onOutput) {
       input.onOutput(output);
     }
