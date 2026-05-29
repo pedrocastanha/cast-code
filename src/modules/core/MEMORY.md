@@ -43,16 +43,14 @@ The core module owns the main AI runtime: DeepAgents/LangGraph initialization, p
 - Runtime-only v3 projection events must still render assistant deltas, tool
   starts/completions, tool errors, and usage in the same local session/stats
   paths as raw v2 events.
-- Main DeepAgents instances are created through the async helper that attaches
-  `@langchain/quickjs`'s `CodeInterpreterMiddleware`. Keep the dynamic ESM
-  import; a static CommonJS import can fail at runtime because QuickJS depends
-  on ESM-only packages.
-- `WorkspaceFilesystemBackend` implements DeepAgents `BackendProtocolV2`.
-  Preserve structured `ls/read/grep/glob` returns, while keeping legacy aliases
-  only as local compatibility helpers.
-- Project `.cast/skills` and `.skills` directories are passed to native
-  DeepAgents skills support when present; QuickJS skill imports use the same
-  workspace-aware backend.
+- Main agent instances are created through the native `CastAgentEngine` helper
+  and attach a QuickJS-backed `eval` tool for sandboxed calculations.
+- `WorkspaceFilesystemBackend` is local and workspace-aware. Preserve structured
+  `ls/read/grep/glob` returns, while keeping legacy aliases only as local
+  compatibility helpers.
+- Project `.cast/skills` and `.skills` directories remain discoverable through
+  Cast skill tools; model execution no longer depends on external agent runtime
+  packages.
 
 ## Tests
 

@@ -16,10 +16,9 @@ workers, worktrees, and safe patch integration.
 ## Phase 2
 
 - `SwarmWorktreeService` — git worktrees under `.cast/worktrees/<run-id>/<task-id>`
-- `SwarmIsolatedAgentService` — per-worker `createDeepAgent` (serialized tool roots)
-- Swarm worker filesystem backend must implement DeepAgents `BackendProtocolV2`
-  (`ls`, `read`, `grep`, `glob`) because `deepagents@1.9.0` no longer exposes
-  the old `FilesystemBackend.lsInfo/grepRaw/globInfo` methods.
+- `SwarmIsolatedAgentService` — per-worker `CastAgentEngine` with serialized tool roots
+- Swarm worker file access is provided by isolated Cast filesystem tools
+  (`ls`, `read_file`, `grep`, `glob`) scoped to the approved worktree/workspace.
 - `SwarmWorkerRuntimeService` — dry-run or live execution, handoff + ownership checks
 - `SwarmDispatcherService` — DAG scheduling, concurrency, cancel
 - `/swarm run [--dry-run] [run-id]` and `/swarm workers [run-id]`
@@ -47,7 +46,7 @@ workers, worktrees, and safe patch integration.
 - `services/swarm-planner.service.ts` — plan generation
 - `services/swarm-dispatcher.service.ts` — run orchestration
 - `services/swarm-worker-runtime.service.ts` — worker execution + handoff
-- `services/swarm-isolated-agent.service.ts` — isolated DeepAgent per worker
+- `services/swarm-isolated-agent.service.ts` — isolated native agent per worker
 - `services/swarm-worktree.service.ts` — git worktree lifecycle
 - `services/swarm-integration.service.ts` — apply_safe patch integration
 - `services/swarm-run-store.service.ts` — local persistence
