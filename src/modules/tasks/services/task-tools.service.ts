@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import { TaskManagementService } from './task-management.service';
 import { PlanModeService } from './plan-mode.service';
@@ -27,7 +27,7 @@ export class TaskToolsService {
   }
 
   private createTaskCreateTool() {
-    return tool(
+    return castTool(
       async ({ subject, description, activeForm, dependencies, metadata }) => {
         const task = this.taskService.createTask({
           subject,
@@ -73,7 +73,7 @@ export class TaskToolsService {
   }
 
   private createTaskUpdateTool() {
-    return tool(
+    return castTool(
       async ({ taskId, status, subject, description, activeForm, addDependencies, metadata }) => {
         const task = this.taskService.updateTask(taskId, {
           status: status as TaskStatus,
@@ -121,7 +121,7 @@ export class TaskToolsService {
   }
 
   private createTaskListTool() {
-    return tool(
+    return castTool(
       async () => {
         const tasks = this.taskService.listTasks();
         const pending = this.taskService.listPendingTasks();
@@ -147,7 +147,7 @@ export class TaskToolsService {
   }
 
   private createTaskGetTool() {
-    return tool(
+    return castTool(
       async ({ taskId }) => {
         const task = this.taskService.getTask(taskId);
 
@@ -171,7 +171,7 @@ export class TaskToolsService {
   }
 
   private createAskUserQuestionTool() {
-    return tool(
+    return castTool(
       async ({ question, type, choices }) => {
         console.log('');
 
@@ -217,7 +217,7 @@ export class TaskToolsService {
   }
 
   private createEnterPlanModeTool() {
-    return tool(
+    return castTool(
       async ({ title, description }) => {
         try {
           await this.planModeService.enterPlanMode(title, description);
@@ -247,7 +247,7 @@ export class TaskToolsService {
   }
 
   private createExitPlanModeTool() {
-    return tool(
+    return castTool(
       async ({ tasks }) => {
         try {
           const approval = await this.planModeService.exitPlanMode(
