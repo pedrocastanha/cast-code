@@ -16,6 +16,12 @@ import { SnapshotModule } from '../snapshots/snapshot.module';
 import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { WatcherModule } from '../watcher/watcher.module';
+import { PlatformModule } from '../platform/platform.module';
+import { StateModule } from '../state/state.module';
+import { BenchmarkModule } from '../benchmark/benchmark.module';
+import { EnvironmentModule } from '../environments/environment.module';
+import { RuntimeModule } from '../runtime/runtime.module';
+import { DeepAgentEventAdapterService } from './services/deep-agent-event-adapter.service';
 
 @Module({
   imports: [
@@ -32,8 +38,13 @@ import { WatcherModule } from '../watcher/watcher.module';
     StatsModule,
     ReplayModule,
     WatcherModule,
+    PlatformModule,
+    StateModule,
+    BenchmarkModule,
+    EnvironmentModule,
+    RuntimeModule,
   ],
-  providers: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService],
-  exports: [DeepAgentService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule],
+  providers: [DeepAgentService, DeepAgentEventAdapterService, PlanModeService, PromptLoaderService, PromptClassifierService],
+  exports: [DeepAgentService, DeepAgentEventAdapterService, PlanModeService, PromptLoaderService, PromptClassifierService, MentionsModule, McpModule, AgentsModule, SkillsModule, StateModule, BenchmarkModule, EnvironmentModule],
 })
 export class CoreModule {}

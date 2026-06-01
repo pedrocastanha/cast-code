@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { SnapshotService } from '../../../snapshots/services/snapshot.service';
-import { colorize, UI, Icons } from '../../utils/theme';
+import { colorize } from '../../utils/theme';
+import { CommandUiService } from '../command-ui.service';
 import * as path from 'path';
 
 @Injectable()
 export class SnapshotCommandsService {
+  private readonly ui = new CommandUiService();
+
   constructor(private readonly snapshotService: SnapshotService) {}
 
   async cmdRollback(args: string): Promise<void> {
@@ -13,25 +16,31 @@ export class SnapshotCommandsService {
     if (!filePath) {
       const snapshots = this.snapshotService.listSnapshots();
       if (snapshots.length === 0) {
-        console.log(UI.warning('No snapshots in current session.'));
+        process.stdout.write(this.ui.warning('No snapshots in current session.'));
         return;
       }
-      console.log(UI.header('Snapshots', '📸'));
-      snapshots.forEach(s => {
-        const rel = path.relative(process.cwd(), s.filePath);
-        const time = new Date(s.timestamp).toLocaleTimeString();
-        console.log(UI.item(`${colorize(rel, 'cyan')}  ${colorize(time, 'muted')}`));
-      });
-      console.log(colorize('\nRun /rollback <file> to restore.', 'muted'));
+      process.stdout.write(this.ui.panel({
+        title: 'Snapshots',
+        subtitle: `${snapshots.length} available`,
+        sections: [
+          {
+            lines: snapshots.map((s) => {
+              const rel = path.relative(process.cwd(), s.filePath);
+              const time = new Date(s.timestamp).toLocaleTimeString();
+              return `${colorize(rel, 'cyan')}  ${colorize(time, 'muted')}`;
+            }),
+          },
+        ],
+        footer: 'Run /rollback <file> to restore.',
+      }));
       return;
     }
 
     const restored = this.snapshotService.rollback(filePath);
     if (restored) {
-      console.log(UI.success(`Restored: ${colorize(filePath, 'cyan')}`));
+      process.stdout.write(this.ui.success(`Restored: ${filePath}`));
     } else {
-      console.log(UI.error(`No snapshot found for: ${colorize(filePath, 'cyan')}`));
-      console.log(colorize('Run /rollback without args to list available snapshots.', 'muted'));
+      process.stdout.write(this.ui.error(`No snapshot found for: ${filePath}. Run /rollback to list snapshots.`));
     }
   }
 }

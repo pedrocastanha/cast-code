@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -29,14 +29,16 @@ const MAX_READ_FILES = 200;
 export class FilesystemToolsService {
   private readFiles: Set<string> = new Set();
   private fileWriteHandler: FileWriteHandler | null = null;
-  private rootDir: string = this.rootDir;
+  private rootDir = process.cwd();
+  private workspaceRoot = process.cwd();
 
   setFileWriteHandler(handler: FileWriteHandler): void {
     this.fileWriteHandler = handler;
   }
 
-  setRootDir(dir: string): void {
-    this.rootDir = dir;
+  setRootDir(dir: string, workspaceRoot: string = dir): void {
+    this.rootDir = path.resolve(dir);
+    this.workspaceRoot = path.resolve(workspaceRoot);
   }
 
   clearSession(): void {
@@ -67,6 +69,23 @@ export class FilesystemToolsService {
     readFiles.add(filePath);
   }
 
+  private resolveInsideRoot(targetPath: string): { ok: true; path: string } | { ok: false; error: string } {
+    const root = path.resolve(this.rootDir);
+    const workspaceRoot = path.resolve(this.workspaceRoot);
+    const resolved = path.isAbsolute(targetPath)
+      ? path.resolve(targetPath)
+      : path.resolve(root, targetPath);
+
+    if (resolved === workspaceRoot || resolved.startsWith(workspaceRoot + path.sep)) {
+      return { ok: true, path: resolved };
+    }
+
+    return {
+      ok: false,
+      error: `Error: Path "${targetPath}" resolves outside the project root or workspace root (${workspaceRoot}). Use a relative path inside the working directory or another linked workspace folder.`,
+    };
+  }
+
   private buildTools(readFiles: Set<string>) {
     return [
       this.createReadFileTool(readFiles),
@@ -87,7 +106,7 @@ export class FilesystemToolsService {
   }
 
   private createReadFileTool(readFiles: Set<string>) {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const filePath = (input as any).filePath || (input as any).file_path;
@@ -98,9 +117,11 @@ export class FilesystemToolsService {
             return 'Error: file_path is required';
           }
 
-          const resolvedPath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(this.rootDir, filePath);
+          const resolved = this.resolveInsideRoot(filePath);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           try {
             const stat = await fs.stat(resolvedPath);
@@ -116,12 +137,12 @@ export class FilesystemToolsService {
 
             const buffer = Buffer.alloc(512);
             const fd = await fs.open(resolvedPath, 'r');
-            await fd.read(buffer, 0, 512, 0);
+            const { bytesRead } = await fd.read(buffer, 0, 512, 0);
             await fd.close();
 
-            const hasBinaryBytes = buffer.some(
-              (byte, i) => i < 512 && byte === 0,
-            );
+            const hasBinaryBytes = buffer
+              .subarray(0, bytesRead)
+              .some((byte) => byte === 0);
             if (hasBinaryBytes) {
               return `"${resolvedPath}" appears to be a binary file (${Math.round(stat.size / 1024)}KB). Cannot display binary content.`;
             }
@@ -197,7 +218,7 @@ export class FilesystemToolsService {
   }
 
   private createWriteFileTool(readFiles: Set<string>) {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const filePath = (input as any).filePath || (input as any).file_path;
@@ -207,9 +228,11 @@ export class FilesystemToolsService {
             return 'Error: file_path and content are required';
           }
 
-          const resolvedPath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(this.rootDir, filePath);
+          const resolved = this.resolveInsideRoot(filePath);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           let fileExists = false;
           try {
@@ -259,7 +282,7 @@ export class FilesystemToolsService {
   }
 
   private createEditFileTool(readFiles: Set<string>) {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const filePath = (input as any).filePath || (input as any).file_path;
@@ -272,9 +295,11 @@ export class FilesystemToolsService {
             return 'Error: file_path, old_string, and new_string are required';
           }
 
-          const resolvedPath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(this.rootDir, filePath);
+          const resolved = this.resolveInsideRoot(filePath);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           if (oldString === newString) {
             return 'Error: old_string and new_string are identical. No changes needed.';
@@ -297,7 +322,7 @@ export class FilesystemToolsService {
               return `Error: exact old_string not found. Possible match at line ${approxMatch + 1}:\n  "${lines[approxMatch].trim()}"\n\nMake sure whitespace and indentation match exactly.`;
             }
 
-            return `Error: old_string not found in file. Make sure it matches the file content exactly (including whitespace).`;
+            return 'Error: old_string not found in file. Make sure it matches the file content exactly (including whitespace).';
           }
 
           const occurrences = content.split(oldString).length - 1;
@@ -348,12 +373,14 @@ export class FilesystemToolsService {
   }
 
   private createGlobTool() {
-    return tool(
+    return castTool(
       async ({ pattern, cwd }) => {
         try {
-          const searchDir = cwd
-            ? (path.isAbsolute(cwd) ? cwd : path.resolve(this.rootDir, cwd))
-            : this.rootDir;
+          const resolved = this.resolveInsideRoot(cwd || '.');
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const searchDir = resolved.path;
 
           const files = await glob(pattern, {
             cwd: searchDir,
@@ -396,7 +423,7 @@ export class FilesystemToolsService {
   }
 
   private createGrepTool() {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const pattern = (input as any).pattern;
@@ -417,7 +444,11 @@ export class FilesystemToolsService {
             return 'Error: pattern is required';
           }
 
-          const baseDir = searchPath || this.rootDir;
+          const resolvedSearch = this.resolveInsideRoot(searchPath || '.');
+          if (!resolvedSearch.ok) {
+            return resolvedSearch.error;
+          }
+          const baseDir = resolvedSearch.path;
           const files = await glob(filePattern || '**/*', {
             cwd: baseDir,
             nodir: true,
@@ -565,15 +596,17 @@ export class FilesystemToolsService {
   }
 
   private createLsTool() {
-    return tool(
+    return castTool(
       async (input) => {
         try {
           const directory =
             (input as any).directory || (input as any).path || this.rootDir;
 
-          const resolvedPath = path.isAbsolute(directory)
-            ? directory
-            : path.resolve(this.rootDir, directory);
+          const resolved = this.resolveInsideRoot(directory);
+          if (!resolved.ok) {
+            return resolved.error;
+          }
+          const resolvedPath = resolved.path;
 
           const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
 

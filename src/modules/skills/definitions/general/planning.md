@@ -8,6 +8,9 @@ tools:
   - exit_plan_mode
   - task_create
   - task_update
+environments:
+  - marketing
+  - engineering
 ---
 
 # Planning — Domain Knowledge

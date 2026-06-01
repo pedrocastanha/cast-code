@@ -6,6 +6,9 @@ tools:
   - write_file
   - edit_file
   - shell
+environments:
+  - design
+  - engineering
 ---
 
 # Testing Strategies — Domain Knowledge

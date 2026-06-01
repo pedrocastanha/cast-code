@@ -1,0 +1,90 @@
+version: 1
+source: builtin
+id: backend
+name: Backend Engineering
+description: APIs, data modeling, auth flows, server debugging, and backend delivery.
+defaultAgent: backend
+agents:
+  required:
+    - backend
+    - coder
+  optional:
+    - reviewer
+    - tester
+    - architect
+    - api-engineer
+    - database-engineer
+skills:
+  required:
+    - file-operations
+    - search
+    - api-design
+    - database-operations
+    - rest-graphql-debug
+    - systematic-debugging
+  optional:
+    - test-driven-development
+    - github-code-review
+    - writing-plans
+profiles:
+  api:
+    description: Design, implement, and test backend API workflows.
+    agents:
+      required:
+        - backend
+        - coder
+        - api-engineer
+      optional:
+        - tester
+        - reviewer
+    skills:
+      required:
+        - file-operations
+        - search
+        - api-design
+        - rest-graphql-debug
+        - test-driven-development
+      optional:
+        - systematic-debugging
+        - github-code-review
+  database:
+    description: Work on database schema, migrations, and query behavior.
+    agents:
+      required:
+        - backend
+        - database-engineer
+      optional:
+        - coder
+        - reviewer
+    skills:
+      required:
+        - database-operations
+        - file-operations
+        - search
+      optional:
+        - test-driven-development
+        - systematic-debugging
+mcp:
+  recommended:
+    - github
+    - sentry
+    - context7
+  required: []
+permissions:
+  defaultMode: balanced
+  requireApproval:
+    - production_write
+    - destructive_command
+    - deploy
+rag:
+  recommendedSources:
+    - api-contracts
+    - database-schema
+    - runbooks
+benchmarks:
+  smoke:
+    - engineering-code-review-smoke
+schedules:
+  suggested:
+    - nightly-test-health
+    - weekly-dependency-review

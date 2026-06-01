@@ -9,6 +9,13 @@ import {
   ModelPurpose,
   ProviderType,
   ProvidersConfig,
+  BaseProviderConfig,
+  DEFAULT_EFFORT,
+  EffortLevel,
+  OllamaConfig,
+  PlatformGlobalConfig,
+  providerRequiresBaseUrl,
+  normalizeEffortLevel,
 } from '../types/config.types';
 import { I18nService } from '../../i18n/services/i18n.service';
 
@@ -22,9 +29,10 @@ const DEFAULT_CONFIG: CastConfig = {
   models: {
     default: {
       provider: 'openai',
-      model: 'gpt-4.1-nano',
+      model: 'gpt-5-mini',
     },
   },
+  effort: DEFAULT_EFFORT,
 };
 
 @Injectable()
@@ -89,6 +97,10 @@ export class ConfigManagerService {
     return this.config.models[purpose] || this.config.models.default;
   }
 
+  getEffort(): EffortLevel {
+    return normalizeEffortLevel(this.config.effort) || DEFAULT_EFFORT;
+  }
+
   getProviderConfig<T extends ProviderType>(
     provider: T
   ): ProvidersConfig[T] | undefined {
@@ -103,7 +115,7 @@ export class ConfigManagerService {
     const config = this.config.providers[provider];
     if (!config) return false;
 
-    if (provider === 'ollama') {
+    if (providerRequiresBaseUrl(provider)) {
       return !!(config as { baseUrl?: string }).baseUrl;
     }
 
@@ -117,7 +129,21 @@ export class ConfigManagerService {
     if (!this.config.providers) {
       this.config.providers = {};
     }
-    this.config.providers[provider] = config;
+    if (providerRequiresBaseUrl(provider)) {
+      if (!config.baseUrl) {
+        throw new Error(`Provider "${provider}" requires a baseUrl`);
+      }
+      if (provider === 'ollama') {
+        this.config.providers[provider] = { baseUrl: config.baseUrl } as OllamaConfig;
+      } else {
+        (this.config.providers as Record<string, BaseProviderConfig>)[provider] = {
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+        };
+      }
+    } else {
+      (this.config.providers as Record<string, BaseProviderConfig>)[provider] = config;
+    }
     await this.saveConfig();
   }
 
@@ -126,6 +152,21 @@ export class ConfigManagerService {
       this.config.models = {};
     }
     this.config.models[purpose] = modelConfig;
+    await this.saveConfig();
+  }
+
+  async setEffort(level: EffortLevel): Promise<void> {
+    this.config.effort = level;
+    await this.saveConfig();
+  }
+
+  async setPlatformConfig(platform: PlatformGlobalConfig): Promise<void> {
+    const apiKey = platform.apiKey?.trim();
+    const apiUrl = platform.apiUrl?.trim();
+    this.config.platform = {
+      ...(apiKey ? { apiKey } : {}),
+      ...(apiUrl ? { apiUrl } : {}),
+    };
     await this.saveConfig();
   }
 
@@ -141,8 +182,21 @@ export class ConfigManagerService {
         ...DEFAULT_CONFIG.models,
         ...(parsed.models || {}),
       },
+      effort: normalizeEffortLevel(parsed.effort) || DEFAULT_EFFORT,
       remote: parsed.remote,
+      platform: normalizePlatformConfig(parsed.platform),
       language: parsed.language,
     };
   }
+}
+
+function normalizePlatformConfig(platform: PlatformGlobalConfig | undefined): PlatformGlobalConfig | undefined {
+  if (!platform) return undefined;
+  const apiKey = typeof platform.apiKey === 'string' ? platform.apiKey.trim() : '';
+  const apiUrl = typeof platform.apiUrl === 'string' ? platform.apiUrl.trim() : '';
+  if (!apiKey && !apiUrl) return undefined;
+  return {
+    ...(apiKey ? { apiKey } : {}),
+    ...(apiUrl ? { apiUrl } : {}),
+  };
 }

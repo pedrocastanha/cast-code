@@ -1,15 +1,16 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
-import { StructuredTool } from '@langchain/core/tools';
+import { CastTool } from '../../../common/interfaces/cast-tool.interface';
 import { FilesystemToolsService } from './filesystem-tools.service';
 import { ShellToolsService } from './shell-tools.service';
 import { SearchToolsService } from './search-tools.service';
 import { DiscoveryToolsService } from './discovery-tools.service';
 import { TaskToolsService } from '../../tasks/services/task-tools.service';
 import { MemoryToolsService } from '../../memory/services/memory-tools.service';
+import { SkillRuntimeToolsService } from '../../skills/services/skill-runtime-tools.service';
 
 @Injectable()
 export class ToolsRegistryService {
-  private tools: Map<string, StructuredTool> = new Map();
+  private tools: Map<string, CastTool> = new Map();
 
   constructor(
     private readonly filesystemTools: FilesystemToolsService,
@@ -21,6 +22,8 @@ export class ToolsRegistryService {
     private readonly taskTools: TaskToolsService,
     @Inject(forwardRef(() => MemoryToolsService))
     private readonly memoryTools: MemoryToolsService,
+    @Inject(forwardRef(() => SkillRuntimeToolsService))
+    private readonly skillRuntimeTools: SkillRuntimeToolsService,
   ) {
     this.registerBuiltInTools();
   }
@@ -31,6 +34,7 @@ export class ToolsRegistryService {
       ...this.shellTools.getTools(),
       ...this.searchTools.getTools(),
       ...this.discoveryTools.getTools(),
+      ...this.skillRuntimeTools.getTools(),
       ...this.taskTools.getTools(),
       ...this.memoryTools.getTools(),
     ];
@@ -40,19 +44,19 @@ export class ToolsRegistryService {
     }
   }
 
-  getTool(name: string): StructuredTool | undefined {
+  getTool(name: string): CastTool | undefined {
     return this.tools.get(name);
   }
 
-  getTools(names: string[]): StructuredTool[] {
+  getTools(names: string[]): CastTool[] {
     return names
       .map((name) => this.tools.get(name))
-      .filter((t): t is StructuredTool => t !== undefined);
+      .filter((t): t is CastTool => t !== undefined);
   }
 
-  getIsolatedTools(names: string[]): StructuredTool[] {
+  getIsolatedTools(names: string[]): CastTool[] {
     // Stateful services get fresh isolated instances; stateless services reuse shared instances.
-    const isolatedMap = new Map<string, StructuredTool>();
+    const isolatedMap = new Map<string, CastTool>();
 
     for (const t of this.filesystemTools.getIsolatedTools()) {
       isolatedMap.set(t.name, t);
@@ -62,6 +66,7 @@ export class ToolsRegistryService {
     }
     for (const t of [
       ...this.searchTools.getTools(),
+      ...this.skillRuntimeTools.getTools(),
       ...this.taskTools.getTools(),
       ...this.memoryTools.getTools(),
     ]) {
@@ -70,10 +75,10 @@ export class ToolsRegistryService {
 
     return names
       .map((name) => isolatedMap.get(name))
-      .filter((t): t is StructuredTool => t !== undefined);
+      .filter((t): t is CastTool => t !== undefined);
   }
 
-  getAllTools(): StructuredTool[] {
+  getAllTools(): CastTool[] {
     return Array.from(this.tools.values());
   }
 
@@ -81,12 +86,12 @@ export class ToolsRegistryService {
     return Array.from(this.tools.keys());
   }
 
-  registerTool(t: StructuredTool) {
+  registerTool(t: CastTool) {
     this.tools.set(t.name, t);
   }
 
-  setRootDir(dir: string): void {
-    this.filesystemTools.setRootDir(dir);
-    this.shellTools.setRootDir(dir);
+  setRootDir(dir: string, workspaceRoot: string = dir): void {
+    this.filesystemTools.setRootDir(dir, workspaceRoot);
+    this.shellTools.setRootDir(dir, workspaceRoot);
   }
 }

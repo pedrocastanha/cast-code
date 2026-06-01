@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { MODEL_PURPOSES, PROVIDER_METADATA } from './config.types';
+import {
+  getProviderEndpointKind,
+  getProviderEndpointLabel,
+  getModelChoicesForPurpose,
+  getRecommendedModel,
+  isRecommendedModelForPurpose,
+  MODEL_PURPOSES,
+  PROVIDER_METADATA,
+  providerAllowsOptionalApiKey,
+  providerRequiresBaseUrl,
+  providerUsesOpenAICompatibleApi,
+} from './config.types';
 
 // Validate PROVIDER_METADATA entries expose every provider with consistent required fields.
 test('PROVIDER_METADATA contains complete metadata for every provider type', () => {
@@ -25,8 +36,57 @@ test('OpenRouter metadata highlights a known popular model and base URL', () => 
   assert.strictEqual(openRouter.type, 'openrouter');
   assert.strictEqual(openRouter.defaultBaseUrl, 'https://openrouter.ai/api/v1');
   assert.ok(
-    openRouter.popularModels.includes('openai/gpt-5'),
-    'OpenRouter provider should advertise the openai/gpt-5 model in its popular collection'
+    openRouter.popularModels.includes('moonshotai/kimi-k2.6'),
+    'OpenRouter provider should advertise the current Kimi model in its popular collection'
+  );
+  assert.ok(
+    openRouter.popularModels.includes('google/gemma-3-27b-it'),
+    'OpenRouter provider should expose Gemma as an open model choice'
+  );
+});
+
+test('Provider helpers classify self-hosted and OpenAI-compatible providers correctly', () => {
+  assert.strictEqual(providerRequiresBaseUrl('ollama'), true);
+  assert.strictEqual(providerRequiresBaseUrl('selfhosted'), true);
+  assert.strictEqual(providerRequiresBaseUrl('openai'), false);
+
+  assert.strictEqual(providerAllowsOptionalApiKey('selfhosted'), true);
+  assert.strictEqual(providerAllowsOptionalApiKey('openai'), false);
+
+  assert.strictEqual(providerUsesOpenAICompatibleApi('qwen'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('glm'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('mistral'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('xai'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('groq'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('cohere'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('perplexity'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('together'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('fireworks'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('huggingface'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('cerebras'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('selfhosted'), true);
+  assert.strictEqual(providerUsesOpenAICompatibleApi('anthropic'), false);
+  assert.strictEqual(getProviderEndpointKind('ollama'), 'local');
+  assert.strictEqual(getProviderEndpointKind('openai'), 'official');
+  assert.strictEqual(getProviderEndpointKind('selfhosted'), 'compatible');
+  assert.strictEqual(getProviderEndpointLabel('selfhosted'), 'openai-compatible');
+});
+
+test('Recommended model helpers surface provider-specific defaults first', () => {
+  assert.strictEqual(getRecommendedModel('openai', 'default'), 'gpt-5-mini');
+  assert.strictEqual(getRecommendedModel('glm', 'coder'), 'glm-4.6');
+  assert.strictEqual(getRecommendedModel('cohere', 'default'), 'command-a-plus-05-2026');
+  assert.strictEqual(getRecommendedModel('huggingface', 'cheap'), 'google/gemma-3-27b-it');
+  assert.strictEqual(getRecommendedModel('selfhosted', 'coder'), 'qwen3-32b');
+  assert.strictEqual(isRecommendedModelForPurpose('openai', 'default', 'gpt-5-mini'), true);
+  assert.strictEqual(isRecommendedModelForPurpose('openai', 'default', 'gpt-5.4'), false);
+
+  const selfHostedChoices = getModelChoicesForPurpose('selfhosted', 'coder');
+  assert.ok(selfHostedChoices.length > 0, 'Expected at least one self-hosted model choice');
+  assert.strictEqual(selfHostedChoices[0]?.value, 'qwen3-32b');
+  assert.ok(
+    selfHostedChoices[0]?.label.includes('recommended'),
+    'First recommended choice should be labeled as recommended'
   );
 });
 

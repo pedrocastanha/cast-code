@@ -4,14 +4,14 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { UnitTestGeneratorService } from './unit-test-generator.service';
-import type { MultiLlmService } from '../../../common/services/multi-llm.service';
+import type { LlmClientFactory } from '../../../common/services/llm-client.factory';
 
-const stubLlm = {} as MultiLlmService;
+const stubLlm = {} as LlmClientFactory;
 
 // Ensures the constructor retains the provided multi-LLM service reference for dependency injection.
 test('constructor stores the provided LLM dependency', () => {
   const service = new UnitTestGeneratorService(stubLlm);
-  assert.strictEqual(service['multiLlmService'], stubLlm);
+  assert.strictEqual(service['llmClientFactory'], stubLlm);
 });
 
 // Validates that filterRelevantFiles excludes test artifacts and non-source files while keeping production sources.

@@ -1,0 +1,12 @@
+{
+  "id": "qa-regression",
+  "environment": "qa",
+  "profile": "regression",
+  "prompt": "Add tests for an intentionally buggy module.",
+  "expectedSkills": ["testing-strategies", "test-driven-development", "systematic-debugging"],
+  "forbiddenSkills": ["docker-management", "oss-forensics"],
+  "expectedAgents": ["test-automation-engineer"],
+  "expectedFiles": ["src/buggy.test.ts"],
+  "commands": ["npm test"],
+  "graders": ["environment-scope", "artifact-contract"]
+}

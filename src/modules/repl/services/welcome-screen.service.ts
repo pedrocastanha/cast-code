@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { colorize, Box, Icons, Colors } from '../utils/theme';
+import { CAST_COMMANDS } from '../../../ui/cast-design/tokens';
+import { horizontalRule, padVisible, stripAnsi, wrapRow } from '../../../ui/cast-design/cli-renderer';
 
 export interface WelcomeScreenContext {
   projectPath?: string;
@@ -8,84 +10,52 @@ export interface WelcomeScreenContext {
   agentCount: number;
 }
 
-const stripAnsi = (str: string): string => str.replace(/\x1b\[[0-9;]*m/g, '');
-
 @Injectable()
 export class WelcomeScreenService {
   constructor() {}
 
   printWelcomeScreen(context: WelcomeScreenContext): void {
-    // Layout: │ + space + [CONTENT area = innerWidth chars] + space + │
-    // Border: ╭ + ─.repeat(innerWidth + 2) + ╮
-    // Total visible width = 1 + 1 + innerWidth + 1 + 1 = innerWidth + 4
-    const innerWidth = 48;
-    const labelColor = 'muted' as const;
-    const maxLabel = 9;
+    const innerWidth = Math.min(Math.max((process.stdout.columns || 100) - 6, 64), 96);
+    const home = process.env.HOME || '';
+    const borderColor = Colors.subtle;
+    const top = horizontalRule(innerWidth, Box.topLeft, Box.topRight, borderColor);
+    const middle = horizontalRule(innerWidth, Box.leftT, Box.rightT, borderColor);
+    const bottom = horizontalRule(innerWidth, Box.bottomLeft, Box.bottomRight, borderColor);
 
-    const border = (left: string, right: string) =>
-      colorize(left + Box.horizontal.repeat(innerWidth + 2) + right, 'primary');
+    let displayPath = context.projectPath || process.cwd();
+    if (home && displayPath.startsWith(home)) displayPath = '~' + displayPath.slice(home.length);
+    const projectValue = stripAnsi(displayPath).length > innerWidth - 14
+      ? '...' + displayPath.slice(-(innerWidth - 17))
+      : displayPath;
 
-    // Wraps content to exactly innerWidth visible chars, with │ on both sides
-    const row = (content: string) => {
-      const visible = stripAnsi(content);
-      const pad = Math.max(0, innerWidth - visible.length);
-      return (
-        colorize(Box.vertical, 'primary') +
-        ' ' + content + ' '.repeat(pad) + ' ' +
-        colorize(Box.vertical, 'primary')
-      );
-    };
-
-    const centered = (text: string, colorKey: keyof typeof Colors = 'bold') => {
-      const pad = Math.floor((innerWidth - text.length) / 2);
-      const rest = innerWidth - pad - text.length;
-      return ' '.repeat(pad) + colorize(text, colorKey) + ' '.repeat(rest);
-    };
-
-    console.log('');
-    console.log(border(Box.topLeft, Box.topRight));
-    console.log(row(centered('✦ CAST CODE ✦', 'bold')));
-    console.log(row(centered('Multi-Agent CLI Assistant', 'muted')));
-    console.log(border(Box.leftT, Box.rightT));
-
-    console.log(row(`${colorize('Model:'.padEnd(maxLabel), labelColor)}${colorize(context.model, 'cyan')}`));
-
-    if (context.projectPath) {
-      const home = process.env.HOME || '';
-      let displayPath = context.projectPath;
-      if (home && displayPath.startsWith(home)) displayPath = '~' + displayPath.slice(home.length);
-      const maxPathLen = innerWidth - maxLabel - 1;
-      if (stripAnsi(displayPath).length > maxPathLen) {
-        displayPath = '...' + displayPath.slice(-(maxPathLen - 3));
-      }
-      console.log(row(`${colorize('Project:'.padEnd(maxLabel), labelColor)}${colorize(displayPath, 'accent')}`));
-    }
-
-    console.log(row(`${colorize('Tools:'.padEnd(maxLabel), labelColor)}${colorize(context.toolCount.toString(), 'green')} ${colorize('available', labelColor)}`));
-    console.log(row(`${colorize('Agents:'.padEnd(maxLabel), labelColor)}${colorize(context.agentCount.toString(), 'magenta')} ${colorize('ready', labelColor)}`));
-
-    console.log(border(Box.leftT, Box.rightT));
-
-    const tips = [
-      { cmd: '/help', desc: 'Show all commands' },
-      { cmd: '/init', desc: 'Map project context' },
-      { cmd: '@file', desc: 'Inject file into prompt' },
-      { cmd: 'Tab',   desc: 'Accept suggestions' },
+    const rows = [
+      this.centerRow(
+        `${colorize(Icons.circle, 'red')} ${colorize(Icons.circle, 'warning')} ${colorize(Icons.circle, 'green')}   ${colorize('CAST CODE', 'secondary')} ${colorize('Multi-Agent CLI Assistant', 'subtle')}`,
+        innerWidth,
+      ),
+      middle,
+      wrapRow(`${this.label('model')} ${colorize(context.model, 'secondary')}`, innerWidth, borderColor),
+      wrapRow(`${this.label('project')} ${colorize(projectValue, 'green')}`, innerWidth, borderColor),
+      wrapRow(`${this.label('tools')} ${colorize(context.toolCount.toString(), 'warning')} ${colorize('available', 'muted')}`, innerWidth, borderColor),
+      wrapRow(`${this.label('agents')} ${colorize(context.agentCount.toString(), 'warning')} ${colorize('ready', 'muted')}`, innerWidth, borderColor),
+      middle,
+      wrapRow(colorize('QUICK COMMANDS', 'subtle'), innerWidth, borderColor),
+      ...CAST_COMMANDS.map(({ key, description }) =>
+        wrapRow(`${colorize(key.padEnd(8), 'cyan')} ${colorize(description, 'muted')}`, innerWidth, borderColor),
+      ),
     ];
 
-    for (const tip of tips) {
-      const content = `${colorize(Icons.arrow, 'primary')} ${colorize(tip.cmd.padEnd(6), 'cyan')} ${colorize(tip.desc, 'muted')}`;
-      console.log(row(content));
-    }
-
-    console.log(border(Box.bottomLeft, Box.bottomRight));
+    console.log('');
+    console.log(top);
+    rows.forEach((row) => console.log(row));
+    console.log(bottom);
     console.log('');
   }
 
   printBanner(): void {
     process.stdout.write('\r\n');
     process.stdout.write(
-      `  ${colorize('cast', 'primary')}${colorize('code', 'bold')}` + '\r\n'
+      `  ${colorize('CAST', 'secondary')} ${colorize('CODE', 'cyan')}` + '\r\n'
     );
     process.stdout.write('\r\n');
   }
@@ -98,7 +68,8 @@ export class WelcomeScreenService {
   }): void {
     const parts: string[] = [];
 
-    parts.push(colorize(context.model, 'cyan'));
+    parts.push(colorize('tokens', 'subtle') + ' ' + colorize((context.messageCount ?? 0).toString(), 'secondary'));
+    parts.push(colorize('model', 'subtle') + ' ' + colorize(context.model, 'cyan'));
 
     if (context.branch) {
       const branchColor = context.hasChanges ? 'warning' : 'success';
@@ -106,10 +77,14 @@ export class WelcomeScreenService {
       parts.push(colorize(branchIcon, branchColor) + ' ' + colorize(context.branch, 'muted'));
     }
 
-    if (context.messageCount && context.messageCount > 0) {
-      parts.push(colorize(context.messageCount.toString(), 'muted') + ' msgs');
-    }
-
     process.stdout.write('\r\n  ' + parts.join('  ') + '\r\n\r\n');
+  }
+
+  private label(text: string): string {
+    return colorize(padVisible(text, 8), 'muted');
+  }
+
+  private centerRow(content: string, innerWidth: number): string {
+    return wrapRow(padVisible(content, innerWidth, 'center'), innerWidth, Colors.subtle);
   }
 }

@@ -5,27 +5,27 @@ export const Colors = {
   italic: '\x1b[3m',
   underline: '\x1b[4m',
 
-  primary: '\x1b[38;5;51m',   
-  secondary: '\x1b[38;5;183m',
-  accent: '\x1b[38;5;220m', 
+  primary: '\x1b[38;5;45m',
+  secondary: '\x1b[38;5;153m',
+  accent: '\x1b[38;5;220m',
 
-  success: '\x1b[38;5;82m', 
-  error: '\x1b[38;5;196m',  
-  warning: '\x1b[38;5;208m',
-  info: '\x1b[38;5;39m',   
+  success: '\x1b[38;5;79m',
+  error: '\x1b[38;5;210m',
+  warning: '\x1b[38;5;220m',
+  info: '\x1b[38;5;45m',
 
-  text: '\x1b[37m',
-  muted: '\x1b[38;5;245m', 
-  subtle: '\x1b[38;5;240m',
+  text: '\x1b[38;5;153m',
+  muted: '\x1b[38;5;31m',
+  subtle: '\x1b[38;5;24m',
 
-  cyan: '\x1b[38;5;51m',
+  cyan: '\x1b[38;5;45m',
   green: '\x1b[38;5;82m',
   yellow: '\x1b[38;5;220m',
-  red: '\x1b[38;5;196m',
-  magenta: '\x1b[38;5;183m',
+  red: '\x1b[38;5;210m',
+  magenta: '\x1b[38;5;105m',
   blue: '\x1b[38;5;39m',
-  gray: '\x1b[38;5;245m',
-  white: '\x1b[37m',
+  gray: '\x1b[38;5;67m',
+  white: '\x1b[38;5;231m',
 } as const;
 
 export const colorize = (text: string, color: keyof typeof Colors): string => {
@@ -150,6 +150,10 @@ export const UI = {
 
   warning: (text: string): string => {
     return '⚠ ' + colorize(text, 'warning');
+  },
+
+  badge: (text: string): string => {
+    return colorize(` ${text} `, 'muted');
   },
 
   pad: (text: string, width: number, align: 'left' | 'center' | 'right' = 'left'): string => {

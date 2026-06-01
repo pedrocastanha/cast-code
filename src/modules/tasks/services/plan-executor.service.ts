@@ -4,7 +4,7 @@ import { TaskManagementService } from './task-management.service';
 import { PlanPersistenceService } from './plan-persistence.service';
 import { PromptService } from '../../permissions/services/prompt.service';
 import { Colors } from '../../repl/utils/theme';
-import { Task, TaskStatus } from '../types/task.types';
+import { TaskStatus } from '../types/task.types';
 
 @Injectable()
 export class PlanExecutorService {
@@ -58,7 +58,7 @@ export class PlanExecutorService {
     try {
       for (let i = 0; i < plan.tasks.length; i++) {
         if (this.aborted) {
-          this.promptService.warning('Execução cancelada pelo usuário');
+          this.promptService.warn('Execução cancelada pelo usuário');
           break;
         }
 

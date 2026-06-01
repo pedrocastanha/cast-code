@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 
 @Injectable()
@@ -9,7 +9,7 @@ export class SearchToolsService {
   }
 
   private createWebSearchTool() {
-    return tool(
+    return castTool(
       async ({ query }) => {
         return `Web search for "${query}" - Integration pending. Configure search provider in .cast/config.md`;
       },
@@ -24,7 +24,7 @@ export class SearchToolsService {
   }
 
   private createWebFetchTool() {
-    return tool(
+    return castTool(
       async ({ url }) => {
         try {
           const response = await fetch(url);

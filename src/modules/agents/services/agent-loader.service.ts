@@ -8,6 +8,9 @@ import * as path from 'path';
 export class AgentLoaderService implements OnModuleInit {
   private agents: Map<string, AgentDefinition> = new Map();
   private definitionsPath: string;
+  private activeEnvironmentId: string | null = null;
+  private activeEnvironmentAgents: Set<string> | null = null;
+  private activeEnvironmentScopeStrict = false;
 
   constructor(private readonly markdownParser: MarkdownParserService) {
     this.definitionsPath = path.join(__dirname, '..', 'definitions');
@@ -35,6 +38,10 @@ export class AgentLoaderService implements OnModuleInit {
         skills: frontmatter.skills || [],
         mcp: frontmatter.mcp || [],
         systemPrompt: content,
+        source: 'builtin',
+        environments: Array.isArray(frontmatter.environments) ? frontmatter.environments : [],
+        profiles: Array.isArray(frontmatter.profiles) ? frontmatter.profiles : [],
+        tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
       });
     }
   }
@@ -49,40 +56,108 @@ export class AgentLoaderService implements OnModuleInit {
     const parsed = await this.markdownParser.parseAll<AgentFrontmatter>(customPath);
 
     for (const [name, { frontmatter, content }] of parsed) {
-      const existingAgent = this.agents.get(frontmatter.name || name);
+      const key = frontmatter.name || name;
+      const existingAgent = this.agents.get(key);
 
-      if (existingAgent) {
-        this.agents.set(frontmatter.name || name, {
+      if (existingAgent && existingAgent.source !== 'remote') {
+        this.agents.set(key, {
           ...existingAgent,
+          description: frontmatter.description || existingAgent.description,
           skills: [...new Set([...existingAgent.skills, ...(frontmatter.skills || [])])],
           mcp: [...new Set([...existingAgent.mcp, ...(frontmatter.mcp || [])])],
           systemPrompt: content || existingAgent.systemPrompt,
           model: frontmatter.model || existingAgent.model,
           temperature: frontmatter.temperature ?? existingAgent.temperature,
+          source: 'local',
+          environments: [...new Set([...(existingAgent.environments ?? []), ...(frontmatter.environments || [])])],
+          profiles: [...new Set([...(existingAgent.profiles ?? []), ...(frontmatter.profiles || [])])],
+          tags: [...new Set([...(existingAgent.tags ?? []), ...(frontmatter.tags || [])])],
         });
-      } else {
-        this.agents.set(frontmatter.name || name, {
-          name: frontmatter.name || name,
-          description: frontmatter.description || '',
-          model: frontmatter.model || DEFAULT_MODEL,
-          temperature: frontmatter.temperature ?? DEFAULT_TEMPERATURE,
-          skills: frontmatter.skills || [],
-          mcp: frontmatter.mcp || [],
-          systemPrompt: content,
-        });
+        continue;
       }
+
+      this.agents.set(key, {
+        name: key,
+        description: frontmatter.description || '',
+        model: frontmatter.model || DEFAULT_MODEL,
+        temperature: frontmatter.temperature ?? DEFAULT_TEMPERATURE,
+        skills: frontmatter.skills || [],
+        mcp: frontmatter.mcp || [],
+        systemPrompt: content,
+        source: 'local',
+        environments: Array.isArray(frontmatter.environments) ? frontmatter.environments : [],
+        profiles: Array.isArray(frontmatter.profiles) ? frontmatter.profiles : [],
+        tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
+      });
     }
   }
 
+  loadRemoteAgents(agents: AgentDefinition[]): string[] {
+    const overridden: string[] = [];
+
+    for (const agent of agents) {
+      if (this.agents.has(agent.name)) {
+        overridden.push(agent.name);
+      }
+      this.agents.set(agent.name, {
+        ...agent,
+        source: 'remote',
+      });
+    }
+
+    return overridden;
+  }
+
   getAgent(name: string): AgentDefinition | undefined {
-    return this.agents.get(name);
+    const agent = this.agents.get(name);
+    if (!agent || !this.isAgentInActiveScope(agent)) {
+      return undefined;
+    }
+    return agent;
   }
 
   getAllAgents(): AgentDefinition[] {
-    return Array.from(this.agents.values());
+    return Array.from(this.agents.values()).filter((agent) => this.isAgentInActiveScope(agent));
   }
 
   getAgentNames(): string[] {
+    return Array.from(this.agents.entries())
+      .filter(([, agent]) => this.isAgentInActiveScope(agent))
+      .map(([name]) => name);
+  }
+
+  getAllUnscopedAgents(): AgentDefinition[] {
+    return Array.from(this.agents.values());
+  }
+
+  getUnscopedAgentNames(): string[] {
     return Array.from(this.agents.keys());
+  }
+
+  setActiveEnvironmentScope(
+    environmentId: string,
+    agentNames: string[],
+    options: { strict?: boolean } = {},
+  ): void {
+    this.activeEnvironmentId = environmentId;
+    this.activeEnvironmentAgents = new Set(agentNames);
+    this.activeEnvironmentScopeStrict = options.strict ?? false;
+  }
+
+  clearActiveEnvironmentScope(): void {
+    this.activeEnvironmentId = null;
+    this.activeEnvironmentAgents = null;
+    this.activeEnvironmentScopeStrict = false;
+  }
+
+  private isAgentInActiveScope(agent: AgentDefinition): boolean {
+    if (!this.activeEnvironmentId || !this.activeEnvironmentAgents) {
+      return true;
+    }
+    if (this.activeEnvironmentScopeStrict) {
+      return this.activeEnvironmentAgents.has(agent.name);
+    }
+    return this.activeEnvironmentAgents.has(agent.name)
+      || Boolean(agent.environments?.includes(this.activeEnvironmentId));
   }
 }

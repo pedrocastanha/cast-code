@@ -7,6 +7,15 @@ skills:
   - general/file-operations
   - general/search
   - specialized/testing-strategies
+  - test-driven-development
+  - systematic-debugging
+environments:
+  - qa
+  - engineering
+  - frontend
+  - backend
+tags:
+  - testing
 ---
 
 # Tester Agent

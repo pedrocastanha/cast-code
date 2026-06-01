@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 import { MonorepoDetectorService } from './monorepo-detector.service';
 
 import { I18nService } from '../../i18n/services/i18n.service';
@@ -79,7 +79,7 @@ const LEADING_VERB_TRANSLATIONS: Record<string, string> = {
 @Injectable()
 export class CommitGeneratorService {
   constructor(
-    private readonly multiLlmService: MultiLlmService,
+    private readonly llmClientFactory: LlmClientFactory,
     private readonly monorepoDetector: MonorepoDetectorService,
     private readonly i18nService: I18nService,
   ) {}
@@ -129,15 +129,15 @@ export class CommitGeneratorService {
     const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles, ...diffInfo.untrackedFiles];
     const scope = this.monorepoDetector.determineScope(allFiles, monorepoInfo);
 
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     const prompt = this.buildCommitPrompt(diffInfo, scope);
 
     const response = await llm.invoke([
-      new SystemMessage(commitSystemPrompt(this.lang())),
-      new HumanMessage(prompt),
+      { role: 'system', content: commitSystemPrompt(this.lang()) },
+      { role: 'user', content: prompt },
     ]);
 
-    const message = this.extractContent(response.content);
+    const message = extractText(response);
     return this.normalizeCommitMessage(message, 'chore', scope);
   }
 
@@ -148,15 +148,15 @@ export class CommitGeneratorService {
     const monorepoInfo = this.monorepoDetector.detectMonorepo(process.cwd());
     const allFiles = [...diffInfo.stagedFiles, ...diffInfo.unstagedFiles, ...diffInfo.untrackedFiles];
 
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     const splitPrompt = this.buildSplitPrompt(diffInfo, allFiles);
 
     const splitResponse = await llm.invoke([
-      new SystemMessage(splitSystemPrompt(this.lang())),
-      new HumanMessage(splitPrompt),
+      { role: 'system', content: splitSystemPrompt(this.lang()) },
+      { role: 'user', content: splitPrompt },
     ]);
 
-    const splitContent = this.extractContent(splitResponse.content);
+    const splitContent = extractText(splitResponse);
     const commitGroups = this.parseCommitGroups(splitContent);
     if (!commitGroups?.length) return null;
 
@@ -246,7 +246,7 @@ export class CommitGeneratorService {
     userSuggestion: string,
     diffInfo: GitDiffInfo,
   ): Promise<string> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     const context = this.buildDiffContext(diffInfo, {
       maxLength: 6000,
       maxCharsPerFile: 1200,
@@ -257,11 +257,11 @@ export class CommitGeneratorService {
     const prompt = buildRefineHumanPrompt(this.lang(), currentMessage, userSuggestion, context);
 
     const response = await llm.invoke([
-      new SystemMessage(refineSystemPrompt(this.lang())),
-      new HumanMessage(prompt),
+      { role: 'system', content: refineSystemPrompt(this.lang()) },
+      { role: 'user', content: prompt },
     ]);
 
-    const message = this.extractContent(response.content);
+    const message = extractText(response);
     return this.normalizeCommitMessage(
       message,
       currentMetadata.type ?? 'chore',
@@ -326,16 +326,16 @@ export class CommitGeneratorService {
   }
 
   private async generateMessageForGroup(group: CommitGroup): Promise<string> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     const scopePart = group.scope ? `(${group.scope})` : '';
     const prompt = buildGroupHumanPrompt(this.lang(), group.type, scopePart, group.files, group.description);
 
     const response = await llm.invoke([
-      new SystemMessage(commitSystemPrompt(this.lang())),
-      new HumanMessage(prompt),
+      { role: 'system', content: commitSystemPrompt(this.lang()) },
+      { role: 'user', content: prompt },
     ]);
 
-    const message = this.extractContent(response.content);
+    const message = extractText(response);
     return this.normalizeCommitMessage(message, group.type, group.scope, group.description);
   }
 

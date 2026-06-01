@@ -5,6 +5,9 @@ tools:
   - read_file
   - write_file
   - edit_file
+environments:
+  - design
+  - engineering
 ---
 
 # React Patterns — Domain Knowledge

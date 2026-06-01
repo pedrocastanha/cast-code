@@ -1,0 +1,75 @@
+version: 1
+source: builtin
+id: devops
+name: DevOps Platform
+description: Deployment, containers, background workers, scheduled automation, and operational workflows.
+defaultAgent: devops
+agents:
+  required:
+    - devops
+  optional:
+    - backend
+    - reviewer
+    - coder
+    - release-engineer
+skills:
+  required:
+    - file-operations
+    - search
+    - git-operations
+    - docker-management
+    - watchers
+  optional:
+    - kanban-orchestrator
+    - webhook-subscriptions
+    - systematic-debugging
+profiles:
+  deploy:
+    description: Prepare deployment and worker changes with explicit approval gates.
+    agents:
+      required:
+        - devops
+        - release-engineer
+      optional:
+        - backend
+        - reviewer
+    skills:
+      required:
+        - file-operations
+        - search
+        - docker-management
+      optional:
+        - watchers
+        - webhook-subscriptions
+        - systematic-debugging
+    permissions:
+      defaultMode: custom
+      requireApproval:
+        - deploy
+        - production_write
+        - destructive_command
+        - external_network
+mcp:
+  recommended:
+    - github
+    - sentry
+  required: []
+permissions:
+  defaultMode: custom
+  requireApproval:
+    - deploy
+    - production_write
+    - destructive_command
+    - external_network
+rag:
+  recommendedSources:
+    - runbooks
+    - deployment-history
+    - incident-history
+benchmarks:
+  smoke:
+    - engineering-code-review-smoke
+schedules:
+  suggested:
+    - nightly-test-health
+    - weekly-dependency-review

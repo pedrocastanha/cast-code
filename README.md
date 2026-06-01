@@ -46,6 +46,7 @@ Recarregue o shell e rode `cast`.
 | Delegar para agentes especialistas | `coder`, `architect`, `reviewer`, `frontend`, `backend`, `devops`, `tester` |
 | Conectar a 30+ ferramentas externas | MCP — Figma, GitHub, bancos de dados, browser e mais |
 | Trabalhar pelo celular | `/remote` — interface web segura via ngrok com entrada por voz |
+| Usar CLIs assinadas sem API key | `/bridge` — roda o Cast por Claude, Codex, Kimi, Qwen, Copilot ou OpenRouter CLI |
 
 ---
 
@@ -64,6 +65,49 @@ Você pode atribuir modelos diferentes por papel — `default`, `subAgent`, `cod
 
 Configure com `/config init` ou edite `~/.cast/config.yaml` diretamente.
 
+### Bridge de provider CLI
+
+Se você assina um modelo por plano e não tem uma API key para colocar no Cast, use o bridge:
+
+```bash
+cast bridge claude
+```
+
+Ou dentro do REPL:
+
+```text
+/bridge
+/bridge claude
+/bridge autostart claude
+/bridge status
+/bridge tools
+/bridge stop
+```
+
+Providers aceitos pelo bridge: `claude`, `codex`, `copilot`, `qwen`, `kimi`, `openrouter`.
+
+No REPL, `/bridge` abre um seletor de providers. Use `↑/↓` para escolher, `Enter` para conectar agora, ou `Tab` para conectar e ativar autostart no projeto atual. O seletor também tem `Stop bridge`, que desconecta o bridge e volta para o runtime normal por API key. Depois de `/bridge <provider>`, prompts normais sem `/` são enviados para a CLI conectada até você rodar `/bridge stop` ou escolher `Stop bridge` no menu. O bridge troca apenas o runtime do modelo. O Cast continua controlando ferramentas locais, permissões, transcripts e guardrails de arquivos/shell. Isso é diferente de `/remote`, que só expõe a interface web do Cast para outro dispositivo.
+
+Autostart é opt-in e fica em `.cast/bridge.json`. Use `/bridge autostart off` para desligar.
+
+Para CLIs diferentes do padrão, configure comando e argumentos por provider:
+
+```bash
+CAST_BRIDGE_QWEN_COMMAND=qwen-code
+CAST_BRIDGE_QWEN_ARGS="--some-flag"
+cast bridge qwen
+```
+
+Claude usa `stream-json` por padrão quando nenhum override é definido. Para validar consumo real com limite de orçamento:
+
+```bash
+CAST_BRIDGE_CLAUDE_MAX_BUDGET_USD=0.10 cast bridge claude
+```
+
+Codex usa `codex exec --json` por padrão, em modo one-shot, com stdin fechado depois do prompt e sem carregar user config/rules do Codex. Isso evita abrir a TUI do Codex dentro do bridge.
+
+Se uma CLI real demorar no primeiro token, ajuste `CAST_BRIDGE_TURN_FIRST_BYTE_MS`; depois do primeiro chunk, `CAST_BRIDGE_TURN_IDLE_MS` controla o fim do turno.
+
 ---
 
 ## Comandos
@@ -80,6 +124,11 @@ Configure com `/config init` ou edite `~/.cast/config.yaml` diretamente.
 | `/stats` | Uso de tokens e custo da sessão |
 | `/kanban` | Abre o quadro Kanban (localhost:3333) |
 | `/remote` | Expõe interface web via ngrok |
+| `/bridge` | Escolhe provider CLI com setas; `Tab` conecta e ativa autostart; `Stop bridge` volta à API key |
+| `/bridge <provider>` | Usa o Cast através de um provider CLI autenticado |
+| `/bridge autostart <provider>\|off` | Liga/desliga autostart do bridge no projeto |
+| `/bridge status` | Mostra status, provider, tools e modo raw do bridge |
+| `/bridge stop` | Desconecta o bridge e volta ao runtime normal do Cast |
 | `/exit` | Sair |
 
 ### Git
@@ -108,6 +157,14 @@ Configure com `/config init` ou edite `~/.cast/config.yaml` diretamente.
 | `/config` | Menu de configuração |
 | `/mcp list` | Lista os servidores MCP configurados |
 | `/mcp add` | Adiciona um servidor (30+ templates ou customizado) |
+
+### Platform
+| Comando | O que faz |
+|---|---|
+| `cast platform --project <id>` | Vincula o diretório atual a um projeto remoto da Cast Platform |
+| `/platform` | Configura API URL, key global e projeto atual pela interface do CLI |
+| `/platform --project <id>` | Vincula direto, sem sair do chat |
+| `/platform status` | Mostra projeto, API URL, env var da key e status do RAG sem expor segredo |
 
 ---
 
@@ -212,7 +269,32 @@ src/modules/
   config/      configuração de providers e modelos
   mentions/    injeção de contexto via @-mention
   stats/       rastreamento de tokens e custo da sessão
+  platform/    link com Cast Platform, skills/agents remotos, cache e telemetria segura
+  bridge/      ponte para CLIs autenticadas de providers externos
 ```
+
+## Cast Platform CLI
+
+O CLI pode ser vinculado a um projeto remoto sem armazenar secrets no repositório:
+
+```bash
+export CAST_API_KEY="csk_..."
+cast platform --project <project-id>
+```
+
+Isso cria ou atualiza `.cast/cast.yaml`:
+
+```yaml
+version: 1
+platform:
+  projectId: "uuid-do-projeto"
+  apiKeyEnv: "CAST_API_KEY"
+  apiUrl: "https://api.castplatform.dev"
+```
+
+O Cast puxa skills e agents remotos no boot, mas as versões locais em `.cast/skills/` e `.cast/agents/` sempre têm prioridade. Se a API estiver offline, o CLI usa `.cast/platform.cache.json` quando disponível e continua local-only quando não houver cache.
+
+Telemetria envia apenas metadados de sessão, comandos e tokens. Prompts, outputs, conteúdo de arquivos, diffs, stdout/stderr e valores de API key nunca são enviados.
 
 ---
 

@@ -13,7 +13,8 @@ const GIT_PATTERN = /\b(commit|diff|push|branch|merge|rebase|stash|tag|checkout|
 const PR_PATTERN = /\/pr\b|\bpull\s*request\b|\bopen\s*pr\b|\bcrear?\s*pr\b/i;
 const RELEASE_PATTERN = /\/release\b|\brelease\s*notes?\b|\bchangelog\b|\bversao\b|\bversion\b/i;
 const PLANNING_PATTERN = /\barchitect\b|\bplan\b|\bdesign\b|\brefactor\b|\bstructure\b|\bmigrat/i;
-const MENTIONS_PATTERN = /(?:^|\s)@(?!https?:\/\/)(?![\w.+-]+@)[\w./\-]+/;
+const MCP_PATTERN = /\b(mcp|figma|linear|jira|sentry|notion|slack|stripe|supabase|vercel|cloudflare|mongodb|github|external service|api externa|design externo)\b/i;
+const MENTIONS_PATTERN = /(?:^|\s)@(?!https?:\/\/)(?![\w.+-]+@)[\w./-]+/;
 
 @Injectable()
 export class PromptClassifierService {
@@ -27,7 +28,7 @@ export class PromptClassifierService {
     if (PR_PATTERN.test(message)) layers.push('pr');
     if (RELEASE_PATTERN.test(message)) layers.push('release');
     if (PLANNING_PATTERN.test(message)) layers.push('planning');
-    if (ctx.hasMcpConnected) layers.push('mcp');
+    if (ctx.hasMcpConnected && MCP_PATTERN.test(message)) layers.push('mcp');
 
     return layers;
   }

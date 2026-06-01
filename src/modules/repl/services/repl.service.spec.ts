@@ -1,16 +1,25 @@
 import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { ReplService } from './repl.service';
-import { Colors } from '../utils/theme';
+import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
 const buildReplService = (overrides: Record<string, any> = {}) => {
   const defaults = {
     deepAgent: {
       initialize: async () => ({ toolCount: 0, projectPath: '' }),
       reinitializeModel: async () => {},
+      getTokenCount: () => 0,
+      getMessageCount: () => 0,
+      getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+      getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+      setLocalSessionId: () => {},
     },
-    configService: {},
-    configManager: { loadConfig: async () => {} },
+    configService: {
+      getProvider: () => 'openai',
+      getModel: () => 'gpt-4.1-mini',
+    },
+    configManager: { loadConfig: async () => {}, getModelConfig: () => undefined },
     mentionsService: {},
     mcpRegistry: {},
     agentRegistry: { resolveAllAgents: () => [] },
@@ -21,7 +30,8 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
       printHelp: () => {},
       cmdClear: () => {},
       cmdContext: () => {},
-      cmdModel: () => {},
+      cmdModel: async () => false,
+      cmdEffort: async () => false,
       cmdMentionsHelp: () => {},
     },
     gitCommands: {
@@ -36,29 +46,104 @@ const buildReplService = (overrides: Record<string, any> = {}) => {
     mcpCommands: {},
     configCommands: { handleConfigCommand: async () => {} },
     projectCommands: { cmdProject: async () => {} },
+    snapshotCommandsService: {},
+    statsCommandsService: { setDefaultModel: () => {}, cmdStats: () => {} },
+    replayCommandsService: { cmdReplay: () => {} },
+    vaultCommandsService: { cmdVault: () => {} },
     toolsRegistry: {},
+    kanbanServer: {},
+    remoteServer: { onMessage: () => {} },
+    permissionService: { setPermissionHandler: () => {} },
+    filesystemTools: { setFileWriteHandler: () => {} },
+    platformService: {
+      track: () => {},
+      close: async () => {},
+      getStatus: () => 'disabled',
+    },
+    platformCommands: { cmdPlatform: async () => false },
+    benchmarkCommands: { handleBenchmarkCommand: async () => {} },
+    discoveryTools: { setCastCommandHandler: () => {} },
+    localSessionStore: undefined,
+    environmentCommands: undefined,
+    scheduleCommands: undefined,
+    sandboxCommands: { cmdSandbox: async () => {} },
+    bridgeCommands: {
+      cmdBridge: async () => '',
+      isConnected: () => false,
+      getProviderLabel: () => 'Claude CLI',
+      runPrompt: async () => '',
+    },
+    swarmCommands: undefined,
+    runtimeTelemetryProjector: undefined,
   };
 
   const deps = { ...defaults, ...overrides };
 
   return new ReplService(
-    deps.deepAgent,
-    deps.configService,
-    deps.configManager,
-    deps.mentionsService,
-    deps.mcpRegistry,
-    deps.agentRegistry,
-    deps.skillRegistry,
-    deps.welcomeScreen,
-    deps.planMode,
-    deps.replCommands,
-    deps.gitCommands,
-    deps.agentCommands,
-    deps.mcpCommands,
-    deps.configCommands,
-    deps.projectCommands,
-    deps.toolsRegistry,
+    deps.deepAgent as any,
+    deps.configService as any,
+    deps.configManager as any,
+    deps.mentionsService as any,
+    deps.mcpRegistry as any,
+    deps.agentRegistry as any,
+    deps.skillRegistry as any,
+    deps.welcomeScreen as any,
+    deps.planMode as any,
+    deps.replCommands as any,
+    deps.gitCommands as any,
+    deps.agentCommands as any,
+    deps.mcpCommands as any,
+    deps.configCommands as any,
+    deps.projectCommands as any,
+    deps.snapshotCommandsService as any,
+    deps.statsCommandsService as any,
+    deps.replayCommandsService as any,
+    deps.vaultCommandsService as any,
+    deps.toolsRegistry as any,
+    deps.kanbanServer as any,
+    deps.remoteServer as any,
+    deps.permissionService as any,
+    deps.filesystemTools as any,
+    deps.platformService as any,
+    deps.platformCommands as any,
+    deps.benchmarkCommands as any,
+    deps.discoveryTools as any,
+    deps.localSessionStore as any,
+    deps.environmentCommands as any,
+    deps.scheduleCommands as any,
+    deps.sandboxCommands as any,
+    undefined as any,
+    deps.bridgeCommands as any,
+    deps.swarmCommands as any,
+    deps.runtimeTelemetryProjector as any,
   );
+};
+
+const captureStdoutAsync = async <T>(run: (writes: string[]) => Promise<T>): Promise<{ result: T; output: string }> => {
+  const originalWrite = process.stdout.write;
+  const writes: string[] = [];
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  try {
+    const result = await run(writes);
+    return { result, output: writes.join('') };
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+};
+
+const waitFor = async (condition: () => boolean, timeoutMs = 1000): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return;
+    }
+    await delay(5);
+  }
+  throw new Error('Timed out waiting for condition');
 };
 
 describe('ReplService', () => {
@@ -70,6 +155,373 @@ describe('ReplService', () => {
     assert(Array.isArray(suggestions), 'command suggestions should be an array');
     const texts = suggestions.map((s: { text: string }) => s.text);
     assert.deepStrictEqual(texts, ['/unit-test'], 'only the /unit-test command starts with /unit');
+  });
+
+  test('filters command suggestions and exposes the /effort option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/eff');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/effort'],
+      'only the /effort command starts with /eff',
+    );
+  });
+
+  test('filters command suggestions and exposes the /platform option without /link', () => {
+    const service = buildReplService();
+    const platformSuggestions = (service as any).getCommandSuggestions('/pla');
+    const linkSuggestions = (service as any).getCommandSuggestions('/li');
+
+    assert.deepStrictEqual(
+      platformSuggestions.map((s: { text: string }) => s.text),
+      ['/platform'],
+      'only the /platform command starts with /pla',
+    );
+    assert.deepStrictEqual(linkSuggestions, []);
+  });
+
+  test('filters command suggestions and exposes the /benchmark option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/bench');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/benchmark'],
+      'only the /benchmark command starts with /bench',
+    );
+  });
+
+  test('filters command suggestions and exposes the /sandbox option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/sand');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/sandbox'],
+      'only the /sandbox command starts with /sand',
+    );
+  });
+
+  test('filters command suggestions and exposes the /bridge option', () => {
+    const service = buildReplService();
+    const suggestions = (service as any).getCommandSuggestions('/bri');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['/bridge'],
+      'only the /bridge command starts with /bri',
+    );
+  });
+
+  test('routes regular prompts through the connected bridge provider', async () => {
+    const prompts: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (message: string, projectRoot: string) => {
+          prompts.push(message);
+          assert.equal(projectRoot, process.cwd());
+          return 'Claude bridge response';
+        },
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('qual modelo voce esta usando?');
+    });
+
+    assert.deepEqual(prompts, ['qual modelo voce esta usando?']);
+    assert.match(output, /Claude bridge response/);
+  });
+
+  test('offers Agent Swarm before routing a regular prompt to an active bridge', async () => {
+    const bridgePrompts: string[] = [];
+    const swarmPrompts: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (message: string) => {
+          bridgePrompts.push(message);
+          return 'unexpected bridge response';
+        },
+      },
+      swarmCommands: {
+        offerForPrompt: async (message: string) => {
+          swarmPrompts.push(message);
+          return true;
+        },
+      },
+    });
+    (service as any).smartInput = { refresh: () => {} };
+
+    await captureStdoutAsync(async () => {
+      await (service as any).processLine('Implement billing limits across backend, web, and CLI tests with a full refactor');
+    });
+
+    assert.deepEqual(swarmPrompts, ['Implement billing limits across backend, web, and CLI tests with a full refactor']);
+    assert.deepEqual(bridgePrompts, []);
+  });
+
+  test('streams connected bridge output through a SmartInput external block', async () => {
+    let beginCalls = 0;
+    let endCalls = 0;
+    const outputLines: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (_message: string, _projectRoot: string, callbacks: any) => {
+          callbacks.onOutputChunk('streamed ');
+          callbacks.onOutputChunk('bridge response');
+          return 'streamed bridge response';
+        },
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => { beginCalls += 1; },
+      endExternalOutput: () => { endCalls += 1; },
+      writeOutputLine: (line: string) => outputLines.push(stripAnsi(line)),
+    };
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('stream isso');
+    });
+
+    assert.equal(beginCalls, 1);
+    assert.equal(endCalls, 1);
+    assert.match(stripAnsi(output), /Claude CLI/);
+    assert.match(stripAnsi(output), /streamed bridge response/);
+    assert(outputLines.some((line) => line.includes('─')), 'bridge output should finish with a separator');
+  });
+
+  test('prints bridge tool activity while a provider prompt is running', async () => {
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (_message: string, _projectRoot: string, callbacks: any) => {
+          callbacks.onToolCall({
+            id: 'call_1',
+            name: 'read_file',
+            arguments: { path: 'package.json' },
+            raw: '',
+          });
+          callbacks.onToolResult({
+            id: 'call_1',
+            name: 'read_file',
+            status: 'ok',
+            content: '1: package content\n2: more',
+          });
+          return 'Bridge final answer';
+        },
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => {},
+      endExternalOutput: () => {},
+      writeOutputLine: () => {},
+    };
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('le package');
+    });
+
+    const plain = stripAnsi(output);
+    assert.match(plain, /Claude CLI/);
+    assert.match(plain, /▶ read file package\.json/);
+    assert.match(plain, /✓ read_file ok - 2 lines,/);
+    assert.match(plain, /Bridge final answer/);
+  });
+
+  test('projects bridge runtime events to platform telemetry without raw text', async () => {
+    const tracked: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const service = buildReplService({
+      platformService: {
+        track: (type: string, payload: Record<string, unknown>) => tracked.push({ type, payload }),
+        close: async () => {},
+        getStatus: () => 'online',
+      },
+      runtimeTelemetryProjector: {
+        project: (event: any) => (event.type === 'runtime.tool.completed'
+          ? {
+            type: 'runtime.tool.completed',
+            ts: event.timestamp,
+            payload: {
+              runId: event.scope.runId,
+              tool: event.toolName,
+              scope: event.scope.kind,
+              status: event.status,
+              summary: event.summary,
+            },
+          }
+          : null),
+      },
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (_message: string, _projectRoot: string, callbacks: any) => {
+          callbacks.onRuntimeEvent({
+            id: 'evt_1',
+            seq: 1,
+            timestamp: '2026-05-20T00:00:00.000Z',
+            type: 'runtime.tool.completed',
+            scope: { kind: 'bridge', runId: 'turn_1', provider: 'claude' },
+            privacy: 'local',
+            toolName: 'read_file',
+            status: 'ok',
+            summary: 'read_file ok - 2 lines',
+            outputPreview: 'raw file content',
+          });
+          callbacks.onOutputChunk('Bridge final answer');
+          return 'Bridge final answer';
+        },
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => {},
+      endExternalOutput: () => {},
+      writeOutputLine: () => {},
+    };
+
+    await captureStdoutAsync(async () => {
+      await (service as any).processLine('le package');
+    });
+
+    assert.deepEqual(tracked, [{
+      type: 'runtime.tool.completed',
+      payload: {
+        runId: 'turn_1',
+        tool: 'read_file',
+        scope: 'bridge',
+        status: 'ok',
+        summary: 'read_file ok - 2 lines',
+      },
+    }]);
+  });
+
+  test('keeps slash commands local while a bridge provider is connected', async () => {
+    const commandArgs: string[][] = [];
+    const prompts: string[] = [];
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async (args: string[]) => {
+          commandArgs.push(args);
+          return 'bridge status panel';
+        },
+        isConnected: () => true,
+        getProviderLabel: () => 'Claude CLI',
+        runPrompt: async (message: string) => {
+          prompts.push(message);
+          return 'unexpected bridge prompt';
+        },
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).processLine('/bridge status');
+    });
+
+    assert.deepEqual(commandArgs, [['status']]);
+    assert.deepEqual(prompts, []);
+    assert.match(output, /bridge status panel/);
+  });
+
+  test('lists agents and skills as dollar-reference suggestions with type labels', () => {
+    const service = buildReplService({
+      agentRegistry: {
+        resolveAllAgents: () => [
+          {
+            name: 'frontend',
+            description: 'Frontend specialist for UI implementation',
+            tools: [],
+            model: 'fast',
+            temperature: 0,
+            systemPrompt: '',
+            mcp: [],
+          },
+        ],
+      },
+      skillRegistry: {
+        getAllSkills: () => [
+          {
+            name: 'api-design',
+            description: 'REST and GraphQL API design patterns',
+            tools: ['read_file'],
+            guidelines: '',
+          },
+        ],
+      },
+    });
+
+    const suggestions = (service as any).getReferenceSuggestions('');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['$frontend', '$api-design'],
+    );
+    assert.match(suggestions[0].description, /^agent\b/i);
+    assert.match(suggestions[1].description, /^skill\b/i);
+  });
+
+  test('filters dollar-reference suggestions by partial name', () => {
+    const service = buildReplService({
+      agentRegistry: {
+        resolveAllAgents: () => [
+          {
+            name: 'frontend',
+            description: 'Frontend specialist',
+            tools: [],
+            model: 'fast',
+            temperature: 0,
+            systemPrompt: '',
+            mcp: [],
+          },
+        ],
+      },
+      skillRegistry: {
+        getAllSkills: () => [
+          {
+            name: 'api-design',
+            description: 'REST and GraphQL API design patterns',
+            tools: [],
+            guidelines: '',
+          },
+        ],
+      },
+    });
+
+    const suggestions = (service as any).getReferenceSuggestions('api');
+
+    assert.deepStrictEqual(
+      suggestions.map((s: { text: string }) => s.text),
+      ['$api-design'],
+    );
+  });
+
+  test('routes the /sandbox command to SandboxCommandsService', async () => {
+    const recorded: string[][] = [];
+    const service = buildReplService({
+      sandboxCommands: {
+        cmdSandbox: async (args: string[]) => {
+          recorded.push(args);
+        },
+      },
+    });
+
+    await (service as any).handleCommand('/sandbox rollback run-1');
+
+    assert.deepStrictEqual(recorded, [['rollback', 'run-1']]);
   });
 
   // Verifies the /unit-test command routes to gitCommands.cmdUnitTest with the active smart input.
@@ -94,44 +546,1065 @@ describe('ReplService', () => {
     assert.strictEqual(recorded[0], smartInputStub, 'cmdUnitTest receives the current smart input instance');
   });
 
-  // Confirms spinner output rotates icons and extends dot sequences on each interval tick.
-  test('startSpinner writes updated label and dot count on each tick', () => {
+  test('prints the actual Kanban URL returned by the server', async () => {
+    const service = buildReplService({
+      kanbanServer: {
+        start: async (openBrowser: boolean) => {
+          assert.equal(openBrowser, true);
+          return { ok: true, url: 'http://localhost:3341', port: 3341, alreadyRunning: false };
+        },
+      },
+      remoteServer: {
+        onMessage: () => {},
+        getIsRunning: () => false,
+        getPublicUrl: () => null,
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).handleCommand('/kanban');
+    });
+
+    assert.match(output, /http:\/\/localhost:3341/);
+    assert.doesNotMatch(output, /localhost:3333/);
+  });
+
+  test('agent-triggered Cast command asks permission before routing to slash command', async () => {
+    const runGitCalls: string[] = [];
+    const choices: string[] = [];
+    const service = buildReplService({
+      gitCommands: {
+        runGit: (command: string) => { runGitCalls.push(command); },
+        cmdPr: async () => {},
+        cmdUnitTest: async () => {},
+        cmdReview: async () => {},
+        cmdFix: async () => {},
+        cmdIdent: async () => {},
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async (message: string) => {
+        choices.push(message);
+        return 'y';
+      },
+    };
+
+    const { result } = await captureStdoutAsync<string>(() =>
+      (service as any).handleAgentCastCommand('/status'),
+    );
+
+    assert.match(result, /finished/i);
+    assert.deepEqual(choices, ['Run this Cast command?']);
+    assert.deepEqual(runGitCalls, ['git status']);
+  });
+
+  test('agent-triggered Cast command returns the command output to the agent', async () => {
+    const service = buildReplService({
+      gitCommands: {
+        runGit: () => {},
+        cmdPr: async () => {
+          process.stdout.write('\r\n  ! No commits found between feat/cast-platform and main\r\n');
+        },
+        cmdUnitTest: async () => {},
+        cmdReview: async () => {},
+        cmdFix: async () => {},
+        cmdIdent: async () => {},
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async () => 'y',
+      question: async () => '',
+    };
+
+    const { result, output } = await captureStdoutAsync<string>(() =>
+      (service as any).handleAgentCastCommand('/pr main'),
+    );
+    const visibleOutput = stripAnsi(output).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    assert.match(result, /Cast command finished: \/pr main/);
+    assert.match(result, /No commits found between feat\/cast-platform and main/);
+    assert.doesNotMatch(visibleOutput, /Running \/pr main\n\s*\n/);
+  });
+
+  test('starts and ends local state session best-effort', async () => {
+    const calls: any[] = [];
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '/repo' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 77,
+        getMessageCount: () => 0,
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        setLocalSessionId: () => {},
+      },
+      platformService: {
+        track: () => {},
+        close: async () => { calls.push(['platform-close']); },
+        getStatus: () => 'online',
+        getProject: () => ({ id: 'project-1' }),
+      },
+      localSessionStore: {
+        startSession: async (input: any) => {
+          calls.push(['start', input]);
+          return { id: 'local-session-1' };
+        },
+        endSession: async (id: string, summary: any) => {
+          calls.push(['end', id, summary]);
+        },
+      },
+    });
+
+    await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    await service.shutdown();
+
+    assert.deepEqual(calls, [
+      ['start', {
+        projectRoot: '/repo',
+        platformProjectId: 'project-1',
+        model: 'openai/gpt-4.1-mini',
+      }],
+      ['platform-close'],
+      ['end', 'local-session-1', { totalTokens: 77 }],
+    ]);
+  });
+
+  test('shutdown saves a guarded session summary before ending local state session', async () => {
+    const calls: string[] = [];
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '/repo' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 77,
+        getMessageCount: () => 4,
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        setLocalSessionId: () => {},
+        saveSessionSummaryToMemory: async () => {
+          calls.push('summary');
+          return { saved: true };
+        },
+      },
+      platformService: {
+        track: () => {},
+        close: async () => { calls.push('platform-close'); },
+        getStatus: () => 'online',
+        getProject: () => ({ id: 'project-1' }),
+      },
+      localSessionStore: {
+        startSession: async () => ({ id: 'local-session-1' }),
+        endSession: async () => {
+          calls.push('local-end');
+        },
+      },
+    });
+
+    await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    await service.shutdown();
+
+    assert.deepEqual(calls, ['summary', 'platform-close', 'local-end']);
+  });
+
+  test('warns once and keeps running when local state session start fails', async () => {
+    const service = buildReplService({
+      localSessionStore: {
+        startSession: async () => {
+          throw new Error('state unavailable');
+        },
+      },
+    });
+
+    const { output } = await captureStdoutAsync(async () => {
+      await (service as any).startLocalStateSession({ projectPath: '/repo' });
+      await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    });
+
+    assert.match(output, /Local state disabled/i);
+    assert.equal((output.match(/Local state disabled/gi) ?? []).length, 1);
+  });
+
+  test('ends local state session even when platform close fails', async () => {
+    const calls: string[] = [];
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '/repo' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 77,
+        getMessageCount: () => 0,
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        getLastInteractionTokens: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        setLocalSessionId: () => {},
+      },
+      platformService: {
+        track: () => {},
+        close: async () => {
+          calls.push('platform-close');
+          throw new Error('platform close failed');
+        },
+        getStatus: () => 'online',
+        getProject: () => ({ id: 'project-1' }),
+      },
+      localSessionStore: {
+        startSession: async () => ({ id: 'local-session-1' }),
+        endSession: async () => {
+          calls.push('local-end');
+        },
+      },
+    });
+
+    await (service as any).startLocalStateSession({ projectPath: '/repo' });
+    await assert.rejects(() => service.shutdown(), /platform close failed/);
+
+    assert.deepEqual(calls, ['platform-close', 'local-end']);
+  });
+
+  test('agent-triggered Cast command renders a permission panel with command context', async () => {
+    const choicePrompts: string[] = [];
     const service = buildReplService();
-    const writes: string[] = [];
-    const originalStdout = process.stdout.write;
+
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async (message: string) => {
+        choicePrompts.push(message);
+        return 'n';
+      },
+    };
+
+    const { output } = await captureStdoutAsync(() =>
+      (service as any).handleAgentCastCommand('/up'),
+    );
+
+    const visibleOutput = stripAnsi(output);
+    assert.match(visibleOutput, /Cast command\s+\/up/);
+    assert.match(visibleOutput, /Action\s+Commit and push current changes/);
+    assert.match(visibleOutput, /Approval\s+required/);
+    assert.doesNotMatch(visibleOutput.replace(/\r\n/g, '\n'), /Approval[^\n]*\n\s*\n/);
+    assert.deepEqual(choicePrompts, ['Run this Cast command?']);
+  });
+
+  test('agent-triggered Cast command does not redraw the prompt while agent output continues', async () => {
+    let resumeCalls = 0;
+    const service = buildReplService();
+    (service as any).isProcessing = true;
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => { resumeCalls += 1; },
+      askChoice: async () => 'n',
+    };
+
+    await captureStdoutAsync(() =>
+      (service as any).handleAgentCastCommand('/status'),
+    );
+
+    assert.equal(resumeCalls, 0);
+  });
+
+  test('agent-triggered Cast command denial does not route the slash command', async () => {
+    const runGitCalls: string[] = [];
+    const service = buildReplService({
+      gitCommands: {
+        runGit: (command: string) => { runGitCalls.push(command); },
+        cmdPr: async () => {},
+        cmdUnitTest: async () => {},
+        cmdReview: async () => {},
+        cmdFix: async () => {},
+        cmdIdent: async () => {},
+      },
+    });
+    (service as any).smartInput = {
+      refresh: () => {},
+      pause: () => {},
+      resume: () => {},
+      askChoice: async () => 'n',
+    };
+
+    const { result } = await captureStdoutAsync<string>(() =>
+      (service as any).handleAgentCastCommand('/status'),
+    );
+
+    assert.match(result, /denied/i);
+    assert.deepEqual(runGitCalls, []);
+  });
+
+  test('registers the agent Cast command handler during startup', async () => {
+    let registeredHandler: ((command: string) => Promise<string>) | null = null;
+    const service = buildReplService({
+      discoveryTools: {
+        setCastCommandHandler: (handler: (command: string) => Promise<string>) => {
+          registeredHandler = handler;
+        },
+      },
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+      },
+      agentRegistry: { resolveAllAgents: () => [] },
+      remoteServer: { onMessage: () => {} },
+      permissionService: { setPermissionHandler: () => {} },
+      filesystemTools: { setFileWriteHandler: () => {} },
+    });
+
+    const originalWrite = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    try {
+      await service.start();
+      assert(registeredHandler);
+    } finally {
+      service.stop();
+      process.stdin.pause();
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('routes /platform to platformCommands and refreshes the agent after setup', async () => {
+    const recordedArgs: string[][] = [];
+    const smartInputStub = { showPrompt: () => {} };
+    let initializeCalls = 0;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => {
+          initializeCalls += 1;
+          return { toolCount: 0, projectPath: '' };
+        },
+        reinitializeModel: async () => {},
+        getTokenCount: () => 0,
+        getMessageCount: () => 0,
+      },
+      platformCommands: {
+        cmdPlatform: async (args: string[], input: unknown) => {
+          recordedArgs.push(args);
+          assert.strictEqual(input, smartInputStub);
+          return true;
+        },
+      },
+    });
+    (service as any).smartInput = smartInputStub;
+
+    await (service as any).handleCommand('/platform --project project-1');
+
+    assert.deepStrictEqual(recordedArgs, [['--project', 'project-1']]);
+    assert.equal(initializeCalls, 1);
+  });
+
+  test('queues slash commands while a previous slash command is running', async () => {
+    const calls: string[] = [];
+    let releaseFirst!: () => void;
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const firstReleasePromise = new Promise<void>((resolve) => { releaseFirst = resolve; });
+
+    const service = buildReplService({
+      environmentCommands: {
+        cmdEnv: async (args: string[]) => {
+          calls.push(args.join(' '));
+          if (calls.length === 1) {
+            firstStarted();
+            await firstReleasePromise;
+          }
+        },
+      },
+    });
+
+    await captureStdoutAsync(async () => {
+      await (service as any).handleLine('/env use backend --profile api');
+      await firstStartedPromise;
+      await (service as any).handleLine('/env use frontend --profile ui-build');
+
+      assert.deepEqual(calls, ['use backend --profile api']);
+
+      releaseFirst();
+      await waitFor(() => calls.length === 2);
+
+      assert.deepEqual(calls, [
+        'use backend --profile api',
+        'use frontend --profile ui-build',
+      ]);
+    });
+  });
+
+  test('routes /benchmark to benchmark commands with the active smart input', async () => {
+    const calls: any[] = [];
+    const smartInputStub = { showPrompt: () => {} };
+    const service = buildReplService({
+      benchmarkCommands: {
+        setAgentExecutor: () => {},
+        cmdBenchmark: async (args: string[], input: unknown) => {
+          calls.push([args, input]);
+        },
+      },
+    });
+    (service as any).smartInput = smartInputStub;
+
+    await (service as any).handleCommand('/benchmark list');
+
+    assert.deepEqual(calls, [[['list'], smartInputStub]]);
+  });
+
+  test('routes /benchmark commands to BenchmarkCommandsService with active smart input', async () => {
+    const calls: Array<{ args: string[]; input: unknown }> = [];
+    const smartInputStub = { showPrompt: () => {} };
+    const service = buildReplService({
+      benchmarkCommands: {
+        handleBenchmarkCommand: async (args: string[], input: unknown) => {
+          calls.push({ args, input });
+        },
+      },
+    });
+    (service as any).smartInput = smartInputStub;
+
+    await (service as any).handleCommand('/benchmark run def-1');
+
+    assert.deepEqual(calls, [{ args: ['run', 'def-1'], input: smartInputStub }]);
+  });
+
+  test('tracks slash commands without command arguments', async () => {
+    const tracked: Array<Record<string, unknown>> = [];
+    const service = buildReplService({
+      platformService: {
+        track: (type: string, payload: Record<string, unknown>) => tracked.push({ type, ...payload }),
+        close: async () => {},
+        getStatus: () => 'disabled',
+      },
+    });
+    (service as any).smartInput = { showPrompt: () => {} };
+
+    await (service as any).handleCommand('/help verbose');
+
+    assert.deepEqual(tracked, [{ type: 'command.run', command: '/help' }]);
+  });
+
+  test('reinitializes the active model after /model changes configuration', async () => {
+    let reinitializeCalls = 0;
+    let statsModel: string | null = null;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => { reinitializeCalls += 1; },
+        getTokenCount: () => 0,
+        getMessageCount: () => 0,
+      },
+      configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
+      configManager: {
+        loadConfig: async () => {},
+        getModelConfig: () => ({ provider: 'openai', model: 'gpt-5-mini' }),
+      },
+      replCommands: {
+        printHelp: () => {},
+        cmdClear: () => {},
+        cmdContext: () => {},
+        cmdModel: async () => true,
+        cmdEffort: async () => false,
+        cmdMentionsHelp: () => {},
+      },
+      statsCommandsService: {
+        setDefaultModel: (value: string) => { statsModel = value; },
+        cmdStats: () => {},
+      },
+    });
+
+    (service as any).smartInput = { showPrompt: () => {} };
+
+    await (service as any).handleCommand('/model');
+
+    assert.strictEqual(reinitializeCalls, 1, 'model changes should reinitialize the active model once');
+    assert.strictEqual(statsModel, 'openai/gpt-5-mini', 'stats should refresh to the new model display name');
+  });
+
+  test('routes /effort and reinitializes the active model after a change', async () => {
+    let reinitializeCalls = 0;
+    let statsModel: string | null = null;
+    const recordedArgs: string[][] = [];
+    const smartInputStub = { showPrompt: () => {} };
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => { reinitializeCalls += 1; },
+        getTokenCount: () => 0,
+        getMessageCount: () => 0,
+      },
+      configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
+      configManager: {
+        loadConfig: async () => {},
+        getModelConfig: () => ({ provider: 'openai', model: 'gpt-4.1-mini' }),
+      },
+      replCommands: {
+        printHelp: () => {},
+        cmdClear: () => {},
+        cmdContext: () => {},
+        cmdModel: async () => false,
+        cmdEffort: async (args: string[], input: unknown) => {
+          recordedArgs.push(args);
+          assert.strictEqual(input, smartInputStub);
+          return true;
+        },
+        cmdMentionsHelp: () => {},
+      },
+      statsCommandsService: {
+        setDefaultModel: (value: string) => { statsModel = value; },
+        cmdStats: () => {},
+      },
+    });
+
+    (service as any).smartInput = smartInputStub;
+
+    await (service as any).handleCommand('/effort deep');
+
+    assert.deepStrictEqual(recordedArgs, [['deep']]);
+    assert.strictEqual(reinitializeCalls, 1);
+    assert.strictEqual(statsModel, 'openai/gpt-4.1-mini');
+  });
+
+  // Confirms spinner output rotates icons and extends dot sequences on each interval tick.
+  test('startSpinner updates spinner state and refreshes the input on each tick', () => {
+    const service = buildReplService();
     const originalSetInterval = global.setInterval;
     const originalClearInterval = global.clearInterval;
     const fakeTimer = Symbol('spinner-timer');
     let capturedCallback: (() => void) | null = null;
+    let refreshCalls = 0;
 
     try {
-      (process.stdout as any).write = (chunk: string) => {
-        writes.push(String(chunk));
-        return true;
-      };
-
       (global as any).setInterval = (callback: () => void) => {
         capturedCallback = callback;
         return fakeTimer as unknown as NodeJS.Timer;
       };
 
       (global as any).clearInterval = () => {};
+      (service as any).smartInput = { refresh: () => { refreshCalls += 1; } };
 
       (service as any).startSpinner('testing');
       assert(capturedCallback, 'spinner setInterval callback should be captured');
+      assert.strictEqual((service as any).spinnerLabel, 'testing');
+      assert.strictEqual((service as any).spinnerFrameIndex, 0);
 
-      capturedCallback!();
-      capturedCallback!();
+      const callback = capturedCallback as () => void;
+      callback();
+      callback();
 
-      assert.strictEqual(writes.length, 2, 'spinner should have written twice after two ticks');
-      assert(writes[0].startsWith('\r' + Colors.cyan), 'spinner output should start with the cyan color code');
-      assert(writes[0].includes(`${Colors.dim}testing.${Colors.reset}`), 'first tick should append a single dot');
-      assert(writes[1].includes(`${Colors.dim}testing..${Colors.reset}`), 'second tick should append two dots');
-      assert.notStrictEqual(writes[0], writes[1], 'consecutive spinner ticks should produce different output');
+      assert.strictEqual(refreshCalls, 3, 'spinner should refresh once on start and once per tick');
+      assert.strictEqual((service as any).spinnerFrameIndex, 2, 'spinner frame should advance on each tick');
     } finally {
-      (process.stdout as any).write = originalStdout;
       (global as any).setInterval = originalSetInterval;
       (global as any).clearInterval = originalClearInterval;
+    }
+  });
+
+  test('input footer shows input mode, shortcuts, and remaining context only', () => {
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getTokenCount: () => 104_758,
+        getSessionTokenUsage: () => ({ input: 20_000, output: 4_000, cachedInput: 6_000 }),
+      },
+      configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
+      configManager: { getModelConfig: () => ({ provider: 'openai', model: 'gpt-4.1-mini' }) },
+    });
+
+    const lines = (service as any).getInputFooterLines();
+    const combined = stripAnsi(lines.join(' '));
+
+    assert.equal(lines.length, 1, 'footer should render one compact line');
+    assert.match(combined, /REQUEST ALWAYS/);
+    assert.match(combined, /Shift\+Tab mode/);
+    assert.match(combined, /Tab queue/);
+    assert.match(combined, /90% context left/i);
+    assert.doesNotMatch(combined, /tokens|cost|effort|model/i);
+  });
+
+  test('input footer cycles request, accept edits, and plan modes', () => {
+    const service = buildReplService();
+
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /REQUEST ALWAYS/);
+
+    (service as any).cycleInputMode();
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /ACCEPT EDITS/);
+
+    (service as any).cycleInputMode();
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /PLAN MODE/);
+
+    (service as any).cycleInputMode();
+    assert.match(stripAnsi((service as any).getInputFooterLines().join(' ')), /REQUEST ALWAYS/);
+  });
+
+  test('input footer does not expose active bridge provider', () => {
+    const service = buildReplService({
+      bridgeCommands: {
+        cmdBridge: async () => '',
+        isConnected: () => true,
+        getProviderLabel: () => 'Codex CLI',
+        runPrompt: async () => '',
+      },
+    });
+
+    const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
+
+    assert.doesNotMatch(combined, /bridge\/Codex CLI/);
+    assert.match(combined, /REQUEST ALWAYS/);
+    assert.match(combined, /Tab queue/);
+  });
+
+  test('input footer keeps live processing status visible without telemetry', () => {
+    const service = buildReplService();
+    (service as any).isProcessing = true;
+    (service as any).spinnerLabel = 'Thinking';
+    (service as any).spinnerFrameIndex = 0;
+    (service as any).pendingLines = ['queued prompt'];
+
+    const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
+
+    assert.match(combined, /thinking/i);
+    assert.match(combined, /queue 1/i);
+    assert.match(combined, /REQUEST ALWAYS/);
+    assert.match(combined, /tab/i);
+    assert.doesNotMatch(combined, /tokens|cost|effort|model/i);
+  });
+
+  test('accept edits mode applies file writes without prompting', async () => {
+    const service = buildReplService();
+    let pauses = 0;
+    let resumes = 0;
+    (service as any).smartInput = {
+      pause: () => { pauses += 1; },
+      resume: () => { resumes += 1; },
+    };
+
+    (service as any).inputMode = 'accept-edits';
+    const allowed = await (service as any).handleFileWritePrompt('/repo/file.ts', '+new line', false);
+
+    assert.equal(allowed, true);
+    assert.equal(pauses, 0);
+    assert.equal(resumes, 0);
+  });
+
+  test('input footer omits estimated session cost when available', () => {
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 20_000, output: 4_000, cachedInput: 6_000 }),
+      },
+      statsCommandsService: {
+        setDefaultModel: () => {},
+        cmdStats: () => {},
+        getSessionCostLabel: () => '$0.01',
+      },
+    });
+
+    const combined = stripAnsi((service as any).getInputFooterLines().join(' '));
+
+    assert.doesNotMatch(combined, /\$0\.01|cost/i);
+  });
+
+  test('input footer fits queue hint and context on narrow terminals', () => {
+    const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
+    Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 56 });
+
+    try {
+      const service = buildReplService({
+        deepAgent: {
+          initialize: async () => ({ toolCount: 0, projectPath: '' }),
+          reinitializeModel: async () => {},
+          getSessionTokenUsage: () => ({ input: 9300, output: 1200, cachedInput: 8000 }),
+        },
+        configService: { getProvider: () => 'openai', getModel: () => 'gpt-4.1-mini' },
+        configManager: { getModelConfig: () => undefined },
+      });
+      (service as any).isProcessing = true;
+      (service as any).spinnerLabel = 'Thinking';
+      (service as any).pendingLines = ['queued prompt'];
+
+      const lines = (service as any).getInputFooterLines();
+
+      assert(
+        lines.every((line: string) => visibleWidth(line) <= 56),
+        `footer lines should fit terminal width: ${lines.join(' | ')}`,
+      );
+      const combined = stripAnsi(lines.join(' '));
+      assert.match(combined, /thinking/i);
+      assert.match(combined, /queue 1/i);
+      assert.match(combined, /tab/i);
+      assert.match(combined, /context left/i);
+    } finally {
+      if (originalColumns) {
+        Object.defineProperty(process.stdout, 'columns', originalColumns);
+      }
+    }
+  });
+
+  test('handleMessage batches tiny response chunks in an external output block', async () => {
+    const writes: string[] = [];
+    const outputLines: string[] = [];
+    let beginExternalOutputCalls = 0;
+    let endExternalOutputCalls = 0;
+    const originalWrite = process.stdout.write;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* () {
+          yield 'O';
+          yield 'l';
+          yield 'á';
+          yield '!';
+          yield ' Como';
+          yield ' posso';
+          yield ' ajudar?';
+          yield '\n\x1b[2m  ─ in: 8 | out: 12\x1b[0m\n';
+        },
+      },
+      mentionsService: {
+        processMessage: async (message: string) => ({ expandedMessage: message, mentions: [] }),
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => { beginExternalOutputCalls += 1; },
+        endExternalOutput: () => { endExternalOutputCalls += 1; },
+        printExternal: (value: string) => writes.push(value),
+        writeOutputLine: (value: string) => outputLines.push(value),
+      };
+
+      await (service as any).handleMessage('oi');
+
+      assert(!writes.includes('O'), 'single-character text chunks should not be printed independently');
+      assert(!writes.includes('l'), 'single-character text chunks should not be printed independently');
+      assert.match(writes.join(''), /Olá! Como posso ajudar\?/);
+      assert.equal(beginExternalOutputCalls, 1, 'response text should enter an external output block once');
+      assert.equal(endExternalOutputCalls, 1, 'response text should leave the external output block once');
+      assert.equal(outputLines.length, 1, 'a separator should be written after the response block');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('plan mode forces the interactive plan flow before normal chat', async () => {
+    let plannedFrom = '';
+    let chatMessage = '';
+    const originalWrite = process.stdout.write;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* (message: string) {
+          chatMessage = message;
+          yield 'Plano aprovado.';
+        },
+      },
+      mentionsService: {
+        processMessage: async (message: string) => ({ expandedMessage: message, mentions: [] }),
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    try {
+      process.stdout.write = (() => true) as typeof process.stdout.write;
+      (service as any).inputMode = 'plan';
+      (service as any).runInteractivePlanMode = async (message: string) => {
+        plannedFrom = message;
+        return `planned:${message}`;
+      };
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => {},
+        endExternalOutput: () => {},
+        printExternal: () => {},
+        writeOutputLine: () => {},
+      };
+
+      await (service as any).handleMessage('build feature');
+
+      assert.equal(plannedFrom, 'build feature');
+      assert.equal(chatMessage, 'planned:build feature');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('handleMessage keeps final assistant text outside the prompt after a Cast command tool', async () => {
+    const events: string[] = [];
+    const outputLines: string[] = [];
+    const originalWrite = process.stdout.write;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* () {
+          yield '\n\x1b[2m  ▶ \x1b[0m\x1b[2m\x1b[38;5;45mcast command\x1b[0m\x1b[2m /up\x1b[0m\n';
+          yield '\x1b[2m    \x1b[32m✓\x1b[0m\x1b[2m Cast command executed: /up\x1b[0m\n';
+          yield 'Realizei o comando /up.';
+        },
+      },
+      mentionsService: {
+        processMessage: async (message: string) => ({ expandedMessage: message, mentions: [] }),
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        events.push(`stdout:${stripAnsi(String(chunk))}`);
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => { events.push('begin'); },
+        endExternalOutput: () => { events.push('end'); },
+        printExternal: (value: string) => events.push(`print:${stripAnsi(value)}`),
+        writeOutputLine: (value: string) => outputLines.push(value),
+      };
+
+      await (service as any).handleMessage('man, vc pode usar o /up?');
+
+      const toolPrintIndex = events.findIndex((event) => event.startsWith('print:') && event.includes('▶ cast command /up'));
+      const beginIndex = events.indexOf('begin');
+      const finalTextIndex = events.findIndex((event) => event.startsWith('stdout:') && event.includes('Realizei o comando /up.'));
+      const castHeaderPrint = events.find((event) => event.startsWith('print:') && /^\s*print:\s*Cast\s*$/m.test(event));
+
+      assert(toolPrintIndex >= 0, 'tool start should render as tool output before assistant text mode');
+      assert(beginIndex > toolPrintIndex, 'assistant text mode should begin after tool output');
+      assert(finalTextIndex > beginIndex, 'final assistant response should be written inside external output mode');
+      assert.equal(castHeaderPrint, undefined, 'assistant header should not be printed through prompt rendering');
+      assert.equal(outputLines.length, 1, 'one final separator should be written after the response block');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('handleMessage keeps post-tool text outside the prompt after earlier assistant text', async () => {
+    const events: string[] = [];
+    const originalWrite = process.stdout.write;
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* () {
+          yield 'Vou rodar o comando.';
+          yield '\n\x1b[2m  ▶ \x1b[0m\x1b[2m\x1b[38;5;45mcast command\x1b[0m\x1b[2m /pr main\x1b[0m\n';
+          yield '\x1b[2m    \x1b[32m✓\x1b[0m\x1b[2m Output returned to Cast\x1b[0m\n';
+          yield 'Nao criei a PR porque nao havia commits.';
+        },
+      },
+      mentionsService: {
+        processMessage: async (message: string) => ({ expandedMessage: message, mentions: [] }),
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        events.push(`stdout:${stripAnsi(String(chunk))}`);
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        refresh: () => {},
+        beginExternalOutput: () => { events.push('begin'); },
+        endExternalOutput: () => { events.push('end'); },
+        printExternal: (value: string) => events.push(`print:${stripAnsi(value)}`),
+        writeOutputLine: () => {},
+      };
+
+      await (service as any).handleMessage('usa /pr main');
+
+      const finalPrint = events.find((event) => event.startsWith('print:') && event.includes('Nao criei a PR'));
+      const finalStdout = events.find((event) => event.startsWith('stdout:') && event.includes('Nao criei a PR'));
+
+      assert.equal(finalPrint, undefined, 'post-tool assistant text should not be rendered through prompt printExternal');
+      assert(finalStdout, 'post-tool assistant text should be written in external output mode');
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('handleMessage injects dollar agent and skill references before calling the agent', async () => {
+    let chatMessage = '';
+    let processedMessage = '';
+    const service = buildReplService({
+      deepAgent: {
+        initialize: async () => ({ toolCount: 0, projectPath: '' }),
+        reinitializeModel: async () => {},
+        getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
+        chat: async function* (message: string) {
+          chatMessage = message;
+          yield 'O backend cuida de APIs.';
+        },
+      },
+      agentRegistry: {
+        resolveAllAgents: () => [
+          {
+            name: 'backend',
+            description: 'Backend specialist for API and server-side development',
+            model: 'fast',
+            temperature: 0,
+            tools: [{ name: 'read_file' }],
+            mcp: [],
+            systemPrompt: 'You are a backend developer specializing in APIs and server-side systems.',
+          },
+        ],
+      },
+      skillRegistry: {
+        getAllSkills: () => [
+          {
+            name: 'api-design',
+            description: 'REST and GraphQL API design patterns',
+            tools: ['read_file'],
+            guidelines: 'Use resource-oriented URLs and proper status codes.',
+            source: 'remote',
+            updatedAt: '2026-05-22T00:00:00.000Z',
+          },
+        ],
+      },
+      mentionsService: {
+        processMessage: async (message: string) => {
+          processedMessage = message;
+          return { expandedMessage: message, mentions: [] };
+        },
+        getMentionsSummary: () => [],
+      },
+      planMode: { shouldEnterPlanMode: async () => ({ shouldPlan: false }) },
+    });
+
+    (service as any).smartInput = {
+      refresh: () => {},
+      beginExternalOutput: () => {},
+      endExternalOutput: () => {},
+      printExternal: () => {},
+      writeOutputLine: () => {},
+    };
+
+    await captureStdoutAsync(() =>
+      (service as any).handleMessage('ola, o que o $backend e o $api-design fazem?'),
+    );
+
+    assert.match(processedMessage, /<cast_reference_context>/);
+    assert.match(chatMessage, /type="agent" name="backend"/);
+    assert.match(chatMessage, /source="unknown"/);
+    assert.match(chatMessage, /Backend specialist for API and server-side development/);
+    assert.match(chatMessage, /<cast_reference_manifest>/);
+    assert.match(chatMessage, /skill api-design source=platform version=[a-f0-9]{12} injected=true/);
+    assert.match(chatMessage, /type="skill" name="api-design" source="platform" version="[a-f0-9]{12}"/);
+    assert.match(chatMessage, /REST and GraphQL API design patterns/);
+    assert.match(chatMessage, /Use resource-oriented URLs and proper status codes/);
+    assert.match(chatMessage, /<cast_reference_policy resolved="true" discovery_needed="false">/);
+    assert.match(chatMessage, /treat it as already loaded/);
+    assert.match(chatMessage, /Do not call list_agents, read_skill, read_file, grep, glob/);
+  });
+
+  test('file write prompt treats cancellation as denied', async () => {
+    const originalWrite = process.stdout.write;
+    const writes: string[] = [];
+    const service = buildReplService({
+      filesystemTools: {
+        setFileWriteHandler: () => {},
+      },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        refresh: () => {},
+        pause: () => {},
+        resume: () => {},
+        askChoice: async (message: string) => {
+          assert.equal(message, 'Apply this change?');
+          return '';
+        },
+      };
+
+      const allowed = await (service as any).handleFileWritePrompt(
+        '/tmp/cast-write-target.txt',
+        '',
+        true,
+      );
+
+      assert.equal(allowed, false);
+      assert.match(writes.join(''), /Create/);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
+
+  test('interactive plan mode asks generated clarifying questions before approval', async () => {
+    const originalWrite = process.stdout.write;
+    const writes: string[] = [];
+    const questions: string[] = [];
+    let clarifyingCalls = 0;
+
+    const service = buildReplService({
+      planMode: {
+        gatherProjectContext: async () => 'Project files: src/a.ts',
+        generatePlan: async () => ({
+          title: 'Plan title',
+          overview: 'Plan overview',
+          complexity: 'medium',
+          shouldPlan: true,
+          steps: [
+            { id: 1, description: 'Update behavior', files: ['src/a.ts'] },
+          ],
+        }),
+        generateClarifyingQuestions: async () => {
+          clarifyingCalls += 1;
+          return ['Should this keep backward compatibility?'];
+        },
+        formatPlanForDisplay: () => 'formatted plan\n',
+      },
+    });
+
+    try {
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+
+      (service as any).smartInput = {
+        askChoice: async () => 'a',
+        question: async (question: string) => {
+          questions.push(stripAnsi(question));
+          return 'Yes, keep it compatible.';
+        },
+      };
+
+      const prompt = await (service as any).runInteractivePlanMode('Improve plan mode');
+
+      assert.equal(clarifyingCalls, 1);
+      assert.deepEqual(questions, ['Should this keep backward compatibility? ']);
+      assert.match(prompt, /User clarifications:/);
+      assert.match(prompt, /Should this keep backward compatibility\? Yes, keep it compatible\./);
+      assert.match(writes.join(''), /PLAN MODE/);
+    } finally {
+      process.stdout.write = originalWrite;
     }
   });
 });

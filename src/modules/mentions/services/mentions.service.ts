@@ -51,7 +51,7 @@ export class MentionsService {
     let match: RegExpExecArray | null;
 
     while ((match = mentionRegex.exec(message)) !== null) {
-      let target = match[1];
+      const target = match[1];
       const raw = match[0].trim();
 
       let type: MentionType;
@@ -80,16 +80,16 @@ export class MentionsService {
   private async resolveMention(mention: ParsedMention): Promise<ResolvedMention> {
     try {
       switch (mention.type) {
-        case MentionType.FILE:
-          return await this.resolveFile(mention);
-        case MentionType.DIRECTORY:
-          return await this.resolveDirectory(mention);
-        case MentionType.URL:
-          return await this.resolveUrl(mention);
-        case MentionType.GIT:
-          return await this.resolveGit(mention);
-        default:
-          return { ...mention, content: '', error: 'Unknown mention type' };
+      case MentionType.FILE:
+        return await this.resolveFile(mention);
+      case MentionType.DIRECTORY:
+        return await this.resolveDirectory(mention);
+      case MentionType.URL:
+        return await this.resolveUrl(mention);
+      case MentionType.GIT:
+        return await this.resolveGit(mention);
+      default:
+        return { ...mention, content: '', error: 'Unknown mention type' };
       }
     } catch (error) {
       return {
@@ -254,26 +254,26 @@ export class MentionsService {
       }
 
       switch (mention.type) {
-        case MentionType.FILE:
-          contextParts.push(
-            `<file path="${mention.target}">\n${mention.content}\n</file>`,
-          );
-          break;
-        case MentionType.DIRECTORY:
-          contextParts.push(
-            `<directory path="${mention.target}">\n${mention.content}\n</directory>`,
-          );
-          break;
-        case MentionType.URL:
-          contextParts.push(
-            `<url href="${mention.target}">\n${mention.content}\n</url>`,
-          );
-          break;
-        case MentionType.GIT:
-          contextParts.push(
-            `<git command="${mention.target.replace('git:', '')}">\n${mention.content}\n</git>`,
-          );
-          break;
+      case MentionType.FILE:
+        contextParts.push(
+          `<file path="${mention.target}">\n${mention.content}\n</file>`,
+        );
+        break;
+      case MentionType.DIRECTORY:
+        contextParts.push(
+          `<directory path="${mention.target}">\n${mention.content}\n</directory>`,
+        );
+        break;
+      case MentionType.URL:
+        contextParts.push(
+          `<url href="${mention.target}">\n${mention.content}\n</url>`,
+        );
+        break;
+      case MentionType.GIT:
+        contextParts.push(
+          `<git command="${mention.target.replace('git:', '')}">\n${mention.content}\n</git>`,
+        );
+        break;
       }
     }
 
@@ -292,16 +292,16 @@ export class MentionsService {
 
       const lines = m.content.split('\n').length;
       switch (m.type) {
-        case MentionType.FILE:
-          return `  ✓ ${m.raw} (${lines} lines)`;
-        case MentionType.DIRECTORY:
-          return `  ✓ ${m.raw} (${lines} entries)`;
-        case MentionType.URL:
-          return `  ✓ ${m.raw} (${m.content.length} chars)`;
-        case MentionType.GIT:
-          return `  ✓ ${m.raw}`;
-        default:
-          return `  ✓ ${m.raw}`;
+      case MentionType.FILE:
+        return `  ✓ ${m.raw} (${lines} lines)`;
+      case MentionType.DIRECTORY:
+        return `  ✓ ${m.raw} (${lines} entries)`;
+      case MentionType.URL:
+        return `  ✓ ${m.raw} (${m.content.length} chars)`;
+      case MentionType.GIT:
+        return `  ✓ ${m.raw}`;
+      default:
+        return `  ✓ ${m.raw}`;
       }
     });
   }

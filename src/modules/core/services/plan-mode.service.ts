@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { execSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 
 export interface PlanStep {
   id: number;
@@ -20,9 +23,30 @@ export interface Plan {
 
 @Injectable()
 export class PlanModeService {
-  constructor(private readonly multiLlmService: MultiLlmService) {}
+  constructor(private readonly llmClientFactory: LlmClientFactory) {}
 
   async shouldEnterPlanMode(userMessage: string): Promise<{ shouldPlan: boolean; reason?: string }> {
+    const effort = typeof (this.llmClientFactory as any).getCurrentEffortProfile === 'function'
+      ? (this.llmClientFactory as any).getCurrentEffortProfile()
+      : null;
+
+    if (effort?.planning === 'off') {
+      return { shouldPlan: false, reason: 'Planning disabled by fast effort' };
+    }
+
+    if (
+      this.isSimpleExactResponseRequest(userMessage)
+      || this.isDirectReferenceRequest(userMessage)
+      || this.isDirectRagSearchRequest(userMessage)
+      || this.isSentinelValidationRequest(userMessage)
+    ) {
+      return { shouldPlan: false };
+    }
+
+    if (this.isClearSingleFileImplementationTask(userMessage)) {
+      return { shouldPlan: false };
+    }
+
     const indicators = [
       (userMessage.match(/\b\w+\.(ts|tsx|js|jsx|py|java|go|rs)\b/g)?.length ?? 0) > 1,
       /\b(and|then|also|additionally)\b.*\b(create|add|modify|update|delete|refactor|implement)\b/i.test(userMessage),
@@ -32,13 +56,17 @@ export class PlanModeService {
     ];
 
     const complexityScore = indicators.filter(Boolean).length;
+
+    if (effort?.planning === 'prefer' && (complexityScore >= 1 || userMessage.length > 80)) {
+      return { shouldPlan: true, reason: `Planning preferred by ${effort.level} effort` };
+    }
     
     if (complexityScore >= 2) {
       return { shouldPlan: true, reason: 'Multiple files or complex changes detected' };
     }
     
     if (userMessage.length > 100) {
-      const llm = this.multiLlmService.createModel('planner');
+      const llm = this.llmClientFactory.create('planner');
       const prompt = `Should this request use a structured plan mode?
 
 Request: "${userMessage}"
@@ -52,11 +80,11 @@ Reply ONLY with: YES or NO`;
 
       try {
         const response = await llm.invoke([
-          new SystemMessage('You are a task analyzer. Be concise.'),
-          new HumanMessage(prompt),
+          { role: 'system', content: 'You are a task analyzer. Be concise.' },
+          { role: 'user', content: prompt },
         ]);
 
-        const text = this.extractContent(response.content).toUpperCase();
+        const text = extractText(response).toUpperCase();
         if (text.includes('YES')) {
           return { shouldPlan: true, reason: 'AI analysis suggests planning is beneficial' };
         }
@@ -67,19 +95,91 @@ Reply ONLY with: YES or NO`;
     return { shouldPlan: false };
   }
 
+  private isSimpleExactResponseRequest(userMessage: string): boolean {
+    const text = userMessage.trim();
+    if (!text) {
+      return false;
+    }
+
+    const exactInstruction = /\b(answer|reply|respond|responda|responder)\s+(?:exactly|exatamente)\b/i.test(text);
+    const nothingElse = /\b(?:nothing else|and nothing more|e nada mais|sem mais nada)\b/i.test(text);
+    return exactInstruction && (nothingElse || this.containsSentinelToken(text));
+  }
+
+  private isDirectReferenceRequest(userMessage: string): boolean {
+    if (!/(?:^|[^\w])\$[\w.-]+/.test(userMessage)) {
+      return false;
+    }
+
+    const broadImplementation = /\b(refactor|restructure|redesign|migration|implement.*feature|create.*module|arquitetura|refator|reestrutur|redesenh|migrac|migraç|implementar.*feature|criar.*m[oó]dulo)\b/i.test(userMessage);
+    if (broadImplementation) {
+      return false;
+    }
+
+    return this.isSimpleExactResponseRequest(userMessage)
+      || this.containsSentinelToken(userMessage)
+      || /\b(?:use|usar|usa|com|from|usando)\s+\$[\w.-]+/i.test(userMessage);
+  }
+
+  private isDirectRagSearchRequest(userMessage: string): boolean {
+    if (!/\brag_search\b/i.test(userMessage)) {
+      return false;
+    }
+
+    const directLookup = /\b(query|consulta|busca)\b/i.test(userMessage)
+      || this.containsSentinelToken(userMessage);
+    const exactAnswer = /\b(answer|reply|respond|responda|responder)\b/i.test(userMessage)
+      && /\b(exactly|exatamente|nothing else|e nada mais)\b/i.test(userMessage);
+    return directLookup && exactAnswer;
+  }
+
+  private isSentinelValidationRequest(userMessage: string): boolean {
+    return this.containsSentinelToken(userMessage)
+      && /\b(answer|reply|respond|responda|responder|sentinel|sentinela|validation|validacao|validaç[ãa]o)\b/i.test(userMessage);
+  }
+
+  private containsSentinelToken(userMessage: string): boolean {
+    return /\b[A-Z][A-Z0-9_]{8,}\b/.test(userMessage);
+  }
+
+  private isClearSingleFileImplementationTask(userMessage: string): boolean {
+    const filePaths = this.getReferencedFilePaths(userMessage);
+    if (filePaths.length !== 1) {
+      return false;
+    }
+
+    const hasImplementationIntent =
+      /\b(add|change|update|modify|fix|implement|validate|throw|test|run|write|create)\b/i.test(userMessage)
+      || /\b(adicion|alter|atualiz|modific|corrij|corrigir|implemen|valid|lanc|lanç|teste|testar|rode|rodar|crie|criar|escrev)\b/i.test(userMessage);
+
+    if (!hasImplementationIntent) {
+      return false;
+    }
+
+    const broadScope =
+      /\b(architecture|arquitetura|entire|whole|all|every|todos|todas|inteiro|inteira|modules|modulos|m[oó]dulos|project|projeto|app|application|sistema)\b/i.test(userMessage);
+
+    return !broadScope;
+  }
+
+  private getReferencedFilePaths(userMessage: string): string[] {
+    const matches = userMessage.match(/\b[\w./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|java|go|rs|php|rb|cs|json|md|css|scss|html|yml|yaml)\b/g) ?? [];
+    return Array.from(new Set(matches));
+  }
+
   async generatePlan(userMessage: string, context?: string): Promise<Plan> {
-    const llm = this.multiLlmService.createModel('planner');
+    const llm = this.llmClientFactory.create('planner');
     
-    const prompt = `Create a detailed plan for this request:
+    const prompt = `Create a detailed implementation plan for this request.
 
 **Request:** ${userMessage}
 
-${context ? `**Context:** ${context}\n` : ''}
+${context ? `**Project context (use this to derive accurate file paths and patterns):**\n${context}\n` : ''}
 
-Generate a step-by-step plan. Each step should:
+Generate a step-by-step plan grounded in the actual project structure above. Each step must:
 - Be atomic (one logical action)
-- Include specific files to modify
-- Have clear description
+- Reference REAL files from the project context, or new files that follow existing naming patterns
+- Have a clear description
 - Include estimated time (optional)
 
 **OUTPUT FORMAT:**
@@ -90,21 +190,46 @@ COMPLEXITY: <low|medium|high>
 STEPS:
 1. [Description] | Files: file1.ts, file2.ts | Time: 10min | Depends on: none
 2. [Description] | Files: file3.ts | Time: 15min | Depends on: 1
-3. [Description] | Files: file4.ts | Time: 5min | Depends on: 1,2
-
-Be specific about file paths and changes.`;
+3. [Description] | Files: file4.ts | Time: 5min | Depends on: 1,2`;
 
     const response = await llm.invoke([
-      new SystemMessage('You are a senior software architect. Create clear, actionable plans.'),
-      new HumanMessage(prompt),
+      { role: 'system', content: 'You are a senior software architect. Create clear, actionable plans.' },
+      { role: 'user', content: prompt },
     ]);
 
-    const text = this.extractContent(response.content);
+    const text = extractText(response);
     return this.parsePlan(text, userMessage);
   }
 
+  async gatherProjectContext(): Promise<string> {
+    const cwd = process.cwd();
+    const parts: string[] = [];
+
+    try {
+      const tree = execSync('find . -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/.next/*" -type f -name "*.ts" | head -60', {
+        cwd,
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim();
+      if (tree) parts.push(`Project TypeScript files:\n${tree}`);
+    } catch {}
+
+    const configFiles = ['package.json', 'tsconfig.json', 'nest-cli.json'];
+    for (const f of configFiles) {
+      const p = join(cwd, f);
+      if (existsSync(p)) {
+        try {
+          const content = readFileSync(p, 'utf8');
+          parts.push(`${f}:\n${content.slice(0, 800)}`);
+        } catch {}
+      }
+    }
+
+    return parts.length > 0 ? parts.join('\n\n') : '';
+  }
+
   async generateClarifyingQuestions(userMessage: string): Promise<string[]> {
-    const llm = this.multiLlmService.createModel('planner');
+    const llm = this.llmClientFactory.create('planner');
     const prompt = `Given this software request, ask up to 3 short clarifying questions that help produce a better implementation plan.
 
 Request: ${userMessage}
@@ -117,15 +242,15 @@ Rules:
 
     try {
       const response = await llm.invoke([
-        new SystemMessage('You create concise planning questions for software tasks.'),
-        new HumanMessage(prompt),
+        { role: 'system', content: 'You create concise planning questions for software tasks.' },
+        { role: 'user', content: prompt },
       ]);
-      const text = this.extractContent(response.content).trim();
+      const text = extractText(response).trim();
       if (!text || text.toUpperCase() === 'NONE') return [];
 
       return text
         .split('\n')
-        .map((line) => line.replace(/^\s*\d+[\).\-\s]*/, '').trim())
+        .map((line: string) => line.replace(/^\s*\d+[).\s-]*/, '').trim())
         .filter(Boolean)
         .slice(0, 3);
     } catch {
@@ -134,7 +259,7 @@ Rules:
   }
 
   async refinePlan(plan: Plan, feedback: string): Promise<Plan> {
-    const llm = this.multiLlmService.createModel('planner');
+    const llm = this.llmClientFactory.create('planner');
     
     const currentPlan = plan.steps.map(s => 
       `${s.id}. ${s.description} | Files: ${s.files.join(', ')}`
@@ -150,11 +275,11 @@ ${currentPlan}
 Update the plan accordingly. Use the same output format.`;
 
     const response = await llm.invoke([
-      new SystemMessage('You are a senior software architect. Refine plans based on feedback.'),
-      new HumanMessage(prompt),
+      { role: 'system', content: 'You are a senior software architect. Refine plans based on feedback.' },
+      { role: 'user', content: prompt },
     ]);
 
-    const text = this.extractContent(response.content);
+    const text = extractText(response);
     return this.parsePlan(text, plan.title);
   }
 

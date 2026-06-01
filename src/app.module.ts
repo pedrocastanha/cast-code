@@ -13,8 +13,15 @@ import { SnapshotModule } from './modules/snapshots/snapshot.module';
 import { StatsModule } from './modules/stats/stats.module';
 import { ReplayModule } from './modules/replay/replay.module';
 import { VaultModule } from './modules/vault/vault.module';
-import { DiffModule } from './modules/diff/diff.module';
 import { WatcherModule } from './modules/watcher/watcher.module';
+import { PlatformModule } from './modules/platform/platform.module';
+import { EnvironmentModule } from './modules/environments/environment.module';
+import { SkillsImportModule } from './modules/skills-import/skills-import.module';
+import { SchedulerModule } from './modules/scheduler/scheduler.module';
+import { SandboxModule } from './modules/sandbox/sandbox.module';
+import { TraceModule } from './modules/trace/trace.module';
+import { BridgeModule } from './modules/bridge/bridge.module';
+import { SwarmModule } from './modules/swarm/swarm.module';
 
 @Module({
   imports: [
@@ -32,8 +39,15 @@ import { WatcherModule } from './modules/watcher/watcher.module';
     StatsModule,
     ReplayModule,
     VaultModule,
-    DiffModule,
     WatcherModule,
+    PlatformModule,
+    EnvironmentModule,
+    SkillsImportModule,
+    SchedulerModule,
+    SandboxModule,
+    TraceModule,
+    BridgeModule,
+    SwarmModule,
   ],
 })
 export class AppModule {}

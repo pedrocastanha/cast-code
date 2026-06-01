@@ -1,4 +1,4 @@
-import { select, input, confirm, checkbox, number } from '@inquirer/prompts';
+import { select, input, confirm, number } from '@inquirer/prompts';
 import chalk from 'chalk';
 
 export class CancelledPromptError extends Error {
@@ -117,6 +117,9 @@ export async function numberWithEsc(config: Parameters<typeof number>[0]): Promi
 
   try {
     const result = await number(config, { signal: abortController.signal });
+    if (result === undefined) {
+      throw new CancelledPromptError();
+    }
     return result;
   } catch (error: any) {
     if (error.name === 'AbortPromptError' || abortController.signal.aborted) {

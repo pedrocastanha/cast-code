@@ -8,8 +8,17 @@ skills:
   - general/search
   - specialized/react-patterns
   - specialized/frontend-bootstrap
+  - popular-web-designs
+  - claude-design
 mcp:
   - figma
+environments:
+  - frontend
+  - design
+  - engineering
+tags:
+  - ui
+  - web
 ---
 
 # Frontend Agent

@@ -6,6 +6,17 @@ temperature: 0.1
 skills:
   - general/file-operations
   - general/search
+  - specialized/code-review
+  - github-code-review
+  - requesting-code-review
+environments:
+  - engineering
+  - backend
+  - frontend
+  - qa
+  - security
+tags:
+  - review
 ---
 
 # Reviewer Agent

@@ -1,0 +1,130 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+
+import { PlanModeService } from './plan-mode.service';
+import { EFFORT_PROFILES } from '../../config/types/config.types';
+
+describe('PlanModeService', () => {
+  test('does not enter plan mode for clear single-file implementation tasks', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      create: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked for clear single-file work');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Adicione validacao em src/discount.js: applyDiscount deve lancar RangeError quando percent for menor que 0 ou maior que 1. Escreva o teste antes de implementar e rode npm test.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(llmInvoked, false);
+  });
+
+  test('does not enter plan mode for exact sentinel prompts', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
+      create: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked for exact sentinel prompts');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Responda exatamente CAST_PLATFORM_REMOTE_AGENT_OK e nada mais.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(llmInvoked, false);
+  });
+
+  test('does not enter plan mode for direct injected reference prompts', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
+      create: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked for direct references');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Use $platform-handshake-skill. Quando eu pedir a sentinela, responda exatamente CAST_PLATFORM_REMOTE_SKILL_OK e nada mais.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(llmInvoked, false);
+  });
+
+  test('does not enter plan mode for direct RAG sentinel prompts', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
+      create: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked for direct RAG lookup');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Use the rag_search tool with query CAST_PLATFORM_RAG_OK. Answer exactly the sentinel value found in platform memory and nothing else.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(llmInvoked, false);
+  });
+
+  test('keeps plan mode for multi-file architecture or refactor requests', async () => {
+    const service = new PlanModeService({
+      create: () => {
+        throw new Error('planner should not be needed for obvious complex work');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Refactor auth/dtos/login.dto.ts and auth/services/auth.service.ts, then update the frontend flow and all tests.',
+    );
+
+    assert.equal(result.shouldPlan, true);
+  });
+
+  test('fast effort disables automatic plan mode for complex prompts', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.fast,
+      create: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be invoked while fast effort disables planning');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Refactor auth/dtos/login.dto.ts and auth/services/auth.service.ts, then update the frontend flow and all tests.',
+    );
+
+    assert.equal(result.shouldPlan, false);
+    assert.equal(result.reason, 'Planning disabled by fast effort');
+    assert.equal(llmInvoked, false);
+  });
+
+  test('deep effort prefers plan mode for broad feature work without planner round trip', async () => {
+    let llmInvoked = false;
+    const service = new PlanModeService({
+      getCurrentEffortProfile: () => EFFORT_PROFILES.deep,
+      create: () => {
+        llmInvoked = true;
+        throw new Error('planner should not be needed when deep effort prefers planning');
+      },
+    } as any);
+
+    const result = await service.shouldEnterPlanMode(
+      'Implement role-based audit trails with API changes, persistence updates, admin UI changes, and focused tests.',
+    );
+
+    assert.equal(result.shouldPlan, true);
+    assert.equal(result.reason, 'Planning preferred by deep effort');
+    assert.equal(llmInvoked, false);
+  });
+});

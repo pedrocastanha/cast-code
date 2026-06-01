@@ -5,6 +5,8 @@ tools:
   - read_file
   - write_file
   - edit_file
+environments:
+  - engineering
 ---
 
 # API Design — Domain Knowledge

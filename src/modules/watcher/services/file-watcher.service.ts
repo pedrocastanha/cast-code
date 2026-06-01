@@ -84,7 +84,7 @@ export class FileWatcherService extends EventEmitter implements OnApplicationBoo
         this.watcher.on('unlink', (fp: string) => this.onFileChanged(fp));
       } else {
         // Fallback: native fs.watch (recursive where supported)
-        this.watcher = fs.watch(watchPath, { recursive: true }, (event, filename) => {
+        this.watcher = fs.watch(watchPath, { recursive: true }, (_event, filename) => {
           if (filename) this.onFileChanged(path.join(watchPath, filename));
         });
       }

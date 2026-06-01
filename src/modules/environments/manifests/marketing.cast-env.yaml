@@ -1,0 +1,77 @@
+version: 1
+source: builtin
+id: marketing
+name: Marketing Growth
+description: Campaign planning, copywriting, brand voice, channel research, and performance analysis.
+defaultAgent: coder
+agents:
+  required:
+    - coder
+  optional:
+    - reviewer
+    - docs-writer
+skills:
+  required:
+    - planning
+    - search
+    - file-operations
+    - marketing-campaign
+  optional:
+    - brand-voice
+    - performance-analysis
+    - ideation
+    - youtube-content
+    - blogwatcher
+profiles:
+  campaign:
+    description: Create campaign strategy and channel-ready launch assets.
+    agents:
+      required:
+        - coder
+      optional:
+        - reviewer
+        - docs-writer
+    skills:
+      required:
+        - planning
+        - search
+        - marketing-campaign
+        - brand-voice
+        - ideation
+      optional:
+        - performance-analysis
+        - youtube-content
+    permissions:
+      defaultMode: read-only
+      requireApproval:
+        - ad_spend
+        - campaign_publish
+        - external_post
+mcp:
+  recommended:
+    - meta-ads
+    - brave-search
+    - exa
+    - slack
+    - notion
+  required: []
+permissions:
+  defaultMode: read-only
+  requireApproval:
+    - ad_spend
+    - campaign_publish
+    - account_mutation
+    - external_post
+rag:
+  recommendedSources:
+    - brand-guide
+    - product-positioning
+    - audience-research
+    - previous-campaigns
+benchmarks:
+  smoke:
+    - marketing-campaign-brief
+schedules:
+  suggested:
+    - daily-performance-digest
+    - weekly-campaign-review

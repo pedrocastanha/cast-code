@@ -14,7 +14,21 @@
   "rules": {
     "indent": ["error", 2],
     "linebreak-style": ["error", "unix"],
+    "no-constant-condition": ["error", { "checkLoops": false }],
+    "no-control-regex": "off",
+    "no-empty": ["error", { "allowEmptyCatch": true }],
     "quotes": ["error", "single"],
-    "semi": ["error", "always"]
-  }
+    "semi": ["error", "always"],
+    "@typescript-eslint/no-explicit-any": "warn",
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "@typescript-eslint/no-var-requires": "off"
+  },
+  "overrides": [
+    {
+      "files": ["*.spec.ts", "**/*.spec.ts", "*.d.ts", "**/*.d.ts"],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off"
+      }
+    }
+  ]
 }

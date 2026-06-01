@@ -6,8 +6,14 @@ import * as os from 'os';
 const STATS_FILE = path.join(os.homedir(), '.cast', 'stats.json');
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'gpt-5.4':            { input: 2.50,  output: 15.00 },
+  'gpt-5.4-pro':        { input: 30.00, output: 180.00 },
+  'gpt-5.3-codex':      { input: 2.50,  output: 15.00 },
+  'gpt-5.2-codex':      { input: 1.75,  output: 14.00 },
+  'gpt-5.2':            { input: 1.75,  output: 14.00 },
   'gpt-5-pro':          { input: 30.00, output: 180.00 },
   'gpt-5-mini':         { input: 0.125, output: 1.00  },
+  'gpt-5-nano':         { input: 0.05,  output: 0.40  },
   'gpt-5':              { input: 2.50,  output: 15.00 },
   'gpt-4.1-nano':       { input: 0.10,  output: 0.40  },
   'gpt-4.1-mini':       { input: 0.20,  output: 0.80  },
@@ -23,8 +29,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'gpt-4-turbo':        { input: 10.00, output: 30.00 },
   'gpt-4':              { input: 30.00, output: 60.00 },
   'gpt-3.5':            { input: 0.50,  output: 1.50  },
-  'claude-opus-4-6':    { input: 5.00,  output: 25.00 },
-  'claude-sonnet-4-6':  { input: 3.00,  output: 15.00 },
+  'claude-opus-4-1':    { input: 15.00, output: 75.00 },
+  'claude-sonnet-4-5':  { input: 3.00,  output: 15.00 },
   'claude-haiku-4-5':   { input: 1.00,  output: 5.00  },
   'claude-haiku-4':     { input: 1.00,  output: 5.00  },
   'claude-opus-4':      { input: 5.00,  output: 25.00 },
@@ -34,15 +40,35 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'claude-3-opus':      { input: 15.00, output: 75.00 },
   'claude-3-haiku':     { input: 0.25,  output: 1.25  },
   'claude-3-sonnet':    { input: 3.00,  output: 15.00 },
+  'kimi-k2.6':          { input: 0.95,  output: 4.00  },
+  'kimi-k2.5':          { input: 0.60,  output: 3.00  },
+  'kimi-k2-thinking':   { input: 0.60,  output: 2.50  },
+  'kimi-k2-0905-preview': { input: 0.60, output: 2.50 },
   'gemini-3.1-pro':     { input: 2.00,  output: 12.00 },
   'gemini-3-flash':     { input: 0.50,  output: 3.00  },
   'gemini-3':           { input: 2.00,  output: 12.00 },
   'gemini-2.5-flash':   { input: 0.30,  output: 2.50  },
   'gemini-2.5-pro':     { input: 1.25,  output: 10.00 },
+  'gemini-2.5-flash-lite': { input: 0.10, output: 0.40 },
   'gemini-2.0-flash':   { input: 0.10,  output: 0.40  },
   'gemini-2.0':         { input: 0.10,  output: 0.40  },
   'gemini-1.5-pro':     { input: 1.25,  output: 5.00  },
   'gemini-1.5-flash':   { input: 0.075, output: 0.30  },
+  'deepseek-v4-pro':    { input: 0,     output: 0     },
+  'deepseek-v4-flash':  { input: 0,     output: 0     },
+  'glm-4.6':            { input: 0,     output: 0     },
+  'glm-4.5':            { input: 0,     output: 0     },
+  'qwen3-235b-a22b':    { input: 0,     output: 0     },
+  'qwen-plus-latest':   { input: 0,     output: 0     },
+  'qwen-turbo-latest':  { input: 0,     output: 0     },
+  'command-a-plus-05-2026': { input: 0, output: 0     },
+  'grok-4.3':           { input: 0,     output: 0     },
+  'grok-code-fast-1':   { input: 0,     output: 0     },
+  'mistral-large-latest': { input: 0,   output: 0     },
+  'mistral-medium-latest': { input: 0,  output: 0     },
+  'sonar-pro':          { input: 0,     output: 0     },
+  'openai/gpt-oss-120b': { input: 0,    output: 0     },
+  'google/gemma-3-27b-it': { input: 0,  output: 0     },
   'ollama':             { input: 0,     output: 0     },
   'local':              { input: 0,     output: 0     },
 };
@@ -52,6 +78,7 @@ export interface SessionStats {
   date: string;
   model: string;
   inputTokens: number;
+  cachedInputTokens: number;
   outputTokens: number;
   totalTokens: number;
   estimatedCostUsd: number;
@@ -66,6 +93,7 @@ interface StatsData {
 export class StatsService {
   private currentSession: SessionStats;
   private data: StatsData = { sessions: [] };
+  private usageListener: ((event: { input: number; cachedInput: number; output: number; model: string; cost: number }) => void) | null = null;
 
   constructor() {
     this.ensureDir();
@@ -79,9 +107,10 @@ export class StatsService {
     }
   }
 
-  trackUsage(model: string, inputTokens: number, outputTokens: number): void {
+  trackUsage(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): void {
     this.currentSession.model = this.normalizeModelName(model);
     this.currentSession.inputTokens += inputTokens;
+    this.currentSession.cachedInputTokens += cachedInputTokens;
     this.currentSession.outputTokens += outputTokens;
     this.currentSession.totalTokens += inputTokens + outputTokens;
     this.currentSession.messageCount++;
@@ -91,6 +120,17 @@ export class StatsService {
       this.currentSession.outputTokens,
     );
     this.persistCurrentSession();
+    this.usageListener?.({
+      input: inputTokens,
+      cachedInput: cachedInputTokens,
+      output: outputTokens,
+      model: this.currentSession.model,
+      cost: this.calculateCost(this.currentSession.model, inputTokens, outputTokens),
+    });
+  }
+
+  setUsageListener(listener: ((event: { input: number; cachedInput: number; output: number; model: string; cost: number }) => void) | null): void {
+    this.usageListener = listener;
   }
 
   getSessionStats(): Readonly<SessionStats> {
@@ -143,6 +183,7 @@ export class StatsService {
       date: this.todayDateStr(),
       model: '',
       inputTokens: 0,
+      cachedInputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
       estimatedCostUsd: 0,

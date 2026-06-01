@@ -10,7 +10,9 @@ import { ProjectCommandsService } from './services/commands/project-commands.ser
 import { SnapshotCommandsService } from './services/commands/snapshot-commands.service';
 import { StatsCommandsService } from './services/commands/stats-commands.service';
 import { ReplayCommandsService } from './services/commands/replay-commands.service';
+import { SessionsCommandsService } from './services/commands/session-commands.service';
 import { VaultCommandsService } from './services/commands/vault-commands.service';
+import { PlatformCommandsService } from './services/commands/platform-commands.service';
 import { CoreModule } from '../core/core.module';
 import { ToolsModule } from '../tools/tools.module';
 import { GitModule } from '../git/git.module';
@@ -27,6 +29,15 @@ import { SnapshotModule } from '../snapshots/snapshot.module';
 import { StatsModule } from '../stats/stats.module';
 import { ReplayModule } from '../replay/replay.module';
 import { VaultModule } from '../vault/vault.module';
+import { PlatformModule } from '../platform/platform.module';
+import { BenchmarkModule } from '../benchmark/benchmark.module';
+import { EnvironmentModule } from '../environments/environment.module';
+import { SkillsImportModule } from '../skills-import/skills-import.module';
+import { SchedulerModule } from '../scheduler/scheduler.module';
+import { SandboxModule } from '../sandbox/sandbox.module';
+import { BridgeModule } from '../bridge/bridge.module';
+import { SwarmModule } from '../swarm/swarm.module';
+import { RuntimeModule } from '../runtime/runtime.module';
 
 @Module({
   imports: [
@@ -46,6 +57,15 @@ import { VaultModule } from '../vault/vault.module';
     StatsModule,
     ReplayModule,
     VaultModule,
+    PlatformModule,
+    BenchmarkModule,
+    EnvironmentModule,
+    SkillsImportModule,
+    SchedulerModule,
+    SandboxModule,
+    BridgeModule,
+    SwarmModule,
+    RuntimeModule,
   ],
   providers: [
     ReplService,
@@ -59,7 +79,9 @@ import { VaultModule } from '../vault/vault.module';
     SnapshotCommandsService,
     StatsCommandsService,
     ReplayCommandsService,
+    SessionsCommandsService,
     VaultCommandsService,
+    PlatformCommandsService,
   ],
   exports: [ReplService],
 })

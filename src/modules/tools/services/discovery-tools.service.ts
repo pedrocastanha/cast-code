@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import { AgentLoaderService } from '../../agents/services/agent-loader.service';
 import { SkillLoaderService } from '../../skills/services/skill-loader.service';
 import { VaultService } from '../../vault/services/vault.service';
 import { ImpactAnalysisService } from './impact-analysis.service';
+import { BRIDGE_PROVIDER_IDS } from '../../bridge/types/bridge.types';
+
+type CastCommandHandler = (command: string) => Promise<string> | string;
 
 /**
  * Extract up to `max` meaningful bullet points from markdown content.
@@ -32,12 +35,18 @@ function extractBulletPoints(content: string, max = 3): string[] {
 
 @Injectable()
 export class DiscoveryToolsService {
+  private castCommandHandler: CastCommandHandler | null = null;
+
   constructor(
     private readonly agentLoader: AgentLoaderService,
     private readonly skillLoader: SkillLoaderService,
     private readonly vaultService: VaultService,
     private readonly impactAnalysisService: ImpactAnalysisService,
   ) {}
+
+  setCastCommandHandler(handler: CastCommandHandler): void {
+    this.castCommandHandler = handler;
+  }
 
   getTools() {
     return [
@@ -47,14 +56,14 @@ export class DiscoveryToolsService {
       this.createSaveSnippetTool(),
       this.createAnalyzeImpactTool(),
       this.createListCommandsTool(),
+      this.createCastCommandTool(),
     ];
   }
 
   private createListSkillsTool() {
-    const self = this;
-    return tool(
-      async (_input: {}) => {
-        const skills = self.skillLoader.getAllSkills();
+    return castTool(
+      async () => {
+        const skills = this.skillLoader.getAllSkills();
         if (skills.length === 0) return 'No skills loaded.';
 
         const sections = skills.map((s) => {
@@ -67,7 +76,7 @@ export class DiscoveryToolsService {
           return [
             `### ${s.name}`,
             `**Purpose:** ${s.description || 'No description'}`,
-            `**Key guidelines:**`,
+            '**Key guidelines:**',
             guidelinesPreview,
             `**Load full content:** read_skill("${s.name}")`,
           ].join('\n');
@@ -85,21 +94,28 @@ export class DiscoveryToolsService {
   }
 
   private createReadSkillTool() {
-    const self = this;
-    return tool(
+    return castTool(
       async (input: { name: string }) => {
-        const skill = self.skillLoader.getSkill(input.name);
+        const skill = this.skillLoader.getSkill(input.name);
         if (!skill) {
-          const available = self.skillLoader.getSkillNames().join(', ');
+          const available = this.skillLoader.getSkillNames().join(', ');
           return 'Skill "' + input.name + '" not found. Available: ' + available;
         }
+        const supportFiles = skill.supportFiles || [];
+        const supportSection = supportFiles.length > 0
+          ? '\n\n**Support files:**\n' +
+            supportFiles.slice(0, 25).map((file) => '- ' + file).join('\n') +
+            (supportFiles.length > 25 ? `\n... (${supportFiles.length - 25} more)` : '') +
+            '\n\nUse list_skill_files("' + skill.name + '") and skill_view("' + skill.name + '", filePath) for references, templates, scripts, or assets.'
+          : '';
         return (
           '## Skill: ' +
           skill.name +
           '\n\n**Description:** ' +
           skill.description +
           '\n\n**Guidelines:**\n' +
-          (skill.guidelines || '(none)')
+          (skill.guidelines || '(none)') +
+          supportSection
         );
       },
       {
@@ -114,10 +130,9 @@ export class DiscoveryToolsService {
   }
 
   private createListAgentsTool() {
-    const self = this;
-    return tool(
-      async (_input: {}) => {
-        const agents = self.agentLoader.getAllAgents();
+    return castTool(
+      async () => {
+        const agents = this.agentLoader.getAllAgents();
         if (agents.length === 0) return 'No sub-agents loaded.';
 
         const sections = agents.map((a) => {
@@ -135,13 +150,13 @@ export class DiscoveryToolsService {
           return [
             `### ${a.name}`,
             `**Role:** ${a.description || 'No description'}`,
-            `**Specializes in:**`,
+            '**Specializes in:**',
             specializes,
             `**Best for:** Tasks that require focused ${a.description ? a.description.toLowerCase() : 'domain'} expertise${mcpNote}`,
-            `**Dispatch in background:**`,
+            '**Dispatch in background:**',
             `  → delegate to agent: "${a.name}" with a focused task description`,
-            `  → include all necessary context in the task`,
-            `  → track with task_create before dispatching`,
+            '  → include all necessary context in the task',
+            '  → track with task_create before dispatching',
           ].join('\n');
         });
 
@@ -157,10 +172,9 @@ export class DiscoveryToolsService {
   }
 
   private createSaveSnippetTool() {
-    const self = this;
-    return tool(
+    return castTool(
       async (input: { name: string; code: string; description: string; language?: string }) => {
-        self.vaultService.saveSnippet(input.name, input.code, input.description, input.language || 'typescript');
+        this.vaultService.saveSnippet(input.name, input.code, input.description, input.language || 'typescript');
         return `Snippet "${input.name}" saved to vault. User can view it with /vault show "${input.name}".`;
       },
       {
@@ -212,6 +226,7 @@ export class DiscoveryToolsService {
           { name: '/agents create', desc: 'create new agent' },
           { name: '/skills', desc: 'list loaded skills' },
           { name: '/skills create', desc: 'create new skill' },
+          { name: '/env', desc: 'list, activate, or inspect domain environment packs' },
         ],
       },
       {
@@ -235,6 +250,11 @@ export class DiscoveryToolsService {
           { name: '/mcp help', desc: 'MCP setup guide' },
           { name: '/kanban', desc: 'open kanban task board' },
           { name: '/remote', desc: 'start remote web interface via ngrok' },
+          { name: '/bridge', desc: 'open provider picker; Enter connects, Tab enables autostart, Stop bridge restores API-key runtime' },
+          { name: '/bridge <provider>', desc: 'run Cast through an authenticated provider CLI without a Cast API key' },
+          { name: '/bridge status', desc: 'show current bridge provider status, tools, and raw-output mode' },
+          { name: '/bridge autostart <provider>|off', desc: 'persist or disable bridge autostart for this project' },
+          { name: '/bridge stop', desc: 'disconnect bridge and return prompts to the normal Cast runtime' },
         ],
       },
       {
@@ -248,11 +268,24 @@ export class DiscoveryToolsService {
       },
     ];
 
-    return tool(
+    return castTool(
       async (input: { command?: string }) => {
         const query = input.command?.trim().toLowerCase().replace(/^\//, '');
 
         if (query) {
+          if (query === 'bridge') {
+            return [
+              '**/bridge** - open a provider picker. Enter connects the selected CLI; Tab connects it and enables project autostart; Stop bridge restores the normal API-key runtime.',
+              '**/bridge <provider>** - run Cast through an authenticated provider CLI.',
+              `Providers: ${BRIDGE_PROVIDER_IDS.join(', ')}.`,
+              'After /bridge <provider> connects, normal non-slash prompts are sent to that provider CLI until /bridge stop or Stop bridge in the picker.',
+              'Use /bridge autostart <provider>|off to persist or disable project autostart in .cast/bridge.json.',
+              'Use /bridge status, /bridge stop, /bridge reset, /bridge raw on|off, and /bridge tools for bridge control.',
+              'Bridge is different from /remote: bridge swaps the model runtime; remote exposes the Cast UI over the web.',
+              'Cast still owns local tools, permissions, transcripts, and file/shell guards.',
+            ].join('\n');
+          }
+
           for (const section of COMMANDS) {
             for (const item of section.items) {
               const itemName = item.name.toLowerCase().replace(/^\//, '').split(' ')[0];
@@ -269,12 +302,12 @@ export class DiscoveryToolsService {
           return `### ${s.section}\n${rows}`;
         });
 
-        return `## REPL Commands\n\n${sections.join('\n\n')}`;
+        return `## REPL Commands\n\n${sections.join('\n\n')}\n\nUse cast_command(command: "/command args") to run a Cast slash command after explicit user permission. Do not run slash commands through shell.`;
       },
       {
         name: 'list_commands',
         description:
-          'List available REPL slash commands (e.g. /commit, /pr, /review, /kanban). Call this when the user mentions a /command or asks what commands are available in cast. Optionally pass a command name to get info about a specific one.',
+          'List available REPL slash commands (e.g. /commit, /pr, /review, /kanban, /bridge). Call this when the user mentions a /command or asks what commands are available in cast. Optionally pass a command name to get info about a specific one.',
         schema: z.object({
           command: z.string().optional().describe('Specific command to look up, e.g. "pr" or "/commit". Omit to list all.'),
         }),
@@ -282,11 +315,48 @@ export class DiscoveryToolsService {
     );
   }
 
+  private createCastCommandTool() {
+    return castTool(
+      async (input: { command: string }) => {
+        const command = String(input.command || '').trim();
+
+        if (!command.startsWith('/')) {
+          return 'Error: cast_command only accepts Cast slash commands, such as "/status" or "/up". Do not pass shell commands.';
+        }
+
+        if (/[\r\n]/.test(command)) {
+          return 'Error: cast_command accepts exactly one slash command at a time.';
+        }
+
+        if (/^\/(?:exit|quit)\b/i.test(command)) {
+          return 'Error: /exit and /quit cannot be run by the agent. The user must exit Cast directly.';
+        }
+
+        if (!this.castCommandHandler) {
+          return 'Error: Cast command execution is not available in this context.';
+        }
+
+        try {
+          return await this.castCommandHandler(command);
+        } catch (error) {
+          return `Error running Cast command: ${(error as Error).message}`;
+        }
+      },
+      {
+        name: 'cast_command',
+        description:
+          'Run a Cast REPL slash command such as /status, /diff, /up, /pr, /review, /agents, /skills, or /bridge. The host UI always asks the user for permission before executing. Use this instead of shell when the user mentions a Cast /command.',
+        schema: z.object({
+          command: z.string().describe('The Cast slash command to run, including arguments, e.g. "/up" or "/review src/app.ts".'),
+        }),
+      },
+    );
+  }
+
   private createAnalyzeImpactTool() {
-    const self = this;
-    return tool(
+    return castTool(
       async (input: { file: string }) => {
-        const result = self.impactAnalysisService.analyze(input.file);
+        const result = this.impactAnalysisService.analyze(input.file);
         return result.summary;
       },
       {

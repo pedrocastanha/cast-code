@@ -7,6 +7,14 @@ skills:
   - general/file-operations
   - general/search
   - specialized/api-design
+  - writing-plans
+  - plan
+environments:
+  - engineering
+  - backend
+  - devops
+tags:
+  - architecture
 ---
 
 # Architect Agent

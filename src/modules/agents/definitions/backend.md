@@ -8,6 +8,14 @@ skills:
   - general/search
   - specialized/api-design
   - specialized/database-operations
+  - rest-graphql-debug
+  - systematic-debugging
+environments:
+  - backend
+  - engineering
+tags:
+  - api
+  - server
 ---
 
 # Backend Agent

@@ -1,0 +1,193 @@
+import { Injectable, Optional } from '@nestjs/common';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
+import {
+  BenchmarkAgentExecutor,
+  BenchmarkTargetType,
+  TargetExecutionInput,
+  TargetExecutionResult,
+} from '../types';
+
+const DISABLED_TARGET_MESSAGES: Partial<Record<BenchmarkTargetType, string>> = {
+  rag_answer: 'Target type rag_answer requires the RAG benchmark adapter from the platform/memory integration phase.',
+  mcp_tool: 'Target type mcp_tool requires the MCP benchmark adapter from the connector phase.',
+  scheduler_job: 'Target type scheduler_job requires the scheduler benchmark adapter from the automation phase.',
+};
+
+@Injectable()
+export class BenchmarkTargetService {
+  private agentExecutor?: BenchmarkAgentExecutor;
+
+  constructor(
+    @Optional()
+    private readonly llmClientFactory?: LlmClientFactory,
+  ) {}
+
+  setAgentExecutor(executor: BenchmarkAgentExecutor): void {
+    this.agentExecutor = executor;
+  }
+
+  async execute(input: TargetExecutionInput): Promise<TargetExecutionResult> {
+    switch (input.target.type) {
+    case 'model_prompt':
+      return this.executeModelPrompt(input);
+    case 'api_endpoint':
+      return this.executeApiEndpoint(input);
+    case 'agent_workflow':
+      return this.executeAgentWorkflow(input);
+    case 'environment_task':
+      return this.executeEnvironmentTask(input);
+    case 'rag_answer':
+    case 'mcp_tool':
+    case 'scheduler_job':
+      throw new Error(DISABLED_TARGET_MESSAGES[input.target.type]);
+    default:
+      throw new Error(`Unsupported benchmark target type: ${(input.target as any).type}`);
+    }
+  }
+
+  private async executeModelPrompt(input: TargetExecutionInput): Promise<TargetExecutionResult> {
+    const staticOutput = input.target.config.staticOutput;
+    if (typeof staticOutput === 'string') {
+      return {
+        output: this.renderTemplate(staticOutput, input.benchmarkCase.input),
+        tokens: this.estimateTokens(String(input.benchmarkCase.input) + staticOutput),
+        cost: 0,
+      };
+    }
+
+    if (!this.llmClientFactory) {
+      throw new Error('Target type model_prompt requires a configured model provider.');
+    }
+
+    const prompt = this.renderTemplate(
+      String(input.target.config.prompt ?? '{{input}}'),
+      input.benchmarkCase.input,
+    );
+    const systemPrompt = typeof input.target.config.systemPrompt === 'string'
+      ? input.target.config.systemPrompt
+      : undefined;
+
+    const model = this.llmClientFactory.create('default');
+    const messages = systemPrompt
+      ? [{ role: 'system' as const, content: systemPrompt }, { role: 'user' as const, content: prompt }]
+      : [{ role: 'user' as const, content: prompt }];
+    const response = await model.invoke(messages);
+    const output = extractText(response);
+
+    return {
+      output,
+      tokens: this.estimateTokens(prompt + output),
+      cost: 0,
+      model: model.getModelName(),
+    };
+  }
+
+  private async executeApiEndpoint(input: TargetExecutionInput): Promise<TargetExecutionResult> {
+    const url = String(input.target.config.url ?? '');
+    if (!url) {
+      throw new Error('Target type api_endpoint requires config.url.');
+    }
+
+    const method = String(input.target.config.method ?? 'POST').toUpperCase();
+    const timeoutMs = Number(input.target.config.timeoutMs ?? 30_000);
+    const bodyTemplate = input.target.config.body ?? { input: '{{input}}' };
+    const headers = {
+      'content-type': 'application/json',
+      ...(typeof input.target.config.headers === 'object' && input.target.config.headers
+        ? input.target.config.headers as Record<string, string>
+        : {}),
+    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers,
+        body: method === 'GET' ? undefined : JSON.stringify(this.renderTemplateDeep(bodyTemplate, input.benchmarkCase.input)),
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`api_endpoint returned HTTP ${response.status}: ${text.slice(0, 500)}`);
+      }
+      return {
+        output: text,
+        tokens: this.estimateTokens(text),
+        cost: 0,
+        metadata: { status: response.status },
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async executeAgentWorkflow(input: TargetExecutionInput): Promise<TargetExecutionResult> {
+    if (!this.agentExecutor) {
+      throw new Error('Target type agent_workflow requires the active DeepAgent benchmark executor.');
+    }
+
+    const prompt = this.renderTemplate(String(input.target.config.prompt ?? '{{input}}'), input.benchmarkCase.input);
+    return this.agentExecutor.runBenchmarkPrompt(prompt);
+  }
+
+  private async executeEnvironmentTask(input: TargetExecutionInput): Promise<TargetExecutionResult> {
+    if (!this.agentExecutor) {
+      throw new Error('Target type environment_task requires the active DeepAgent benchmark executor.');
+    }
+
+    const environmentId = String(input.target.config.environmentId ?? 'active');
+    if (environmentId !== 'active' && this.agentExecutor.getActiveEnvironmentId) {
+      const activeEnvironmentId = await this.agentExecutor.getActiveEnvironmentId();
+      if (activeEnvironmentId !== environmentId) {
+        throw new Error(`Target type environment_task requires Cast environment "${environmentId}", but active environment is "${activeEnvironmentId ?? 'none'}". Run /env use ${environmentId} before this benchmark.`);
+      }
+    }
+
+    const task = String(input.target.config.task ?? 'environment_task');
+    const promptTemplate = String(input.target.config.prompt ?? [
+      `Run this benchmark case using the active Cast environment "${environmentId}".`,
+      `Environment task: ${task}.`,
+      'Return a concise but complete answer that demonstrates the environment-specific workflow.',
+      '',
+      'Case:',
+      '{{input}}',
+    ].join('\n'));
+    const prompt = this.renderTemplate(promptTemplate, input.benchmarkCase.input);
+    return this.agentExecutor.runBenchmarkPrompt(prompt);
+  }
+
+  private renderTemplate(template: string, value: string): string {
+    return template.replace(/\{\{\s*input\s*\}\}/g, value);
+  }
+
+  private renderTemplateDeep(value: unknown, input: string): unknown {
+    if (typeof value === 'string') {
+      return this.renderTemplate(value, input);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.renderTemplateDeep(item, input));
+    }
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, nested]) => [key, this.renderTemplateDeep(nested, input)]),
+      );
+    }
+    return value;
+  }
+
+  private extractText(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map((part: any) => typeof part === 'string' ? part : part?.text ?? JSON.stringify(part)).join('');
+    }
+    return value === undefined || value === null ? '' : String(value);
+  }
+
+  private estimateTokens(text: string): number {
+    return text ? Math.max(1, Math.ceil(text.length / 4)) : 0;
+  }
+}

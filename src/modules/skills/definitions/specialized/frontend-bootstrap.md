@@ -9,6 +9,9 @@ tools:
   - grep
   - ls
   - shell
+environments:
+  - design
+  - engineering
 ---
 
 # Frontend Bootstrap from Figma
@@ -68,4 +71,3 @@ Use this skill when the goal is to turn a prototype into a complete frontend fou
 - Keep API and data fetching behind dedicated service/hooks layers.
 - Use mock data adapters initially to unblock UI.
 - Preserve clear boundaries so backend integration only replaces adapters and endpoints.
-

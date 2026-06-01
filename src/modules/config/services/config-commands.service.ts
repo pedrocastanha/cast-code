@@ -3,23 +3,33 @@ import chalk from 'chalk';
 import { ConfigManagerService } from './config-manager.service';
 import { InitConfigService } from './init-config.service';
 import {
+  getProviderEndpointLabel,
   ProviderType,
   PROVIDER_METADATA,
   MODEL_PURPOSES,
   ModelPurpose,
+  getModelChoicesForPurpose,
+  getRecommendedModel,
+  isRecommendedModelForPurpose,
+  providerAllowsOptionalApiKey,
+  providerRequiresBaseUrl,
+  providerSupportsApiKey,
 } from '../types/config.types';
 import {
   selectWithEsc,
   inputWithEsc,
   confirmWithEsc,
-  CancelledPromptError,
   withEsc,
 } from '../../repl/utils/prompts-with-esc';
 import { ISmartInput } from '../../repl/services/smart-input';
 import { I18nService } from '../../i18n/services/i18n.service';
+import { CommandUiService } from '../../repl/services/command-ui.service';
+import { colorize } from '../../repl/utils/theme';
 
 @Injectable()
 export class ConfigCommandsService {
+  private readonly ui = new CommandUiService();
+
   constructor(
     private readonly configManager: ConfigManagerService,
     private readonly initService: InitConfigService,
@@ -36,45 +46,48 @@ export class ConfigCommandsService {
 
     try {
       switch (subcommand) {
-        case 'init':
-        case 'setup':
-          await this.withEscHandler(() => this.initService.runInitialSetup());
-          break;
+      case 'init':
+      case 'setup':
+        await this.withEscHandler(() => this.initService.runInitialSetup());
+        break;
 
-        case 'show':
+      case 'show':
+        await this.showConfig();
+        break;
+
+      case 'add-provider':
+        await this.withEscHandler(() => this.addProviderInteractive());
+        break;
+
+      case 'set-model':
+        await this.withEscHandler(() => this.setModelInteractive());
+        break;
+
+      case 'set-api-key':
+        await this.withEscHandler(() => this.setApiKeyInteractive());
+        break;
+
+      case 'remove-provider':
+        await this.withEscHandler(() => this.removeProviderInteractive());
+        break;
+
+      case 'path':
+        process.stdout.write(this.ui.panel({
+          title: 'Config Path',
+          sections: [{ lines: [colorize(this.configManager.getConfigPath(), 'cyan')] }],
+        }));
+        break;
+
+      case 'edit-template':
+        await this.editTemplateInteractive(smartInput);
+        break;
+
+      default:
+        if (smartInput) {
+          await this.showConfigMenu(smartInput);
+        } else {
           await this.showConfig();
-          break;
-
-        case 'add-provider':
-          await this.withEscHandler(() => this.addProviderInteractive());
-          break;
-
-        case 'set-model':
-          await this.withEscHandler(() => this.setModelInteractive());
-          break;
-
-        case 'set-api-key':
-          await this.withEscHandler(() => this.setApiKeyInteractive());
-          break;
-
-        case 'remove-provider':
-          await this.withEscHandler(() => this.removeProviderInteractive());
-          break;
-
-        case 'path':
-          console.log(this.configManager.getConfigPath());
-          break;
-
-        case 'edit-template':
-          await this.editTemplateInteractive(smartInput);
-          break;
-
-        default:
-          if (smartInput) {
-            await this.showConfigMenu(smartInput);
-          } else {
-            await this.showConfig();
-          }
+        }
       }
     } finally {
       if (useInquirerFlow) {
@@ -86,26 +99,22 @@ export class ConfigCommandsService {
   private async withEscHandler<T>(fn: () => Promise<T>): Promise<void> {
     const result = await withEsc(fn);
     if (result === null) {
-      console.log(chalk.yellow('\n\n❌ Cancelled. Returning to menu...\n'));
+      this.warning('Cancelled. Returning to menu...');
     }
   }
 
   private async showConfigMenu(smartInput: ISmartInput): Promise<void> {
     const w = (s: string) => process.stdout.write(s);
-    const Colors = {
-      cyan: '\x1b[38;5;51m',
-      green: '\x1b[38;5;82m',
-      yellow: '\x1b[38;5;220m',
-      gray: '\x1b[38;5;245m',
-      bold: '\x1b[1m',
-      reset: '\x1b[0m',
-    };
 
     await this.configManager.loadConfig();
 
     while (true) {
-      w(`\n${Colors.cyan}${Colors.bold}⚙️  Cast Code Configuration${Colors.reset}\n`);
-      w(`${Colors.gray}${'─'.repeat(30)}${Colors.reset}\n\n`);
+      w(this.ui.panel({
+        title: 'Cast Code Configuration',
+        subtitle: 'settings',
+        sections: [{ lines: [colorize('Choose what to inspect or change.', 'muted')] }],
+        footer: 'Use Esc to return to chat.',
+      }));
 
       const action = await withEsc(() => smartInput.askChoice('What would you like to do?', [
         { key: '1', label: 'View current configuration', description: 'Show providers and models' },
@@ -122,43 +131,46 @@ export class ConfigCommandsService {
       ]));
 
       if (action === null) {
-        console.log(chalk.yellow('\nExiting configuration menu...\n'));
+        this.warning('Exiting configuration menu...');
         return;
       }
 
       switch (action) {
-        case '1':
-          await this.showConfig();
-          break;
-        case '2':
-          await this.runInquirerFlow(smartInput, () => this.initService.runInitialSetup());
-          return;
-        case '3':
-          await this.runInquirerFlow(smartInput, () => this.addProviderInteractive());
-          break;
-        case '4':
-          await this.runInquirerFlow(smartInput, () => this.removeProviderInteractive());
-          break;
-        case '5':
-          await this.runInquirerFlow(smartInput, () => this.setModelInteractive());
-          break;
-        case '6':
-          await this.runInquirerFlow(smartInput, () => this.setApiKeyInteractive());
-          break;
-        case '7':
-          await this.runInquirerFlow(smartInput, () => this.setRemoteInteractive());
-          break;
-        case '8':
-          console.log(`\n📁 ${this.configManager.getConfigPath()}\n`);
-          break;
-        case 'l':
-          await this.runInquirerFlow(smartInput, () => this.changeLanguageInteractive());
-          break;
-        case 't':
-          await this.editTemplateInteractive(smartInput);
-          break;
-        case '9':
-          return;
+      case '1':
+        await this.showConfig();
+        break;
+      case '2':
+        await this.runInquirerFlow(smartInput, () => this.initService.runInitialSetup());
+        return;
+      case '3':
+        await this.runInquirerFlow(smartInput, () => this.addProviderInteractive());
+        break;
+      case '4':
+        await this.runInquirerFlow(smartInput, () => this.removeProviderInteractive());
+        break;
+      case '5':
+        await this.runInquirerFlow(smartInput, () => this.setModelInteractive());
+        break;
+      case '6':
+        await this.runInquirerFlow(smartInput, () => this.setApiKeyInteractive());
+        break;
+      case '7':
+        await this.runInquirerFlow(smartInput, () => this.setRemoteInteractive());
+        break;
+      case '8':
+        w(this.ui.panel({
+          title: 'Config Path',
+          sections: [{ lines: [colorize(this.configManager.getConfigPath(), 'cyan')] }],
+        }));
+        break;
+      case 'l':
+        await this.runInquirerFlow(smartInput, () => this.changeLanguageInteractive());
+        break;
+      case 't':
+        await this.editTemplateInteractive(smartInput);
+        break;
+      case '9':
+        return;
       }
     }
   }
@@ -175,56 +187,55 @@ export class ConfigCommandsService {
   private async showConfig(): Promise<void> {
     await this.configManager.loadConfig();
     const config = this.configManager.getConfig();
-
-    const w = (s: string) => process.stdout.write(s);
-    const Colors = {
-      cyan: '\x1b[38;5;51m',
-      green: '\x1b[38;5;82m',
-      red: '\x1b[38;5;196m',
-      yellow: '\x1b[38;5;220m',
-      gray: '\x1b[38;5;245m',
-      bold: '\x1b[1m',
-      reset: '\x1b[0m',
-    };
-
-    w(`\n${Colors.cyan}${Colors.bold}⚙️  Current Configuration${Colors.reset}\n`);
-    w(`${Colors.gray}${'─'.repeat(40)}${Colors.reset}\n\n`);
-
-    w(`${Colors.yellow}📦 Configured providers:${Colors.reset}\n`);
     const providers = this.configManager.getConfiguredProviders();
-    if (providers.length === 0) {
-      w(`${Colors.gray}   No providers configured${Colors.reset}\n`);
-      w(`${Colors.gray}   Use "cast config init" or /config add-provider${Colors.reset}\n`);
-    } else {
-      for (const provider of providers) {
+    const providerLines = providers.length === 0
+      ? [
+        colorize('No providers configured.', 'muted'),
+        `${colorize('Tip', 'muted')} use ${colorize('cast config init', 'cyan')} or ${colorize('/config add-provider', 'cyan')}`,
+      ]
+      : providers.flatMap((provider) => {
         const meta = PROVIDER_METADATA[provider];
         const isConfigured = this.configManager.isProviderConfigured(provider);
-        const status = isConfigured
-          ? `${Colors.green}✓`
-          : `${Colors.red}✗`;
-        w(`   ${status} ${meta.name} ${Colors.gray}(${provider})${Colors.reset}\n`);
-      }
-    }
+        const status = isConfigured ? colorize('✓', 'success') : colorize('✗', 'error');
+        const providerConfig = this.configManager.getProviderConfig(provider) as { baseUrl?: string } | undefined;
+        return [
+          `${status} ${colorize(meta.name, 'cyan')} ${colorize(`(${provider})`, 'muted')} ${colorize(getProviderEndpointLabel(provider), 'subtle')}`,
+          ...(providerConfig?.baseUrl ? [`  ${colorize('url:', 'muted')} ${colorize(providerConfig.baseUrl, 'subtle')}`] : []),
+        ];
+      });
 
-    w(`\n${Colors.yellow}🤖 Configured models:${Colors.reset}\n`);
+    const modelLines: string[] = [];
     for (const purpose of MODEL_PURPOSES) {
       const modelConfig = config.models[purpose.value];
       if (modelConfig) {
         const providerName = PROVIDER_METADATA[modelConfig.provider].name;
-        w(`   ${Colors.cyan}${purpose.label.padEnd(12)}${Colors.reset} → ${modelConfig.model}\n`);
-        w(`   ${Colors.gray}${' '.repeat(12)}   ${providerName}${Colors.reset}\n`);
+        const endpointLabel = getProviderEndpointLabel(modelConfig.provider);
+        const isRecommended = isRecommendedModelForPurpose(
+          modelConfig.provider,
+          purpose.value,
+          modelConfig.model,
+        );
+        modelLines.push(
+          `${colorize(purpose.label.padEnd(12), 'cyan')} ${modelConfig.model} ${colorize(`${providerName} · ${endpointLabel}`, 'subtle')} ${isRecommended ? colorize('recommended', 'success') : colorize('custom', 'warning')}`,
+        );
       }
     }
 
-    w(`\n${Colors.yellow}🌐 Remote Access (Web UI):${Colors.reset}\n`);
-    if (config.remote?.enabled) {
-      w(`   Status:   ${Colors.green}Active${Colors.reset}\n`);
-      w(`   Whisper:  ${config.remote.openaiApiKey ? Colors.green + 'Configured' + Colors.reset : Colors.gray + 'Not configured' + Colors.reset}\n`);
-    } else {
-      w(`   Status:   ${Colors.gray}Disabled${Colors.reset}\n`);
-    }
-
-    w(`\n${Colors.gray}📁 Arquivo: ${this.configManager.getConfigPath()}${Colors.reset}\n\n`);
+    process.stdout.write(this.ui.panel({
+      title: 'Current Configuration',
+      sections: [
+        { title: 'Providers', lines: providerLines },
+        { title: 'Models', lines: modelLines.length ? modelLines : [colorize('No models configured.', 'muted')] },
+        {
+          title: 'Remote UI',
+          rows: [
+            { label: 'Status', value: config.remote?.enabled ? colorize('active', 'success') : colorize('disabled', 'muted') },
+            { label: 'Whisper', value: config.remote?.openaiApiKey ? colorize('configured', 'success') : colorize('not configured', 'muted') },
+          ],
+        },
+      ],
+      footer: `File: ${this.configManager.getConfigPath()}`,
+    }));
   }
 
   private async addProviderInteractive(): Promise<void> {
@@ -235,12 +246,11 @@ export class ConfigCommandsService {
     ) as ProviderType[];
 
     if (availableProviders.length === 0) {
-      console.log(chalk.yellow('\n⚠️  All providers are already configured!\n'));
+      this.warning('All providers are already configured.');
       return;
     }
 
-    console.log(chalk.cyan('\n📦 Add Provider'));
-    console.log(chalk.gray('(press ESC to cancel)\n'));
+    this.header('Add Provider', 'Press ESC to cancel.');
 
     const provider = await selectWithEsc<ProviderType>({
       message: 'Which provider would you like to add?',
@@ -251,26 +261,50 @@ export class ConfigCommandsService {
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
     const meta = PROVIDER_METADATA[provider];
+    if (meta.setupHints?.length) {
+      for (const hint of meta.setupHints) {
+        process.stdout.write(`  ${colorize(`→ ${hint}`, 'muted')}\r\n`);
+      }
+    }
+    if (meta.exampleBaseUrls?.length) {
+      process.stdout.write(`  ${colorize(`→ Example URLs: ${meta.exampleBaseUrls.join('  |  ')}`, 'muted')}\r\n`);
+    }
 
     let config: { apiKey?: string; baseUrl?: string } = {};
 
-    if (provider === 'ollama') {
+    if (providerRequiresBaseUrl(provider)) {
       const baseUrl = await inputWithEsc({
-        message: 'Ollama server URL:',
+        message: provider === 'ollama' ? 'Ollama server URL:' : 'OpenAI-compatible base URL:',
         default: meta.defaultBaseUrl,
       });
       if (baseUrl === null) {
-        console.log(chalk.yellow('\n❌ Cancelled.\n'));
+        this.warning('Cancelled.');
         return;
       }
-      config = { baseUrl };
+
+      if (providerAllowsOptionalApiKey(provider)) {
+        const apiKeyRaw = await inputWithEsc({
+          message: `API Key for ${meta.name} (optional):`,
+        });
+        if (apiKeyRaw === null) {
+          this.warning('Cancelled.');
+          return;
+        }
+        const apiKey = apiKeyRaw.trim();
+        config = {
+          baseUrl: baseUrl.trim(),
+          ...(apiKey ? { apiKey } : {}),
+        };
+      } else {
+        config = { baseUrl: baseUrl.trim() };
+      }
     } else {
-      console.log(chalk.gray(`→ Get your API key at: ${meta.websiteUrl}`));
+      process.stdout.write(`  ${colorize(`→ Get your API key at: ${meta.websiteUrl}`, 'muted')}\r\n`);
 
       const apiKeyRaw = await inputWithEsc({
         message: `API Key for ${meta.name}:`,
@@ -283,7 +317,7 @@ export class ConfigCommandsService {
       });
 
       if (apiKeyRaw === null) {
-        console.log(chalk.yellow('\n❌ Cancelled.\n'));
+        this.warning('Cancelled.');
         return;
       }
       const apiKey = apiKeyRaw.trim();
@@ -294,7 +328,7 @@ export class ConfigCommandsService {
       });
 
       if (useCustom === null) {
-        console.log(chalk.yellow('\n❌ Cancelled.\n'));
+        this.warning('Cancelled.');
         return;
       }
 
@@ -305,16 +339,16 @@ export class ConfigCommandsService {
           default: meta.defaultBaseUrl,
         });
         if (baseUrl === null) {
-          console.log(chalk.yellow('\n❌ Cancelled.\n'));
+          this.warning('Cancelled.');
           return;
         }
       }
 
-      config = { apiKey, baseUrl };
+      config = { apiKey, ...(baseUrl ? { baseUrl: baseUrl.trim() } : {}) };
     }
 
     await this.configManager.addProvider(provider, config);
-    console.log(chalk.green(`\n✓ Provider ${meta.name} added successfully!\n`));
+    this.success(`Provider ${meta.name} added successfully.`);
   }
 
   private async removeProviderInteractive(): Promise<void> {
@@ -322,11 +356,11 @@ export class ConfigCommandsService {
 
     const configuredProviders = this.configManager.getConfiguredProviders();
     if (configuredProviders.length === 0) {
-      console.log(chalk.yellow('\n⚠️  No providers configured to remove.\n'));
+      this.warning('No providers configured to remove.');
       return;
     }
 
-    console.log(chalk.gray('(press ESC to cancel)\n'));
+    this.header('Remove Provider', 'Press ESC to cancel.');
 
     const provider = await selectWithEsc<ProviderType>({
       message: 'Which provider would you like to remove?',
@@ -337,7 +371,7 @@ export class ConfigCommandsService {
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
@@ -347,14 +381,14 @@ export class ConfigCommandsService {
     });
 
     if (confirmRemove === null || !confirmRemove) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
     const config = this.configManager.getConfig();
     delete config.providers[provider];
     await this.configManager.saveConfig(config);
-    console.log(chalk.green(`\n✓ Provider removed.\n`));
+    this.success('Provider removed.');
   }
 
   private async setModelInteractive(): Promise<void> {
@@ -362,14 +396,11 @@ export class ConfigCommandsService {
 
     const availableProviders = this.configManager.getConfiguredProviders();
     if (availableProviders.length === 0) {
-      console.log(
-        chalk.red('\n❌ No providers configured. Configure a provider first.\n')
-      );
+      this.error('No providers configured. Configure a provider first.');
       return;
     }
 
-    console.log(chalk.cyan('\n🤖 Configure Model'));
-    console.log(chalk.gray('(press ESC to cancel)\n'));
+    this.header('Configure Model', 'Press ESC to cancel.');
 
     const purpose = await selectWithEsc<ModelPurpose>({
       message: 'For which purpose?',
@@ -380,24 +411,29 @@ export class ConfigCommandsService {
     });
 
     if (purpose === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
     const provider = await selectWithEsc<ProviderType>({
       message: 'Which provider?',
       choices: availableProviders.map((p) => ({
-        name: PROVIDER_METADATA[p].name,
+        name: `${PROVIDER_METADATA[p].name}${
+          getRecommendedModel(p, purpose)
+            ? ` - rec ${getRecommendedModel(p, purpose)}`
+            : ''
+        }`,
         value: p,
       })),
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
     const meta = PROVIDER_METADATA[provider];
+    const recommendedModel = getRecommendedModel(provider, purpose);
 
     const usePopular = await confirmWithEsc({
       message: `Use one of ${meta.name}'s popular models?`,
@@ -405,43 +441,51 @@ export class ConfigCommandsService {
     });
 
     if (usePopular === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
     let model: string | null;
 
     if (usePopular) {
+      if (recommendedModel) {
+        process.stdout.write(`  ${colorize(`→ Recommended for ${purpose}: ${recommendedModel}`, 'muted')}\r\n`);
+      }
+
       model = await selectWithEsc<string>({
         message: 'Choose the model:',
         choices: [
-          ...meta.popularModels.map((m) => ({ name: m, value: m })),
-          { name: '➕ Outro modelo...', value: '__custom__' },
+          ...getModelChoicesForPurpose(provider, purpose).map((choice) => ({
+            name: choice.label,
+            value: choice.value,
+          })),
+          { name: 'Other model...', value: '__custom__' },
         ],
+        default: recommendedModel,
       });
 
       if (model === null) {
-        console.log(chalk.yellow('\n❌ Cancelled.\n'));
+        this.warning('Cancelled.');
         return;
       }
 
       if (model === '__custom__') {
         model = await inputWithEsc({
           message: 'Model name:',
-          default: meta.popularModels[0],
+          default: recommendedModel || meta.popularModels[0],
         });
         if (model === null) {
-          console.log(chalk.yellow('\n❌ Cancelled.\n'));
+          this.warning('Cancelled.');
           return;
         }
       }
     } else {
       model = await inputWithEsc({
         message: 'Model name:',
-        default: meta.popularModels[0],
+        default: recommendedModel || meta.popularModels[0],
       });
       if (model === null) {
-        console.log(chalk.yellow('\n❌ Cancelled.\n'));
+        this.warning('Cancelled.');
         return;
       }
     }
@@ -452,9 +496,7 @@ export class ConfigCommandsService {
     });
 
     const purposeLabel = MODEL_PURPOSES.find((p) => p.value === purpose)?.label;
-    console.log(
-      chalk.green(`\n✓ Model for "${purposeLabel}" configured: ${model}\n`)
-    );
+    this.success(`Model for "${purposeLabel}" configured: ${model}`);
   }
 
   private async setApiKeyInteractive(): Promise<void> {
@@ -462,15 +504,14 @@ export class ConfigCommandsService {
 
     const configuredProviders = this.configManager
       .getConfiguredProviders()
-      .filter((p) => p !== 'ollama');
+      .filter((p) => providerSupportsApiKey(p));
 
     if (configuredProviders.length === 0) {
-      console.log(chalk.yellow('\n⚠️  No providers with configurable API keys found.\n'));
+      this.warning('No providers with configurable API keys found.');
       return;
     }
 
-    console.log(chalk.cyan('\n🔑 Change API Key'));
-    console.log(chalk.gray('(press ESC to cancel)\n'));
+    this.header('Change API Key', 'Press ESC to cancel.');
 
     const provider = await selectWithEsc<ProviderType>({
       message: 'Which provider would you like to update?',
@@ -481,15 +522,17 @@ export class ConfigCommandsService {
     });
 
     if (provider === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
     const currentConfig = this.configManager.getProviderConfig(provider) as { baseUrl?: string } | undefined;
+    const isOptionalApiKeyProvider = providerAllowsOptionalApiKey(provider);
     const apiKeyRaw = await inputWithEsc({
-      message: `New API key for ${PROVIDER_METADATA[provider].name}:`,
+      message: `New API key for ${PROVIDER_METADATA[provider].name}${isOptionalApiKeyProvider ? ' (leave blank to remove)' : ''}:`,
       validate: (v) => {
         const clean = v.trim();
+        if (isOptionalApiKeyProvider && clean.length === 0) return true;
         if (clean.length <= 5) return 'API key is too short';
         if (/[\s%]/.test(clean)) return 'API key contains invalid characters (spaces or %)';
         return true;
@@ -497,7 +540,7 @@ export class ConfigCommandsService {
     });
 
     if (apiKeyRaw === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
@@ -508,7 +551,7 @@ export class ConfigCommandsService {
     });
 
     if (changeBaseUrl === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
@@ -518,26 +561,25 @@ export class ConfigCommandsService {
         default: baseUrl || PROVIDER_METADATA[provider].defaultBaseUrl,
       });
       if (newBaseUrl === null) {
-        console.log(chalk.yellow('\n❌ Cancelled.\n'));
+        this.warning('Cancelled.');
         return;
       }
       baseUrl = newBaseUrl;
     }
 
     await this.configManager.addProvider(provider, {
-      apiKey: apiKeyRaw.trim(),
+      apiKey: apiKeyRaw.trim() || undefined,
       baseUrl,
     });
 
-    console.log(chalk.green(`\n✓ API key for ${PROVIDER_METADATA[provider].name} updated.\n`));
+    this.success(`API key for ${PROVIDER_METADATA[provider].name} updated.`);
   }
 
   private async setRemoteInteractive(): Promise<void> {
     await this.configManager.loadConfig();
     const config = this.configManager.getConfig();
 
-    console.log(chalk.cyan('\n🌐 Remote Access Configuration (Web UI)'));
-    console.log(chalk.gray('(press ESC to cancel)\n'));
+    this.header('Remote Access', 'Press ESC to cancel.');
 
     const enableRemote = await confirmWithEsc({
       message: 'Enable remote access (Web UI) via ngrok?',
@@ -545,14 +587,14 @@ export class ConfigCommandsService {
     });
 
     if (enableRemote === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
     if (!enableRemote) {
       config.remote = { enabled: false };
       await this.configManager.saveConfig(config);
-      console.log(chalk.green(`\n✓ Remote Access disabled.\n`));
+      this.success('Remote Access disabled.');
       return;
     }
 
@@ -563,7 +605,7 @@ export class ConfigCommandsService {
     });
 
     if (passwordRaw === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
     const password = passwordRaw.trim();
@@ -618,7 +660,7 @@ export class ConfigCommandsService {
     };
 
     await this.configManager.saveConfig(config);
-    console.log(chalk.green(`\n✓ Remote Access configured successfully!\n`));
+    this.success('Remote Access configured successfully.');
   }
 
   private async editTemplateInteractive(smartInput?: ISmartInput): Promise<void> {
@@ -630,13 +672,13 @@ export class ConfigCommandsService {
     const userDir = path.join(os.homedir(), '.cast', 'prompts');
 
     if (!fs.existsSync(userDir)) {
-      console.log(chalk.yellow('\n⚠️  No prompt templates found. Start a chat session first to seed the templates.\n'));
+      this.warning('No prompt templates found. Start a chat session first to seed the templates.');
       return;
     }
 
     const files = fs.readdirSync(userDir).filter((f: string) => f.endsWith('.md'));
     if (files.length === 0) {
-      console.log(chalk.yellow('\n⚠️  No templates found in ' + userDir + '\n'));
+      this.warning(`No templates found in ${userDir}`);
       return;
     }
 
@@ -670,22 +712,24 @@ export class ConfigCommandsService {
     const editor = process.env.EDITOR || process.env.VISUAL;
     try {
       execSync(`code "${filePath}"`, { stdio: 'ignore' });
-      console.log(chalk.green(`\n✓ Opened in VS Code: ${filePath}\n`));
+      this.success(`Opened in VS Code: ${filePath}`);
       return;
     } catch {}
     if (editor) {
       try {
         execSync(`${editor} "${filePath}"`, { stdio: 'ignore' });
-        console.log(chalk.green(`\n✓ Opened in ${editor}: ${filePath}\n`));
+        this.success(`Opened in ${editor}: ${filePath}`);
         return;
       } catch {}
     }
-    console.log(chalk.cyan(`\nEdit this file: ${filePath}\n`));
+    process.stdout.write(this.ui.panel({
+      title: 'Edit Template',
+      sections: [{ lines: [colorize(filePath, 'cyan')] }],
+    }));
   }
 
   private async changeLanguageInteractive(): Promise<void> {
-    console.log(chalk.cyan('\n🌐 Change Language'));
-    console.log(chalk.gray('(press ESC to cancel)\n'));
+    this.header('Change Language', 'Press ESC to cancel.');
 
     const lang = await selectWithEsc<'en' | 'pt'>({
       message: 'Select language / Selecione o idioma:',
@@ -696,7 +740,7 @@ export class ConfigCommandsService {
     });
 
     if (lang === null) {
-      console.log(chalk.yellow('\n❌ Cancelled.\n'));
+      this.warning('Cancelled.');
       return;
     }
 
@@ -704,6 +748,26 @@ export class ConfigCommandsService {
     (config as any).language = lang;
     await this.configManager.saveConfig(config);
     this.i18nService.setLanguage(lang);
-    console.log(chalk.green(`\n✓ Language set to ${lang === 'pt' ? 'Português' : 'English'}.\n`));
+    this.success(`Language set to ${lang === 'pt' ? 'Português' : 'English'}.`);
+  }
+
+  private header(title: string, footer?: string): void {
+    process.stdout.write(this.ui.panel({
+      title,
+      sections: [{ lines: [colorize('Interactive configuration flow.', 'muted')] }],
+      footer,
+    }));
+  }
+
+  private success(message: string): void {
+    process.stdout.write(this.ui.success(message));
+  }
+
+  private warning(message: string): void {
+    process.stdout.write(this.ui.warning(message));
+  }
+
+  private error(message: string): void {
+    process.stdout.write(this.ui.error(message));
   }
 }

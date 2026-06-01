@@ -7,6 +7,14 @@ skills:
   - general/file-operations
   - general/search
   - general/git-operations
+  - test-driven-development
+  - systematic-debugging
+environments:
+  - engineering
+  - backend
+  - frontend
+tags:
+  - implementation
 ---
 
 # Coder Agent

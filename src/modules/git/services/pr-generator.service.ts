@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { execSync } from 'child_process';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { execSync, spawnSync } from 'child_process';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 import { MonorepoDetectorService } from './monorepo-detector.service';
 import { PromptLoaderService } from '../../core/services/prompt-loader.service';
 import { I18nService } from '../../i18n/services/i18n.service';
@@ -29,13 +29,87 @@ export interface PRCreationResult {
   platform: 'github' | 'azure' | 'gitlab' | 'bitbucket' | 'unknown';
 }
 
+export interface ClipboardCommand {
+  command: string;
+  args: string[];
+}
+
+export interface ClipboardRunResult {
+  status?: number | null;
+  error?: unknown;
+}
+
+export type ClipboardRunner = (
+  command: string,
+  args: string[],
+  input: string,
+) => ClipboardRunResult;
+
+export function getClipboardCommands(
+  platform: NodeJS.Platform | string = process.platform,
+  env: Record<string, string | undefined> = process.env,
+): ClipboardCommand[] {
+  if (platform === 'darwin') {
+    return [{ command: 'pbcopy', args: [] }];
+  }
+
+  if (platform === 'win32') {
+    return [{ command: 'clip', args: [] }];
+  }
+
+  if (platform === 'linux') {
+    const commands: ClipboardCommand[] = [];
+
+    if (env.WAYLAND_DISPLAY) {
+      commands.push({ command: 'wl-copy', args: [] });
+    }
+
+    commands.push(
+      { command: 'xclip', args: ['-selection', 'clipboard'] },
+      { command: 'xsel', args: ['--clipboard', '--input'] },
+      { command: 'clip.exe', args: [] },
+    );
+
+    return commands;
+  }
+
+  return [];
+}
+
+export function copyTextToClipboard(
+  text: string,
+  options: {
+    platform?: NodeJS.Platform | string;
+    env?: Record<string, string | undefined>;
+    run?: ClipboardRunner;
+  } = {},
+): boolean {
+  const run: ClipboardRunner = options.run || ((command, args, input) => {
+    const result = spawnSync(command, args, {
+      input,
+      encoding: 'utf8',
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+    return { status: result.status, error: result.error };
+  });
+
+  for (const { command, args } of getClipboardCommands(options.platform, options.env)) {
+    const result = run(command, args, text);
+    if (!result.error && result.status === 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 @Injectable()
 export class PrGeneratorService {
   private prTemplateCache?: string;
   private readonly prTemplatePath = '/home/pedro-castanheira/Downloads/pull-request.template.md';
 
   constructor(
-    private readonly multiLlmService: MultiLlmService,
+    private readonly llmClientFactory: LlmClientFactory,
     private readonly monorepoDetector: MonorepoDetectorService,
     private readonly promptLoader: PromptLoaderService,
     private readonly i18nService: I18nService,
@@ -158,16 +232,16 @@ export class PrGeneratorService {
   }
 
   async analyzeCommit(commit: CommitInfo): Promise<{ summary: string; details: string }> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
 
     const prompt = this.buildCommitAnalysisPrompt(commit);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getCommitAnalysisSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getCommitAnalysisSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const content = this.extractContent(response.content);
+    const content = extractText(response);
     return this.parseCommitAnalysis(content);
   }
 
@@ -176,15 +250,15 @@ export class PrGeneratorService {
     commits: CommitInfo[],
     baseBranch: string = 'develop',
   ): Promise<PRDescription> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     const prompt = this.buildSinglePrompt(branchName, commits, baseBranch);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getSingleAgentSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getSingleAgentSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const content = this.extractContent(response.content);
+    const content = extractText(response);
     const { title, description, commitSummaries } = this.parseSingleResponse(content, commits);
 
     return {
@@ -200,12 +274,11 @@ export class PrGeneratorService {
     baseBranch: string = 'develop'
   ): Promise<PRCreationResult> {
     const { platform } = this.detectPlatform();
-    const branch = this.getCurrentBranch();
 
     if (platform !== 'github') {
       return {
         success: false,
-        error: `Automatic PR creation not supported for ${platform}. Description generated and copied to clipboard.`,
+        error: `Automatic PR creation not supported for ${platform}. Description generated for manual PR creation.`,
         description: this.formatPRForClipboard(title, description, baseBranch),
         platform,
       };
@@ -266,36 +339,10 @@ export class PrGeneratorService {
   }
 
   copyToClipboard(text: string): boolean {
-    try {
-      const platform = process.platform;
-      
-      if (platform === 'darwin') {
-        execSync(`echo ${JSON.stringify(text)} | pbcopy`);
-        return true;
-      } else if (platform === 'linux') {
-        try {
-          execSync(`echo ${JSON.stringify(text)} | xclip -selection clipboard`);
-          return true;
-        } catch {
-          try {
-            execSync(`echo ${JSON.stringify(text)} | xsel --clipboard --input`);
-            return true;
-          } catch {
-            return false;
-          }
-        }
-      } else if (platform === 'win32') {
-        execSync(`echo ${JSON.stringify(text)} | clip`);
-        return true;
-      }
-      
-      return false;
-    } catch {
-      return false;
-    }
+    return copyTextToClipboard(text);
   }
 
-  formatPRForClipboard(title: string, description: string, baseBranch: string): string {
+  formatPRForClipboard(_title: string, description: string, _baseBranch: string): string {
     return description;
   }
 
@@ -308,23 +355,23 @@ export class PrGeneratorService {
 
       const branch = this.getCurrentBranch();
 
-      let httpsUrl = remoteUrl
+      const httpsUrl = remoteUrl
         .replace(/^git@github\.com:/, 'https://github.com/')
         .replace(/^git@gitlab\.com:/, 'https://gitlab.com/')
         .replace(/^git@bitbucket\.org:/, 'https://bitbucket.org/')
         .replace(/\.git$/, '');
 
       switch (platform) {
-        case 'github':
-          return `${httpsUrl}/compare/${baseBranch}...${branch}?expand=1`;
-        case 'gitlab':
-          return `${httpsUrl}/merge_requests/new?merge_request[source_branch]=${branch}&merge_request[target_branch]=${baseBranch}`;
-        case 'bitbucket':
-          return `${httpsUrl}/pull-requests/new?source=${branch}&dest=${baseBranch}`;
-        case 'azure':
-          return null;
-        default:
-          return null;
+      case 'github':
+        return `${httpsUrl}/compare/${baseBranch}...${branch}?expand=1`;
+      case 'gitlab':
+        return `${httpsUrl}/merge_requests/new?merge_request[source_branch]=${branch}&merge_request[target_branch]=${baseBranch}`;
+      case 'bitbucket':
+        return `${httpsUrl}/pull-requests/new?source=${branch}&dest=${baseBranch}`;
+      case 'azure':
+        return null;
+      default:
+        return null;
       }
     } catch {
       return null;
@@ -339,7 +386,7 @@ export class PrGeneratorService {
   }
 
   private getCommitAnalysisSystemPrompt(): string {
-    return `Analyze a git commit. Provide:\n\n1. **Summary**: One sentence (max 100 chars)\n2. **Details**: Detailed paragraph about changes\n\nFormat:\nSUMMARY: <summary>\n\nDETAILS: <details>`;
+    return 'Analyze a git commit. Provide:\n\n1. **Summary**: One sentence (max 100 chars)\n2. **Details**: Detailed paragraph about changes\n\nFormat:\nSUMMARY: <summary>\n\nDETAILS: <details>';
   }
 
   private parseCommitAnalysis(content: string): { summary: string; details: string } {
@@ -350,17 +397,6 @@ export class PrGeneratorService {
       summary: summaryMatch ? summaryMatch[1].trim() : 'No summary available',
       details: detailsMatch ? detailsMatch[1].trim() : content,
     };
-  }
-
-  private parsePRDescription(content: string): { title: string; description: string } {
-    const titleMatch = content.match(/^#?\s*Title:?\s*(.+?)(?=\n\n|\n##|$)/i);
-    const lines = content.split('\n');
-    const title = titleMatch ? titleMatch[1].trim() : lines[0].replace(/^#+\s*/, '').trim();
-    const description = titleMatch 
-      ? content.slice(content.indexOf(titleMatch[0]) + titleMatch[0].length).trim()
-      : lines.slice(1).join('\n').trim();
-
-    return { title, description };
   }
 
   private buildSinglePrompt(branchName: string, commits: CommitInfo[], baseBranch: string): string {
@@ -388,7 +424,7 @@ export class PrGeneratorService {
 
   private getReviewReminder(): string {
     return this.lang() === 'en'
-      ? "Don't forget to review this description"
+      ? 'Don\'t forget to review this description'
       : 'Não se esqueça de revisar essa descrição';
   }
 
@@ -479,7 +515,7 @@ export class PrGeneratorService {
         '',
         '## 🔗 Task Link',
         '',
-        "Don't forget to review this description",
+        'Don\'t forget to review this description',
       ].join('\n');
     }
 

@@ -1,22 +1,34 @@
 {
   "name": "cast-code",
   "version": "1.0.25",
-  "description": "Multi-agent CLI system powered by DeepAgents",
+  "description": "Multi-agent CLI system powered by native model SDKs",
   "main": "dist/main.js",
   "bin": {
     "cast": "./dist/main.js"
   },
   "files": [
     "dist",
-    "templates"
+    "evals",
+    "templates",
+    "scripts"
   ],
   "scripts": {
-    "build": "nest build && chmod +x dist/main.js",
-    "typecheck": "node --max-old-space-size=4096 node_modules/typescript/bin/tsc --noEmit",
+    "build": "node scripts/build-fast.mjs",
+    "test": "node --test -r ts-node/register \"src/**/*.spec.ts\"",
+    "typecheck": "node --max-old-space-size=6144 node_modules/typescript/bin/tsc -p tsconfig.build.json --noEmit --incremental false",
     "start": "node dist/main.js",
-    "start:dev": "nest start --watch",
+    "start:dev": "node scripts/start-dev.mjs",
+    "smoke:benchmark-lab": "node scripts/smoke-benchmark-lab.mjs",
+    "smoke:e2e": "node scripts/e2e-cast-projects.mjs",
+    "smoke:memory": "node scripts/memory-smoke.mjs",
+    "smoke:schedule": "node scripts/schedule-smoke.mjs",
+    "smoke:sandbox": "node scripts/sandbox-smoke.mjs",
+    "smoke:bridge": "node scripts/bridge-claude-smoke.mjs",
+    "smoke:agentic-runtime-v2": "node scripts/agentic-runtime-v2-smoke.mjs",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "eval:skills": "node scripts/eval-skill-selection.mjs",
+    "eval:env": "node scripts/eval-environment-leaks.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepublishOnly": "npm run build"
@@ -25,8 +37,8 @@
     "ai",
     "agents",
     "cli",
-    "langchain",
-    "deepagents",
+    "native-sdk",
+    "llm",
     "multi-agent"
   ],
   "author": "pedrocastanha",
@@ -36,30 +48,28 @@
     "url": "https://github.com/pedrocastanha/cast-code"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.0",
+    "@google/generative-ai": "^0.24.1",
     "@inquirer/prompts": "^7.3.2",
-    "@langchain/anthropic": "^1.3.12",
-    "@langchain/core": "^1.1.24",
-    "@langchain/google-genai": "^2.1.18",
-    "@langchain/langgraph": "latest",
-    "@langchain/ollama": "^1.2.2",
-    "@langchain/openai": "latest",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/platform-express": "^10.0.0",
-    "@types/diff": "^7.0.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
+    "better-sqlite3": "^12.9.0",
     "chalk": "^4.1.2",
-    "deepagents": "latest",
-    "diff": "^8.0.3",
+    "diff": "^9.0.0",
     "dotenv": "^17.2.3",
     "glob": "^11.0.0",
     "gray-matter": "^4.0.3",
     "js-yaml": "^4.1.1",
-    "langchain": "latest",
+    "openai": "^6.39.1",
+    "quickjs-emscripten": "^0.32.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
@@ -80,5 +90,8 @@
   },
   "overrides": {
     "uuid": "^10.0.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
   }
 }

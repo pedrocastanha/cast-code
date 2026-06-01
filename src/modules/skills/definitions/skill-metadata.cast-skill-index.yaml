@@ -1,0 +1,103 @@
+version: 1
+skills:
+  ideation:
+    sourcePath: skills/creative/creative-ideation/SKILL.md
+    aliases:
+      - creative-ideation
+    category: creative
+    environments:
+      - marketing
+      - design
+    profiles:
+      - marketing:campaign
+      - design:handoff
+    risk: low
+    trust: community
+  popular-web-designs:
+    sourcePath: skills/creative/popular-web-designs/SKILL.md
+    category: creative
+    environments:
+      - frontend
+      - design
+      - marketing
+    profiles:
+      - frontend:ui-build
+      - design:handoff
+      - marketing:campaign
+    risk: low
+    trust: community
+  docker-management:
+    sourcePath: optional-skills/devops/docker-management/SKILL.md
+    aliases:
+      - docker
+    category: devops
+    environments:
+      - devops
+      - engineering
+    profiles:
+      - devops:deploy
+    risk: low
+    trust: community
+  oss-forensics:
+    sourcePath: optional-skills/security/oss-forensics/SKILL.md
+    category: security
+    environments:
+      - security
+    profiles:
+      - security:audit
+    risk: medium
+    trust: community
+  godmode:
+    sourcePath: skills/red-teaming/godmode/SKILL.md
+    category: red-teaming
+    environments:
+      - security
+    profiles:
+      - security:audit
+    risk: critical
+    trust: quarantined
+    activationPolicy: explicit-approval-only
+    isActive: false
+  rest-graphql-debug:
+    sourcePath: optional-skills/software-development/rest-graphql-debug/SKILL.md
+    category: backend
+    environments:
+      - backend
+      - engineering
+    profiles:
+      - backend:api
+    risk: low
+    trust: community
+  test-driven-development:
+    sourcePath: skills/software-development/test-driven-development/SKILL.md
+    category: engineering
+    environments:
+      - engineering
+      - qa
+    profiles:
+      - engineering:bugfix
+      - engineering:feature
+      - qa:regression
+    risk: low
+    trust: community
+  systematic-debugging:
+    sourcePath: skills/software-development/systematic-debugging/SKILL.md
+    category: engineering
+    environments:
+      - engineering
+      - qa
+    profiles:
+      - engineering:bugfix
+      - qa:regression
+    risk: low
+    trust: community
+  github-code-review:
+    sourcePath: skills/github/github-code-review/SKILL.md
+    category: github
+    environments:
+      - engineering
+      - qa
+    profiles:
+      - engineering:review
+    risk: low
+    trust: community

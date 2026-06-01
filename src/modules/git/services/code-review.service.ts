@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { execSync } from 'child_process';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { execSync, spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 
 export interface ReviewIssue {
   severity: 'error' | 'warning' | 'suggestion' | 'praise';
@@ -20,7 +22,7 @@ export interface ReviewResult {
 
 @Injectable()
 export class CodeReviewService {
-  constructor(private readonly multiLlmService: MultiLlmService) {}
+  constructor(private readonly llmClientFactory: LlmClientFactory) {}
 
   async reviewFile(filePath: string): Promise<ReviewResult> {
     const content = this.readFile(filePath);
@@ -33,15 +35,15 @@ export class CodeReviewService {
       };
     }
 
-    const llm = this.multiLlmService.createModel('reviewer');
+    const llm = this.llmClientFactory.create('reviewer');
     const prompt = this.buildReviewPrompt(filePath, content);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getReviewSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getReviewSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const responseText = this.extractContent(response.content);
+    const responseText = extractText(response);
     return this.parseReviewResponse(filePath, responseText, content);
   }
 
@@ -65,15 +67,15 @@ export class CodeReviewService {
       return { success: false, error: 'Could not read file' };
     }
 
-    const llm = this.multiLlmService.createModel('reviewer');
+    const llm = this.llmClientFactory.create('reviewer');
     const prompt = this.buildFixPrompt(filePath, content);
 
     const response = await llm.invoke([
-      new SystemMessage(this.getFixSystemPrompt()),
-      new HumanMessage(prompt),
+      { role: 'system', content: this.getFixSystemPrompt() },
+      { role: 'user', content: prompt },
     ]);
 
-    const responseText = this.extractContent(response.content);
+    const responseText = extractText(response);
     const fixedCode = this.extractCodeBlock(responseText);
 
     if (fixedCode) {
@@ -91,11 +93,12 @@ export class CodeReviewService {
         return { success: false, error: 'Could not read file' };
       }
 
-      try {
-        execSync(`npx prettier --write "${filePath}"`, { cwd: process.cwd() });
+      if (this.runPrettier(filePath)) {
         return { success: true };
-      } catch {
-        const llm = this.multiLlmService.createModel('reviewer');
+      }
+
+      try {
+        const llm = this.llmClientFactory.create('reviewer');
         const prompt = `Format and indent this code properly. Maintain all functionality, only fix indentation and formatting:
 
 File: ${filePath}
@@ -107,17 +110,19 @@ ${content}
 Return ONLY the formatted code in a code block.`;
 
         const response = await llm.invoke([
-          new SystemMessage('You are a code formatter. Fix indentation and formatting only.'),
-          new HumanMessage(prompt),
+          { role: 'system', content: 'You are a code formatter. Fix indentation and formatting only.' },
+          { role: 'user', content: prompt },
         ]);
 
-        const responseText = this.extractContent(response.content);
+        const responseText = extractText(response);
         const formattedCode = this.extractCodeBlock(responseText);
 
         if (formattedCode) {
           this.writeFile(filePath, formattedCode);
           return { success: true };
         }
+      } catch {
+        return { success: false, error: 'Could not format file' };
       }
 
       return { success: false, error: 'Could not format file' };
@@ -126,9 +131,9 @@ Return ONLY the formatted code in a code block.`;
     }
   }
 
-  async indentAll(pattern = 'src/**/*.{ts,tsx,js,jsx}'): Promise<{ success: number; failed: number }> {
+  async indentAll(_pattern = 'src/**/*.{ts,tsx,js,jsx}'): Promise<{ success: number; failed: number }> {
     try {
-      const files = execSync(`find src -type f -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx"`, {
+      const files = execSync('find src -type f \\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \\)', {
         cwd: process.cwd(),
         encoding: 'utf-8',
       }).trim().split('\n').filter(f => f);
@@ -145,6 +150,40 @@ Return ONLY the formatted code in a code block.`;
       return { success, failed };
     } catch {
       return { success: 0, failed: 0 };
+    }
+  }
+
+  private runPrettier(filePath: string): boolean {
+    const formatter = this.resolvePrettierFormatter();
+    if (!formatter) {
+      return false;
+    }
+
+    const result = spawnSync(formatter.command, [...formatter.args, '--write', filePath], {
+      cwd: process.cwd(),
+      stdio: 'ignore',
+    });
+
+    return result.status === 0;
+  }
+
+  private resolvePrettierFormatter(): { command: string; args: string[] } | null {
+    const projectBin = path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'prettier.cmd' : 'prettier');
+    if (fs.existsSync(projectBin)) {
+      return { command: projectBin, args: [] };
+    }
+
+    try {
+      const packagePath = require.resolve('prettier/package.json');
+      const packageDir = path.dirname(packagePath);
+      const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'));
+      const binPath = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.prettier;
+      if (!binPath) {
+        return null;
+      }
+      return { command: process.execPath, args: [path.join(packageDir, binPath)] };
+    } catch {
+      return null;
     }
   }
 
@@ -239,7 +278,7 @@ Be thorough but constructive. Focus on important issues, not nitpicks.`;
 Return ONLY the fixed code in a markdown code block. Preserve all functionality while fixing issues.`;
   }
 
-  private parseReviewResponse(filePath: string, content: string, originalCode: string): ReviewResult {
+  private parseReviewResponse(filePath: string, content: string, _originalCode: string): ReviewResult {
     const issues: ReviewIssue[] = [];
     
     const scoreMatch = content.match(/SCORE:\s*(\d+)/i);

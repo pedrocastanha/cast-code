@@ -183,34 +183,35 @@ export class TaskManagementService {
     const choice = await this.promptService.choice('What do you want to do?', choices);
 
     switch (choice) {
-      case 'approve':
-        plan.status = 'approved';
-        this.promptService.success('✓ Plan approved! Starting execution...');
-        return { approved: true, autoApprove: false };
+    case 'approve':
+      plan.status = 'approved';
+      this.promptService.success('✓ Plan approved! Starting execution...');
+      return { approved: true, autoApprove: false };
 
-      case 'auto-approve':
-        plan.status = 'approved';
-        this.promptService.success('✓ Plan approved with auto-approve! Automatic execution enabled.');
-        return { approved: true, autoApprove: true };
+    case 'auto-approve':
+      plan.status = 'approved';
+      this.promptService.success('✓ Plan approved with auto-approve! Automatic execution enabled.');
+      return { approved: true, autoApprove: true };
 
-      case 'modify':
-        const modification = await this.promptService.question(
-          `${Colors.accent}How do you want to modify the plan?${Colors.reset}`
-        );
-        plan.status = 'draft';
-        return {
-          approved: false,
-          autoApprove: false,
-          modificationRequested: modification
-        };
+    case 'modify': {
+      const modification = await this.promptService.question(
+        `${Colors.accent}How do you want to modify the plan?${Colors.reset}`
+      );
+      plan.status = 'draft';
+      return {
+        approved: false,
+        autoApprove: false,
+        modificationRequested: modification
+      };
+    }
 
-      case 'cancel':
-        plan.status = 'cancelled';
-        this.promptService.info('Plan cancelled');
-        return { approved: false, autoApprove: false };
+    case 'cancel':
+      plan.status = 'cancelled';
+      this.promptService.info('Plan cancelled');
+      return { approved: false, autoApprove: false };
 
-      default:
-        return { approved: false, autoApprove: false };
+    default:
+      return { approved: false, autoApprove: false };
     }
   }
 

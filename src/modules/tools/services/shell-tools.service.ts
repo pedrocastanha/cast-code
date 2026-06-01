@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { tool } from '@langchain/core/tools';
+import { castTool } from '../../../common/interfaces/cast-tool.interface';
 import { z } from 'zod';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -25,11 +25,30 @@ export class ShellToolsService {
   private backgroundProcesses: Map<string, any> = new Map();
   private processCounter = 0;
   private rootDir: string = process.cwd();
+  private workspaceRoot: string = process.cwd();
 
   constructor(private permissionService: PermissionService) {}
 
-  setRootDir(dir: string): void {
-    this.rootDir = dir;
+  setRootDir(dir: string, workspaceRoot: string = dir): void {
+    this.rootDir = path.resolve(dir);
+    this.workspaceRoot = path.resolve(workspaceRoot);
+  }
+
+  private resolveWorkingDirectory(cwd?: string): { ok: true; cwd: string } | { ok: false; error: string } {
+    const root = path.resolve(this.rootDir);
+    const workspaceRoot = path.resolve(this.workspaceRoot);
+    const resolved = cwd
+      ? (path.isAbsolute(cwd) ? path.resolve(cwd) : path.resolve(root, cwd))
+      : root;
+
+    if (resolved === workspaceRoot || resolved.startsWith(workspaceRoot + path.sep)) {
+      return { ok: true, cwd: resolved };
+    }
+
+    return {
+      ok: false,
+      error: `Error: cwd "${cwd}" resolves outside the project root or workspace root (${workspaceRoot}). Use a relative working directory inside the project or another linked workspace folder.`,
+    };
   }
 
   private buildTools(state: ShellSessionState) {
@@ -56,8 +75,13 @@ export class ShellToolsService {
   }
 
   private createShellTool() {
-    return tool(
-      async ({ command, cwd, timeout, description }) => {
+    return castTool(
+      async ({ command, cwd, timeout }) => {
+        const resolvedCwd = this.resolveWorkingDirectory(cwd);
+        if (!resolvedCwd.ok) {
+          return resolvedCwd.error;
+        }
+
         const allowed = await this.permissionService.checkPermission(command);
 
         if (!allowed) {
@@ -66,7 +90,7 @@ export class ShellToolsService {
 
         try {
           const { stdout, stderr } = await execAsync(command, {
-            cwd: cwd || this.rootDir,
+            cwd: resolvedCwd.cwd,
             timeout: timeout || 120000, // Default 2min, max 10min
             maxBuffer: 10 * 1024 * 1024,
           });
@@ -109,8 +133,13 @@ export class ShellToolsService {
   }
 
   private createBackgroundShellTool(state: ShellSessionState) {
-    return tool(
+    return castTool(
       async ({ command, cwd }) => {
+        const resolvedCwd = this.resolveWorkingDirectory(cwd);
+        if (!resolvedCwd.ok) {
+          return resolvedCwd.error;
+        }
+
         const allowed = await this.permissionService.checkPermission(command);
 
         if (!allowed) {
@@ -124,7 +153,7 @@ export class ShellToolsService {
           const logFd = require('fs').openSync(outputFile, 'w');
 
           const child = spawn(command, {
-            cwd: cwd || this.rootDir,
+            cwd: resolvedCwd.cwd,
             shell: true,
             detached: true,
             stdio: ['ignore', logFd, logFd],
@@ -170,7 +199,7 @@ export class ShellToolsService {
   }
 
   private createBackgroundOutputTool(state: ShellSessionState) {
-    return tool(
+    return castTool(
       async ({ processId }) => {
         const bgProcess = state.backgroundProcesses.get(processId);
         if (!bgProcess) {
@@ -195,7 +224,7 @@ export class ShellToolsService {
   }
 
   private createBackgroundKillTool(state: ShellSessionState) {
-    return tool(
+    return castTool(
       async ({ processId }) => {
         const bgProcess = state.backgroundProcesses.get(processId);
         if (!bgProcess) {

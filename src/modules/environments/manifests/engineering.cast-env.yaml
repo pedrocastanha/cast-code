@@ -1,0 +1,137 @@
+version: 1
+source: builtin
+id: engineering
+name: Engineering
+description: Code review, TDD, debugging, architecture changes, test runs, and delivery workflows.
+defaultAgent: coder
+agents:
+  required:
+    - coder
+    - reviewer
+    - tester
+  optional:
+    - architect
+    - backend
+    - frontend
+    - devops
+    - test-automation-engineer
+    - release-engineer
+    - project-bootstrapper
+skills:
+  required:
+    - planning
+    - search
+    - file-operations
+    - git-operations
+    - testing-strategies
+    - code-review
+    - test-driven-development
+    - systematic-debugging
+  optional:
+    - api-design
+    - database-operations
+    - frontend-bootstrap
+    - react-patterns
+    - writing-plans
+    - github-code-review
+    - requesting-code-review
+    - subagent-driven-development
+profiles:
+  bugfix:
+    description: Debug and fix failing behavior with focused test-first tools.
+    agents:
+      required:
+        - coder
+        - tester
+        - test-automation-engineer
+      optional:
+        - reviewer
+    skills:
+      required:
+        - search
+        - file-operations
+        - test-driven-development
+        - systematic-debugging
+      optional:
+        - testing-strategies
+        - requesting-code-review
+    permissions:
+      defaultMode: balanced
+      requireApproval:
+        - destructive_command
+  feature:
+    description: Implement a scoped feature with planning, TDD, and review.
+    agents:
+      required:
+        - coder
+        - project-bootstrapper
+      optional:
+        - tester
+        - reviewer
+        - architect
+    skills:
+      required:
+        - planning
+        - file-operations
+        - test-driven-development
+      optional:
+        - writing-plans
+        - requesting-code-review
+  review:
+    description: Review code changes and produce actionable findings.
+    agents:
+      required:
+        - reviewer
+        - release-engineer
+      optional:
+        - coder
+        - tester
+    skills:
+      required:
+        - code-review
+        - github-code-review
+      optional:
+        - requesting-code-review
+  refactor:
+    description: Change structure while preserving behavior and tests.
+    agents:
+      required:
+        - coder
+        - tester
+      optional:
+        - reviewer
+        - architect
+    skills:
+      required:
+        - file-operations
+        - search
+        - test-driven-development
+      optional:
+        - code-review
+mcp:
+  recommended:
+    - github
+    - linear
+    - sentry
+    - context7
+  required: []
+permissions:
+  defaultMode: balanced
+  requireApproval:
+    - git_push
+    - deploy
+    - production_write
+    - destructive_command
+rag:
+  recommendedSources:
+    - architecture-decisions
+    - runbooks
+    - api-contracts
+    - incident-history
+benchmarks:
+  smoke:
+    - engineering-code-review-smoke
+schedules:
+  suggested:
+    - nightly-test-health
+    - weekly-dependency-review

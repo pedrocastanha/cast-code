@@ -1,13 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { DeepAgentService } from '../../core/services/deep-agent.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { ConfigManagerService } from '../../config/services/config-manager.service';
+import { ProviderType } from '../../config/types/config.types';
+import { getModelContextUsage } from '../../config/utils/model-context';
 import { MentionsService } from '../../mentions/services/mentions.service';
 import { McpRegistryService } from '../../mcp/services/mcp-registry.service';
 import { AgentRegistryService } from '../../agents/services/agent-registry.service';
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { PlanModeService } from '../../core/services/plan-mode.service';
-import { SmartInput } from './smart-input';
+import { SmartInput, type Suggestion } from './smart-input';
 import { WelcomeScreenService } from './welcome-screen.service';
 import { ReplCommandsService } from './commands/repl-commands.service';
 import { GitCommandsService } from './commands/git-commands.service';
@@ -18,9 +21,12 @@ import { ProjectCommandsService } from './commands/project-commands.service';
 import { SnapshotCommandsService } from './commands/snapshot-commands.service';
 import { StatsCommandsService } from './commands/stats-commands.service';
 import { ReplayCommandsService } from './commands/replay-commands.service';
+import { SessionsCommandsService } from './commands/session-commands.service';
 import { VaultCommandsService } from './commands/vault-commands.service';
+import { PlatformCommandsService } from './commands/platform-commands.service';
 import { ToolsRegistryService } from '../../tools/services/tools-registry.service';
 import { FilesystemToolsService } from '../../tools/services/filesystem-tools.service';
+import { DiscoveryToolsService } from '../../tools/services/discovery-tools.service';
 import { KanbanServerService } from '../../kanban/services/kanban-server.service';
 import { RemoteServerService } from '../../remote/services/remote-server.service';
 import { PermissionService } from '../../permissions/services/permission.service';
@@ -30,14 +36,45 @@ import {
   PermissionScope,
 } from '../../permissions/types/permission.types';
 import { Colors, Icons } from '../utils/theme';
+import { PlatformService } from '../../platform/services/platform.service';
+import { LocalSessionStoreService } from '../../state/services/local-session-store.service';
+import { BenchmarkCommandsService } from '../../benchmark/commands/benchmark-commands.service';
+import { EnvironmentCommandsService } from '../../environments/commands/environment-commands.service';
+import { ScheduleCommandsService } from '../../scheduler/commands/schedule-commands.service';
+import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.service';
+import { BridgeCommandsService } from '../../bridge/commands/bridge-commands.service';
+import { SwarmCommandsService } from '../../swarm/commands/swarm-commands.service';
+import type { BridgeToolCall, BridgeToolResult } from '../../bridge/types/bridge.types';
+import { RuntimeTelemetryProjectorService } from '../../runtime/services/runtime-telemetry-projector.service';
+import type { CastRuntimeEvent } from '../../runtime/types/runtime-event.types';
+import { CommandUiService } from './command-ui.service';
+import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
+
+type CastReference = {
+  type: 'agent' | 'skill';
+  name: string;
+  label: string;
+  source: 'builtin' | 'local' | 'project' | 'remote' | 'platform' | 'unknown';
+  version?: string;
+  content: string;
+};
+
+type ReplInputMode = 'request-always' | 'accept-edits' | 'plan';
 
 @Injectable()
 export class ReplService {
+  private readonly ui = new CommandUiService();
   private smartInput: SmartInput | null = null;
   private abortController: AbortController | null = null;
+  private pendingLines: string[] = [];
   private isProcessing = false;
   private isBroadcasting = false;
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
+  private spinnerFrameIndex = 0;
+  private spinnerLabel = '';
+  private inputMode: ReplInputMode = 'request-always';
+  private localSessionId: string | null = null;
+  private localStateWarningShown = false;
 
   constructor(
     private readonly deepAgent: DeepAgentService,
@@ -64,10 +101,36 @@ export class ReplService {
     private readonly remoteServer: RemoteServerService,
     private readonly permissionService: PermissionService,
     private readonly filesystemTools: FilesystemToolsService,
-  ) { }
+    private readonly platformService: PlatformService,
+    private readonly platformCommands: PlatformCommandsService,
+    @Optional()
+    private readonly benchmarkCommands?: BenchmarkCommandsService,
+    private readonly discoveryTools?: DiscoveryToolsService,
+    @Optional()
+    private readonly localSessionStore?: LocalSessionStoreService,
+    @Optional()
+    private readonly environmentCommands?: EnvironmentCommandsService,
+    @Optional()
+    private readonly scheduleCommands?: ScheduleCommandsService,
+    @Optional()
+    private readonly sandboxCommands?: SandboxCommandsService,
+    @Optional()
+    private readonly sessionsCommands?: SessionsCommandsService,
+    @Optional()
+    private readonly bridgeCommands?: BridgeCommandsService,
+    @Optional()
+    private readonly swarmCommands?: SwarmCommandsService,
+    @Optional()
+    private readonly runtimeTelemetryProjector?: RuntimeTelemetryProjectorService,
+  ) {
+    this.benchmarkCommands?.setAgentExecutor?.(this.deepAgent as any);
+    this.environmentCommands?.setAgentRefresh?.(this.deepAgent as any);
+    this.scheduleCommands?.setAgentExecutor?.(this.deepAgent as any);
+  }
 
   async start(): Promise<void> {
     const initResult = await this.deepAgent.initialize();
+    await this.startLocalStateSession(initResult);
     const agentCount = this.agentRegistry.resolveAllAgents().length;
 
     this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
@@ -96,18 +159,22 @@ export class ReplService {
     };
 
     this.remoteServer.onMessage(async (msg) => {
-      process.stdout.write(`\r\x1b[K${Colors.cyan}${Colors.bold}>${Colors.reset} ${msg}\r\n`);
+      this.writeInline(`${Colors.cyan}›${Colors.reset} ${msg}\r\n`);
       await this.handleLine(msg);
     });
 
     this.smartInput = new SmartInput({
-      prompt: `${Colors.cyan}${Colors.bold}>${Colors.reset} `,
+      prompt: `${Colors.cyan}›${Colors.reset} `,
       promptVisibleLen: 2,
       getCommandSuggestions: (input) => this.getCommandSuggestions(input),
       getMentionSuggestions: (partial) => this.getMentionSuggestions(partial),
+      getReferenceSuggestions: (partial) => this.getReferenceSuggestions(partial),
+      getFooterLines: () => this.getInputFooterLines(),
+      placeholder: 'Ask Cast anything...',
       onSubmit: (line) => this.handleLine(line),
       onCancel: () => this.handleCancel(),
       onExit: () => this.handleExit(),
+      onCycleMode: () => this.cycleInputMode(),
     });
 
     this.permissionService.setPermissionHandler((command, dangerLevel) =>
@@ -117,8 +184,19 @@ export class ReplService {
     this.filesystemTools.setFileWriteHandler((filePath, diffPreview, isNew) =>
       this.handleFileWritePrompt(filePath, diffPreview, isNew),
     );
+    this.discoveryTools?.setCastCommandHandler((command) =>
+      this.handleAgentCastCommand(command),
+    );
 
+    process.stdout.write(this.buildSeparatorLine() + '\r\n');
+    await this.autostartBridgeIfConfigured();
     this.smartInput.start();
+  }
+
+  private buildSeparatorLine(): string {
+    const width = process.stdout.columns || 80;
+    const sepWidth = Math.max(24, Math.min(width - 4, 96));
+    return `${Colors.subtle}${'─'.repeat(sepWidth)}${Colors.reset}`;
   }
 
   private async handlePermissionPrompt(
@@ -129,49 +207,38 @@ export class ReplService {
     this.smartInput?.pause();
 
     try {
-      process.stdout.write('\r\n');
-      process.stdout.write(`  ${Colors.yellow}Permission required${Colors.reset}\r\n`);
-      process.stdout.write(`  ${Colors.dim}${'─'.repeat(40)}${Colors.reset}\r\n`);
-      process.stdout.write(`  ${Colors.dim}${command}${Colors.reset}\r\n`);
-      process.stdout.write('\r\n');
+      const isDangerous = dangerLevel === DangerLevel.DANGEROUS;
+      const iconColor = isDangerous ? Colors.red : Colors.yellow;
+      const cmd = command.length > 80 ? command.slice(0, 78) + '…' : command;
 
-      if (dangerLevel === DangerLevel.DANGEROUS) {
-        process.stdout.write(
-          `  ${Colors.red}Warning: this command is potentially dangerous${Colors.reset}\r\n\r\n`,
-        );
+      process.stdout.write('\r\n');
+      process.stdout.write(`  ${iconColor}${Icons.circle}${Colors.reset} ${Colors.dim}Shell${Colors.reset}  ${cmd}\r\n`);
+
+      if (isDangerous) {
+        process.stdout.write(`\r\n  ${Colors.red}⚠  Potentially dangerous — may cause irreversible changes${Colors.reset}\r\n`);
       }
 
+      process.stdout.write('\r\n');
+
       const choices = [
-        { key: 'allow-once', label: 'Allow once', description: 'Execute just this time' },
-        {
-          key: 'allow-session',
-          label: 'Allow for session',
-          description: 'Allow during this session',
-        },
-        ...(dangerLevel !== DangerLevel.DANGEROUS
-          ? [
-              {
-                key: 'allow-always',
-                label: 'Always allow',
-                description: 'Never ask again for this command',
-              },
-            ]
-          : []),
-        { key: 'deny', label: 'Deny', description: 'Do not execute' },
+        { key: 'allow-once', label: 'Yes', description: 'allow once' },
+        { key: 'allow-session', label: 'Yes, don\'t ask again', description: 'for this session' },
+        ...(!isDangerous ? [{ key: 'allow-always', label: 'Yes, always allow', description: 'save rule' }] : []),
+        { key: 'deny', label: 'No', description: 'deny' },
       ] as const;
 
-      const choice = await this.smartInput!.askChoice('What do you want to do?', [...choices]);
+      const choice = await this.smartInput!.askChoice('Allow Cast to run this command?', [...choices]);
 
       switch (choice) {
-        case 'allow-once':
-          return { allowed: true, scope: PermissionScope.ONCE };
-        case 'allow-session':
-          return { allowed: true, scope: PermissionScope.SESSION };
-        case 'allow-always':
-          return { allowed: true, scope: PermissionScope.ALWAYS };
-        case 'deny':
-        default:
-          return { allowed: false, scope: PermissionScope.ONCE };
+      case 'allow-once':
+        return { allowed: true, scope: PermissionScope.ONCE };
+      case 'allow-session':
+        return { allowed: true, scope: PermissionScope.SESSION };
+      case 'allow-always':
+        return { allowed: true, scope: PermissionScope.ALWAYS };
+      case 'deny':
+      default:
+        return { allowed: false, scope: PermissionScope.ONCE };
       }
     } finally {
       this.smartInput?.resume();
@@ -179,6 +246,10 @@ export class ReplService {
   }
 
   private async handleFileWritePrompt(filePath: string, diffPreview: string, isNew: boolean): Promise<boolean> {
+    if (this.inputMode === 'accept-edits') {
+      return true;
+    }
+
     this.stopSpinner();
     this.smartInput?.pause();
 
@@ -188,42 +259,170 @@ export class ReplService {
         : filePath;
 
       process.stdout.write('\r\n');
-      process.stdout.write(`  ${Colors.yellow}${isNew ? 'Create' : 'Edit'} file${Colors.reset}  ${Colors.cyan}${rel}${Colors.reset}\r\n`);
-      process.stdout.write(`  ${Colors.dim}${'─'.repeat(50)}${Colors.reset}\r\n`);
+      process.stdout.write(`  ${Colors.cyan}${Icons.circle}${Colors.reset} ${Colors.dim}${isNew ? 'Create' : 'Write'}${Colors.reset}  ${Colors.cyan}${rel}${Colors.reset}\r\n`);
 
       if (!isNew && diffPreview) {
         const lines = diffPreview.split('\n');
-        for (const line of lines) {
-          const trimmed = line;
-          if (trimmed.startsWith('+')) {
-            process.stdout.write(`  ${Colors.green}${trimmed}${Colors.reset}\r\n`);
-          } else if (trimmed.startsWith('-')) {
-            process.stdout.write(`  ${Colors.red}${trimmed}${Colors.reset}\r\n`);
+        const visible = lines.slice(0, 20);
+        process.stdout.write('\r\n');
+        for (const line of visible) {
+          if (line.startsWith('+')) {
+            process.stdout.write(`  ${Colors.green}${line}${Colors.reset}\r\n`);
+          } else if (line.startsWith('-')) {
+            process.stdout.write(`  ${Colors.red}${line}${Colors.reset}\r\n`);
           } else {
-            process.stdout.write(`  ${Colors.dim}${trimmed}${Colors.reset}\r\n`);
+            process.stdout.write(`  ${Colors.dim}${line}${Colors.reset}\r\n`);
           }
         }
-        process.stdout.write('\r\n');
-      } else if (isNew) {
-        process.stdout.write(`  ${Colors.dim}(new file)${Colors.reset}\r\n\r\n`);
+        if (lines.length > 20) {
+          process.stdout.write(`  ${Colors.dim}… ${lines.length - 20} more lines${Colors.reset}\r\n`);
+        }
       }
 
+      process.stdout.write('\r\n');
+
       const choices = [
-        { key: 'yes', label: 'Allow', description: 'Apply this change' },
-        { key: 'session', label: 'Allow all', description: 'Allow all file changes this session' },
-        { key: 'no', label: 'Deny', description: 'Skip this change' },
+        { key: 'yes', label: 'Yes', description: 'apply change' },
+        { key: 'session', label: 'Yes, allow all', description: 'don\'t ask again this session' },
+        { key: 'no', label: 'No', description: 'skip' },
       ] as const;
 
-      const choice = await this.smartInput!.askChoice('Apply change?', [...choices]);
+      const choice = await this.smartInput!.askChoice('Apply this change?', [...choices]);
 
       if (choice === 'session') {
         this.filesystemTools.setFileWriteHandler(() => Promise.resolve(true));
       }
 
-      return choice !== 'no';
+      return choice === 'yes' || choice === 'session';
     } finally {
       this.smartInput?.resume();
     }
+  }
+
+  private async handleAgentCastCommand(command: string): Promise<string> {
+    const normalized = command.trim();
+
+    if (!normalized.startsWith('/') || /[\r\n]/.test(normalized)) {
+      return 'Cast command rejected: expected one slash command, such as /status.';
+    }
+
+    if (/^\/(?:exit|quit)\b/i.test(normalized)) {
+      return 'Cast command rejected: /exit and /quit must be run directly by the user.';
+    }
+
+    if (!this.smartInput) {
+      return 'Cast command rejected: interactive input is not available.';
+    }
+
+    const shouldResumePrompt = !this.isProcessing;
+    this.stopSpinner();
+    this.smartInput.pause();
+
+    try {
+      process.stdout.write('\r\n');
+      process.stdout.write(`  ${Colors.cyan}${Icons.circle}${Colors.reset} ${Colors.bold}Cast command${Colors.reset}  ${Colors.cyan}${normalized}${Colors.reset}\r\n`);
+      process.stdout.write(`    ${Colors.subtle}Action${Colors.reset}    ${this.describeCastCommand(normalized)}\r\n`);
+      process.stdout.write(`    ${Colors.subtle}Approval${Colors.reset}  ${Colors.warning}required${Colors.reset} ${Colors.subtle}(y/n or arrows)${Colors.reset}\r\n`);
+
+      const choice = await this.smartInput.askChoice('Run this Cast command?', [
+        { key: 'y', label: 'Yes', description: 'run command' },
+        { key: 'n', label: 'No', description: 'deny' },
+      ]);
+
+      if (choice !== 'y') {
+        process.stdout.write(`  ${Colors.warning}! Cast command denied: ${normalized}${Colors.reset}\r\n`);
+        return `Cast command denied by user: ${normalized}`;
+      }
+
+      process.stdout.write(`  ${Colors.cyan}Running${Colors.reset} ${Colors.cyan}${normalized}${Colors.reset}\r\n`);
+      const output = await this.captureVisibleOutput(() => this.handleCommand(normalized));
+      return [
+        `Cast command finished: ${normalized}`,
+        '',
+        'Output:',
+        output || '(no visible output)',
+      ].join('\n');
+    } finally {
+      if (shouldResumePrompt) {
+        this.smartInput?.resume();
+      }
+    }
+  }
+
+  private describeCastCommand(command: string): string {
+    const cmd = command.slice(1).split(/\s+/)[0].toLowerCase();
+    const descriptions: Record<string, string> = {
+      status: 'Show current git status',
+      diff: 'Show git diff',
+      log: 'Show recent commits',
+      up: 'Commit and push current changes',
+      'split-up': 'Split changes into multiple commits',
+      pr: 'Create or prepare a pull request',
+      review: 'Run code review',
+      fix: 'Auto-fix a target file',
+      ident: 'Format project files',
+      release: 'Generate release notes',
+      agents: 'List or manage Cast agents',
+      skills: 'List or manage Cast skills',
+      tools: 'List available tools',
+      platform: 'Configure Cast Platform',
+      bridge: 'Run Cast through an authenticated provider CLI',
+      benchmark: 'Run local Benchmark Lab commands',
+      env: 'List, activate, or inspect Cast environments',
+      schedule: 'Manage local scheduled benchmark and environment jobs',
+      swarm: 'Plan and run multi-agent Agent Swarm work',
+      sandbox: 'Manage sandbox checkpoints and rollbacks',
+    };
+    return descriptions[cmd] || 'Run an existing Cast slash command';
+  }
+
+  private async captureVisibleOutput(action: () => Promise<void>): Promise<string> {
+    const previousWrite = process.stdout.write;
+    let captured = '';
+    let started = false;
+
+    process.stdout.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean => {
+      const callback = typeof encoding === 'function' ? encoding : cb;
+      const writeEncoding = typeof encoding === 'string' ? encoding : undefined;
+      let visibleChunk = '';
+
+      if (typeof chunk === 'string') {
+        visibleChunk = chunk;
+      } else if (Buffer.isBuffer(chunk)) {
+        visibleChunk = chunk.toString();
+      } else if (chunk instanceof Uint8Array) {
+        visibleChunk = Buffer.from(chunk).toString();
+      }
+
+      if (!started) {
+        visibleChunk = visibleChunk.replace(/^[\r\n]+/, '');
+        started = visibleChunk.length > 0;
+      }
+
+      if (!visibleChunk) {
+        callback?.();
+        return true;
+      }
+
+      captured += visibleChunk;
+      return writeEncoding
+        ? previousWrite.call(process.stdout, visibleChunk, writeEncoding, callback as any)
+        : previousWrite.call(process.stdout, visibleChunk, callback as any);
+    }) as typeof process.stdout.write;
+
+    try {
+      await action();
+    } finally {
+      process.stdout.write = previousWrite;
+    }
+
+    return stripAnsi(captured)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .join('\n')
+      .trim();
   }
 
   private getCommandSuggestions(input: string): Array<{ text: string; display: string; description: string }> {
@@ -249,8 +448,10 @@ export class ReplService {
       { text: '/skills', display: '/skills', description: 'List skills' },
       { text: '/context', display: '/context', description: 'Session info' },
       { text: '/mentions', display: '/mentions', description: 'Mentions help' },
+      { text: '/effort', display: '/effort', description: 'Set runtime budget' },
       { text: '/model', display: '/model', description: 'Show model' },
       { text: '/config', display: '/config', description: 'Configuration' },
+      { text: '/platform', display: '/platform', description: 'Configure Cast Platform' },
       { text: '/project', display: '/project', description: 'Project context' },
       { text: '/project-deep', display: '/project-deep', description: 'Deep project analysis' },
       { text: '/init', display: '/init', description: 'Analyze project and generate context' },
@@ -260,16 +461,248 @@ export class ReplService {
       { text: '/rollback', display: '/rollback', description: 'Rollback file to previous snapshot' },
       { text: '/stats', display: '/stats', description: 'Show session usage stats' },
       { text: '/replay', display: '/replay', description: 'Save or view session replays' },
+      { text: '/sessions', display: '/sessions', description: 'Search local sessions' },
+      { text: '/resume', display: '/resume', description: 'Resume a local session' },
       { text: '/vault', display: '/vault', description: 'Manage code snippet vault' },
+      { text: '/benchmark', display: '/benchmark', description: 'Local Benchmark Lab' },
+      { text: '/env', display: '/env', description: 'Cast environments' },
+      { text: '/schedule', display: '/schedule', description: 'Local schedulers' },
+      { text: '/swarm', display: '/swarm', description: 'Agent Swarm plans' },
+      { text: '/swarm plan', display: '/swarm plan', description: 'Generate swarm plan' },
+      { text: '/swarm run', display: '/swarm run', description: 'Execute swarm run' },
+      { text: '/swarm run --dry-run', display: '/swarm run --dry-run', description: 'Dry-run swarm workers' },
+      { text: '/swarm integrate', display: '/swarm integrate', description: 'Integrate swarm patches' },
+      { text: '/sandbox', display: '/sandbox', description: 'Sandbox checkpoints' },
+      { text: '/bridge', display: '/bridge', description: 'Control provider bridge' },
     ];
 
     return commands.filter(c => c.text.startsWith(input));
   }
 
-  private getMentionSuggestions(partial: string): Array<{ text: string; display: string; description: string }> {
-    const fs = require('fs');
-    const path = require('path');
+  private getReferenceSuggestions(partial: string): Suggestion[] {
+    const query = partial.toLowerCase();
+    const matches = (name: string) => query === '' || name.toLowerCase().startsWith(query);
+    const describe = (type: 'agent' | 'skill', description?: string) =>
+      description ? `${type} - ${description}` : type;
 
+    const agents = this.agentRegistry.resolveAllAgents()
+      .filter((agent) => matches(agent.name))
+      .map((agent) => ({
+        text: `$${agent.name}`,
+        display: `$${agent.name}`,
+        description: describe('agent', agent.description),
+      }));
+
+    const skills = (this.skillRegistry.getAllSkills?.() || [])
+      .filter((skill) => matches(skill.name))
+      .map((skill) => ({
+        text: `$${skill.name}`,
+        display: `$${skill.name}`,
+        description: describe('skill', skill.description),
+      }));
+
+    return [...agents, ...skills];
+  }
+
+  private expandReferenceMentions(message: string): { expandedMessage: string; references: CastReference[] } {
+    const references = this.resolveReferenceMentions(message);
+    if (references.length === 0) {
+      return { expandedMessage: message, references };
+    }
+
+    const context = [
+      'The user referenced Cast agents or skills with $name. These references were injected automatically.',
+      'Use the injected reference blocks as the source of truth for these names.',
+      'When a referenced skill or agent is injected here, treat it as already loaded.',
+      'If the user asks for an exact answer contained in an injected reference, answer directly.',
+      'Do not call list_agents, read_skill, read_file, grep, glob, task, or other discovery tools just to resolve these $ references; only inspect files or call discovery tools if the user asks for details not present here.',
+      '',
+      '<cast_reference_policy resolved="true" discovery_needed="false">',
+      '</cast_reference_policy>',
+      '',
+      '<cast_reference_manifest>',
+      ...references.map((ref) => this.formatReferenceManifestLine(ref)),
+      '</cast_reference_manifest>',
+      '',
+      ...references.map((ref) => ref.content),
+    ].join('\n');
+
+    return {
+      expandedMessage: `${message}\n\n<cast_reference_context>\n${context}\n</cast_reference_context>`,
+      references,
+    };
+  }
+
+  private resolveReferenceMentions(message: string): CastReference[] {
+    const names: string[] = [];
+    const seenNames = new Set<string>();
+    const pattern = /(?:^|[^\w])\$([\w.-]+)/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(message)) !== null) {
+      const name = match[1];
+      const key = name.toLowerCase();
+      if (!seenNames.has(key)) {
+        seenNames.add(key);
+        names.push(name);
+      }
+    }
+
+    if (names.length === 0) {
+      return [];
+    }
+
+    const agents = new Map<string, any>();
+    for (const agent of this.agentRegistry.resolveAllAgents()) {
+      agents.set(agent.name.toLowerCase(), agent);
+    }
+
+    const skills = new Map<string, any>();
+    for (const skill of this.skillRegistry.getAllSkills?.() || []) {
+      skills.set(skill.name.toLowerCase(), skill);
+    }
+
+    const references: CastReference[] = [];
+    const seenReferences = new Set<string>();
+
+    for (const requestedName of names) {
+      const key = requestedName.toLowerCase();
+      const agent = agents.get(key);
+      if (agent && !seenReferences.has(`agent:${agent.name}`)) {
+        seenReferences.add(`agent:${agent.name}`);
+        references.push({
+          type: 'agent',
+          name: agent.name,
+          label: 'agent',
+          source: this.normalizeReferenceSource(agent.source),
+          version: this.hashReference({
+            name: agent.name,
+            description: agent.description,
+            model: agent.model,
+            tools: agent.tools?.map((tool: any) => tool?.name).filter(Boolean),
+            mcp: agent.mcp,
+            systemPrompt: agent.systemPrompt,
+            source: agent.source,
+            updatedAt: agent.updatedAt,
+          }),
+          content: this.formatAgentReference(agent),
+        });
+      }
+
+      const skill = skills.get(key);
+      if (skill && !seenReferences.has(`skill:${skill.name}`)) {
+        seenReferences.add(`skill:${skill.name}`);
+        references.push({
+          type: 'skill',
+          name: skill.name,
+          label: 'skill',
+          source: this.normalizeReferenceSource(skill.source),
+          version: this.hashReference({
+            name: skill.name,
+            description: skill.description,
+            tools: skill.tools,
+            guidelines: skill.guidelines,
+            source: skill.source,
+            sourcePath: skill.sourcePath,
+            updatedAt: skill.updatedAt,
+          }),
+          content: this.formatSkillReference(skill),
+        });
+      }
+    }
+
+    return references;
+  }
+
+  private formatAgentReference(agent: any): string {
+    const tools = (agent.tools || [])
+      .map((tool: any) => tool?.name)
+      .filter(Boolean)
+      .join(', ') || 'none';
+    const mcp = Array.isArray(agent.mcp) && agent.mcp.length > 0 ? agent.mcp.join(', ') : 'none';
+    const source = this.normalizeReferenceSource(agent.source);
+    const version = this.hashReference({
+      name: agent.name,
+      description: agent.description,
+      model: agent.model,
+      tools: (agent.tools || []).map((tool: any) => tool?.name).filter(Boolean),
+      mcp: agent.mcp,
+      systemPrompt: agent.systemPrompt,
+      source: agent.source,
+      updatedAt: agent.updatedAt,
+    });
+
+    return [
+      `<cast_reference type="agent" name="${this.escapeAttribute(agent.name)}" source="${source}" version="${version}">`,
+      `Description: ${agent.description || 'No description'}`,
+      `Model: ${agent.model || 'unknown'}`,
+      `Tools: ${tools}`,
+      `MCP: ${mcp}`,
+      'System prompt:',
+      this.truncateReferenceContent(agent.systemPrompt || '(none)'),
+      '</cast_reference>',
+    ].join('\n');
+  }
+
+  private formatSkillReference(skill: any): string {
+    const tools = Array.isArray(skill.tools) && skill.tools.length > 0 ? skill.tools.join(', ') : 'none';
+    const source = this.normalizeReferenceSource(skill.source);
+    const version = this.hashReference({
+      name: skill.name,
+      description: skill.description,
+      tools: skill.tools,
+      guidelines: skill.guidelines,
+      source: skill.source,
+      sourcePath: skill.sourcePath,
+      updatedAt: skill.updatedAt,
+    });
+
+    return [
+      `<cast_reference type="skill" name="${this.escapeAttribute(skill.name)}" source="${source}" version="${version}">`,
+      `Description: ${skill.description || 'No description'}`,
+      `Tools: ${tools}`,
+      'Guidelines:',
+      this.truncateReferenceContent(skill.guidelines || '(none)'),
+      '</cast_reference>',
+    ].join('\n');
+  }
+
+  private formatReferenceManifestLine(ref: CastReference): string {
+    const version = ref.version ? ` version=${ref.version}` : '';
+    return `- ${ref.type} ${ref.name} source=${ref.source}${version} injected=true`;
+  }
+
+  private normalizeReferenceSource(source: unknown): CastReference['source'] {
+    if (source === 'remote') return 'platform';
+    if (source === 'builtin' || source === 'local') return source;
+    if (source === 'project' || source === 'platform') return source;
+    return 'unknown';
+  }
+
+  private hashReference(value: Record<string, unknown>): string {
+    return createHash('sha256')
+      .update(JSON.stringify(value))
+      .digest('hex')
+      .slice(0, 12);
+  }
+
+  private truncateReferenceContent(content: string): string {
+    const max = 6000;
+    if (content.length <= max) {
+      return content;
+    }
+    return `${content.slice(0, max)}\n... (truncated ${content.length - max} chars)`;
+  }
+
+  private escapeAttribute(value: string): string {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  private getMentionSuggestions(partial: string): Array<{ text: string; display: string; description: string }> {
     const gitOpts = [
       { text: '@git:status', display: '@git:status', description: 'Git status' },
       { text: '@git:diff', display: '@git:diff', description: 'Git diff' },
@@ -348,10 +781,10 @@ export class ReplService {
         const ignore = ['node_modules', '.git', 'dist', 'coverage', '.next', '__pycache__'];
 
         return entries
-          .filter(e => !ignore.includes(e.name))
-          .filter(e => !e.name.startsWith('.') || prefix.startsWith('.') || e.name === '.cast' || e.name === '.claude')
-          .filter(e => prefix === '' || e.name.toLowerCase().startsWith(prefix.toLowerCase()))
-          .map(e => {
+          .filter((e: any) => !ignore.includes(e.name))
+          .filter((e: any) => !e.name.startsWith('.') || prefix.startsWith('.') || e.name === '.cast' || e.name === '.claude')
+          .filter((e: any) => prefix === '' || e.name.toLowerCase().startsWith(prefix.toLowerCase()))
+          .map((e: any) => {
             const relDir = dir === '.' ? '' : dir + '/';
             const isDir = e.isDirectory();
             return {
@@ -402,208 +835,639 @@ export class ReplService {
 
   private handleExit(): void {
     process.stdout.write(`\r\n  ${Colors.dim}Goodbye${Colors.reset}\r\n\r\n`);
-    this.stop();
-    process.exit(0);
+    void this.shutdown().then(() => process.exit(0));
   }
 
   private async handleLine(input: string): Promise<void> {
     const trimmed = input.trim();
 
     if (!trimmed) {
-      this.smartInput?.showPrompt();
+      this.smartInput?.refresh();
       return;
     }
 
+    if (this.isProcessing) {
+      this.pendingLines.push(trimmed);
+      this.writeInline(
+        `  ${Colors.magenta}↳${Colors.reset} ${Colors.dim}Queued${Colors.reset} ${Colors.subtle}(${this.pendingLines.length})${Colors.reset}\r\n`,
+      );
+      this.smartInput?.refresh();
+      return;
+    }
+
+    this.runLine(trimmed);
+    this.smartInput?.refresh();
+  }
+
+  private runLine(line: string): void {
+    this.isProcessing = true;
+    void this.processLine(line);
+  }
+
+  private async processLine(line: string): Promise<void> {
     this.isBroadcasting = true;
     try {
-      if (trimmed.startsWith('/')) {
-        await this.handleCommand(trimmed);
+      if (line.startsWith('/')) {
+        await this.handleCommand(line);
+      } else if (await this.maybeOfferSwarm(line)) {
+        return;
+      } else if (this.bridgeCommands?.isConnected()) {
+        await this.handleBridgePrompt(line);
       } else {
-        await this.handleMessage(trimmed);
+        await this.handleMessage(line);
       }
     } finally {
       this.isBroadcasting = false;
+      this.isProcessing = false;
+      this.startNextQueuedLine();
+      this.smartInput?.refresh();
+    }
+  }
+
+  private async maybeOfferSwarm(message: string): Promise<boolean> {
+    if (!this.swarmCommands?.offerForPrompt) {
+      return false;
     }
 
-    this.smartInput?.showPrompt();
+    try {
+      return await this.swarmCommands.offerForPrompt(message, this.smartInput ?? undefined);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      process.stdout.write(this.ui.warning(`Agent Swarm suggestion skipped: ${msg}`));
+      return false;
+    }
+  }
+
+  private startNextQueuedLine(): void {
+    if (this.isProcessing) {
+      return;
+    }
+
+    const next = this.pendingLines.shift();
+    if (next) {
+      this.runLine(next);
+    }
+  }
+
+  private writeInline(text: string): void {
+    if (this.smartInput) {
+      this.smartInput.printExternal(text);
+      return;
+    }
+    process.stdout.write(text);
   }
 
   private async handleCommand(command: string): Promise<void> {
     const parts = command.slice(1).split(/\s+/);
     const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
+    this.platformService.track('command.run', { command: `/${cmd}` });
 
     switch (cmd) {
-      case 'help': this.replCommands.printHelp(); break;
-      case 'clear': this.replCommands.cmdClear(this.welcomeScreen); break;
-      case 'exit':
-      case 'quit': this.handleExit(); return;
-      case 'compact': await this.handleCompact(); break;
-      case 'context': this.replCommands.cmdContext(); break;
-      case 'config':
-        await this.configCommands.handleConfigCommand(args, this.smartInput!);
+    case 'help': this.replCommands.printHelp(); break;
+    case 'clear': this.replCommands.cmdClear(this.welcomeScreen); break;
+    case 'exit':
+    case 'quit': this.handleExit(); return;
+    case 'compact': await this.handleCompact(); break;
+    case 'context': this.replCommands.cmdContext(); break;
+    case 'effort': {
+      const changed = await this.replCommands.cmdEffort(args, this.smartInput!);
+      if (changed) {
         await this.configManager.loadConfig();
         await this.deepAgent.reinitializeModel();
-        break;
-      case 'model': this.replCommands.cmdModel(args); break;
-      case 'init':
-        await this.projectCommands.cmdProject(['analyze'], this.smartInput!);
-        break;
-      case 'mentions': this.replCommands.cmdMentionsHelp(); break;
-      case 'tools': this.cmdTools(); break;
+        this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
+      }
+      break;
+    }
+    case 'config':
+      await this.configCommands.handleConfigCommand(args, this.smartInput!);
+      await this.configManager.loadConfig();
+      await this.deepAgent.reinitializeModel();
+      break;
+    case 'platform': {
+      const configured = await this.platformCommands.cmdPlatform(args, this.smartInput!);
+      if (configured) {
+        await this.deepAgent.initialize();
+      }
+      break;
+    }
+    case 'link':
+      process.stdout.write(this.ui.warning('/link foi removido. Use /platform para configurar a plataforma e vincular o projeto.'));
+      break;
+    case 'model': {
+      const changed = await this.replCommands.cmdModel(args, this.smartInput!);
+      if (changed) {
+        await this.configManager.loadConfig();
+        await this.deepAgent.reinitializeModel();
+        this.statsCommandsService.setDefaultModel(this.getModelDisplayName());
+      }
+      break;
+    }
+    case 'init':
+      await this.projectCommands.cmdProject(['analyze'], this.smartInput!);
+      break;
+    case 'mentions': this.replCommands.cmdMentionsHelp(); break;
+    case 'tools': this.cmdTools(); break;
 
-      case 'status': this.gitCommands.runGit('git status'); break;
-      case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
-      case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
-      case 'commit':
-        process.stdout.write(`  ${Colors.dim}Use /up to commit and push, or /split-up to split into multiple commits.${Colors.reset}\r\n`);
-        break;
-      case 'up':
-        await this.gitCommands.cmdUp(this.smartInput!);
-        break;
-      case 'split-up':
-        await this.gitCommands.cmdSplitUp(this.smartInput!);
-        break;
-      case 'pr':
-        await this.gitCommands.cmdPr(this.smartInput!);
-        break;
-      case 'unit-test':
-        await this.gitCommands.cmdUnitTest(this.smartInput!);
-        break;
-      case 'review': await this.gitCommands.cmdReview(args); break;
-      case 'fix': await this.gitCommands.cmdFix(args); break;
-      case 'ident': await this.gitCommands.cmdIdent(); break;
-      case 'release': await this.gitCommands.cmdRelease(args); break;
+    case 'status': this.gitCommands.runGit('git status'); break;
+    case 'diff': this.gitCommands.runGit(args.length ? `git diff ${args.join(' ')}` : 'git diff'); break;
+    case 'log': this.gitCommands.runGit('git log --oneline -15'); break;
+    case 'commit':
+      process.stdout.write(`  ${Colors.dim}Use /up to commit and push, or /split-up to split into multiple commits.${Colors.reset}\r\n`);
+      break;
+    case 'up':
+      await this.gitCommands.cmdUp(this.smartInput!);
+      break;
+    case 'split-up':
+      await this.gitCommands.cmdSplitUp(this.smartInput!);
+      break;
+    case 'pr':
+      await this.gitCommands.cmdPr(this.smartInput!);
+      break;
+    case 'unit-test':
+      await this.gitCommands.cmdUnitTest(this.smartInput!);
+      break;
+    case 'review': await this.gitCommands.cmdReview(args); break;
+    case 'fix': await this.gitCommands.cmdFix(args); break;
+    case 'ident': await this.gitCommands.cmdIdent(); break;
+    case 'release': await this.gitCommands.cmdRelease(args); break;
 
-      case 'agents':
-        await this.agentCommands.cmdAgents(args, this.smartInput!);
-        break;
-      case 'skills':
-        await this.agentCommands.cmdSkills(args, this.smartInput!);
-        break;
+    case 'agents':
+      await this.agentCommands.cmdAgents(args, this.smartInput!);
+      break;
+    case 'skills':
+      await this.agentCommands.cmdSkills(args, this.smartInput!);
+      break;
 
-      case 'mcp':
-        await this.mcpCommands.cmdMcp(args, this.smartInput!);
-        break;
+    case 'mcp':
+      await this.mcpCommands.cmdMcp(args, this.smartInput!);
+      break;
 
-      case 'project':
-        await this.projectCommands.cmdProject(args, this.smartInput!);
-        break;
-      case 'project-deep':
-        const deepResult = await this.projectCommands.cmdProject(['deep'], this.smartInput!);
-        if (typeof deepResult === 'string') {
-          return await this.handleMessage(deepResult);
+    case 'project':
+      await this.projectCommands.cmdProject(args, this.smartInput!);
+      break;
+    case 'project-deep': {
+      const deepResult = await this.projectCommands.cmdProject(['deep'], this.smartInput!);
+      if (typeof deepResult === 'string') {
+        return await this.handleMessage(deepResult);
+      }
+      break;
+    }
+
+    case 'kanban':
+      {
+        const result = await this.kanbanServer.start(!this.remoteServer.getIsRunning());
+        if (!result.ok) {
+          process.stdout.write(this.ui.error(`Kanban board failed to start: ${result.error}`));
+          break;
         }
-        break;
 
-      case 'kanban':
-        this.kanbanServer.start(!this.remoteServer.getIsRunning());
-        if (this.remoteServer.getIsRunning()) {
-          const remoteUrl = this.remoteServer.getPublicUrl();
-          if (remoteUrl) {
-            process.stdout.write(`  Kanban board → ${remoteUrl}/kanban\r\n`);
-          } else {
-            process.stdout.write(`  Kanban board → http://localhost:3333\r\n`);
-          }
+        const localUrl = result.url;
+        const remoteUrl = this.remoteServer.getIsRunning() ? this.remoteServer.getPublicUrl() : null;
+        if (remoteUrl) {
+          process.stdout.write(`  Kanban board -> ${remoteUrl}/kanban\r\n`);
         } else {
-          process.stdout.write(`  Kanban board → http://localhost:3333\r\n`);
+          process.stdout.write(`  Kanban board -> ${localUrl}\r\n`);
         }
-        break;
+      }
+      break;
 
-      case 'remote':
-        await this.remoteServer.start();
-        break;
+    case 'remote':
+      await this.remoteServer.start();
+      break;
 
-      case 'rollback':
-        await this.snapshotCommandsService.cmdRollback(args.join(' '));
+    case 'rollback':
+      await this.snapshotCommandsService.cmdRollback(args.join(' '));
+      break;
+    case 'stats':
+      this.statsCommandsService.cmdStats();
+      break;
+    case 'replay':
+      this.replayCommandsService.cmdReplay(args.join(' '));
+      break;
+    case 'sessions':
+      if (!this.sessionsCommands?.cmdSessions) {
+        process.stdout.write(this.ui.error('Local session commands are not available in this runtime.'));
         break;
-      case 'stats':
-        this.statsCommandsService.cmdStats();
+      }
+      await this.sessionsCommands.cmdSessions(args);
+      break;
+    case 'resume':
+      if (!this.sessionsCommands?.cmdResume) {
+        process.stdout.write(this.ui.error('Local session commands are not available in this runtime.'));
         break;
-      case 'replay':
-        this.replayCommandsService.cmdReplay(args.join(' '));
+      }
+      await this.sessionsCommands.cmdResume(args);
+      break;
+    case 'vault':
+      this.vaultCommandsService.cmdVault(args.join(' '));
+      break;
+    case 'benchmark': {
+      const benchmarkCommands = this.benchmarkCommands;
+      const runBenchmarkCommand = benchmarkCommands?.cmdBenchmark
+        ? benchmarkCommands.cmdBenchmark.bind(benchmarkCommands)
+        : (benchmarkCommands as any)?.handleBenchmarkCommand?.bind(benchmarkCommands);
+      if (!runBenchmarkCommand) {
+        process.stdout.write(this.ui.error('Benchmark Lab is not available in this runtime.'));
         break;
-      case 'vault':
-        this.vaultCommandsService.cmdVault(args.join(' '));
+      }
+      await runBenchmarkCommand(args, this.smartInput!);
+      break;
+    }
+    case 'env':
+      if (!this.environmentCommands?.cmdEnv) {
+        process.stdout.write(this.ui.error('Cast environments are not available in this runtime.'));
         break;
+      }
+      await this.environmentCommands.cmdEnv(args);
+      break;
+    case 'schedule':
+      if (!this.scheduleCommands?.cmdSchedule) {
+        process.stdout.write(this.ui.error('Schedule automation is not available in this runtime.'));
+        break;
+      }
+      await this.scheduleCommands.cmdSchedule(args, this.smartInput!);
+      break;
+    case 'sandbox':
+      if (!this.sandboxCommands?.cmdSandbox) {
+        process.stdout.write(this.ui.error('Sandbox checkpoints are not available in this runtime.'));
+        break;
+      }
+      await this.sandboxCommands.cmdSandbox(args);
+      break;
+    case 'bridge': {
+      if (!this.bridgeCommands?.cmdBridge) {
+        process.stdout.write(this.ui.error('Bridge commands are not available in this runtime.'));
+        break;
+      }
+      const bridgeOutput = await this.bridgeCommands.cmdBridge(args, process.cwd(), this.smartInput!);
+      this.writeExternalBlock(bridgeOutput);
+      break;
+    }
+    case 'swarm':
+      if (!this.swarmCommands?.cmdSwarm) {
+        process.stdout.write(this.ui.error('Agent Swarm is not available in this runtime.'));
+        break;
+      }
+      await this.swarmCommands.cmdSwarm(args, this.smartInput!);
+      break;
 
-      default:
-        process.stdout.write(`  ${Colors.red}Unknown command:${Colors.reset} ${Colors.dim}/${cmd}${Colors.reset}  ${Colors.dim}Run /help for reference${Colors.reset}\r\n`);
+    default:
+      process.stdout.write(this.ui.error(`Unknown command: /${cmd}. Run /help for reference.`));
     }
   }
 
   private async handleCompact(): Promise<void> {
     const msgCount = this.deepAgent.getMessageCount();
     if (msgCount < 4) {
-      process.stdout.write(`  ${Colors.dim}Nothing to compact — only ${msgCount} messages${Colors.reset}\r\n`);
+      process.stdout.write(this.ui.warning(`Nothing to compact - only ${msgCount} messages.`));
       return;
     }
-    process.stdout.write(`  ${Colors.dim}Summarizing ${msgCount} messages...${Colors.reset}\r\n`);
+    process.stdout.write(this.ui.panel({
+      title: 'Compact History',
+      sections: [{ lines: [`Summarizing ${msgCount} messages...`] }],
+    }));
     const result = await this.deepAgent.compactHistory();
     if (result.compacted) {
-      process.stdout.write(`  ${Colors.green}✓${Colors.reset}${Colors.dim} History compacted: ${result.messagesBefore} → ${result.messagesAfter} messages${Colors.reset}\r\n`);
+      process.stdout.write(this.ui.success(`History compacted: ${result.messagesBefore} -> ${result.messagesAfter} messages`));
     } else {
-      process.stdout.write(`  ${Colors.yellow}Could not compact — summarization failed${Colors.reset}\r\n`);
+      process.stdout.write(this.ui.warning('Could not compact - summarization failed.'));
     }
   }
 
-  private async handleMessage(message: string): Promise<void> {
-    this.isProcessing = true;
+  private async handleBridgePrompt(message: string): Promise<void> {
     this.abortController = new AbortController();
-    this.smartInput?.enterPassiveMode();
+    this.smartInput?.refresh();
+
+    let externalStarted = false;
+    let hasHeader = false;
+    let streamed = false;
+    let outputBuffer = '';
+    const providerLabel = this.bridgeCommands?.getProviderLabel() || 'Bridge';
+
+    const startExternal = () => {
+      if (!externalStarted) {
+        this.smartInput?.beginExternalOutput?.();
+        externalStarted = true;
+      }
+    };
+
+    const writeHeader = () => {
+      if (!hasHeader) {
+        startExternal();
+        process.stdout.write(`\r\n${Colors.bold}${providerLabel}${Colors.reset}\r\n`);
+        hasHeader = true;
+      }
+    };
+
+    const flushOutput = () => {
+      if (!outputBuffer) return;
+      writeHeader();
+      process.stdout.write(outputBuffer);
+      outputBuffer = '';
+    };
+
+    try {
+      this.startSpinner(`${providerLabel} thinking`);
+      const bridgeOutput = await this.bridgeCommands!.runPrompt(message, process.cwd(), {
+        onOutputChunk: (chunk) => {
+          streamed = true;
+          this.stopSpinner();
+          outputBuffer += chunk;
+          if (this.shouldFlushStreamText(outputBuffer)) {
+            flushOutput();
+          }
+        },
+        onToolCall: (call) => {
+          this.stopSpinner();
+          flushOutput();
+          writeHeader();
+          process.stdout.write(this.formatBridgeToolStart(call));
+          this.updateSpinner(`Bridge tool ${call.name}`);
+        },
+        onToolResult: (result) => {
+          this.stopSpinner();
+          writeHeader();
+          process.stdout.write(this.formatBridgeToolResult(result));
+          this.updateSpinner(`${providerLabel} thinking`);
+        },
+        onRuntimeEvent: (event: CastRuntimeEvent) => {
+          const projected = this.runtimeTelemetryProjector?.project(event);
+          if (projected) {
+            this.platformService.track(projected.type, projected.payload);
+          }
+        },
+      });
+      this.stopSpinner();
+      flushOutput();
+
+      if (!streamed && bridgeOutput) {
+        writeHeader();
+        process.stdout.write(bridgeOutput);
+      }
+
+      if (hasHeader) {
+        const finalText = streamed ? bridgeOutput : '';
+        if (!finalText.endsWith('\n') && !finalText.endsWith('\r\n')) {
+          process.stdout.write('\r\n');
+        }
+        this.smartInput?.writeOutputLine(this.buildSeparatorLine());
+      }
+    } catch (error) {
+      this.stopSpinner();
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.writeExternalBlock(this.ui.error(`Bridge prompt failed: ${errorMessage}`));
+    } finally {
+      if (externalStarted) {
+        this.smartInput?.endExternalOutput?.();
+      }
+    }
+  }
+
+  private formatBridgeToolStart(call: BridgeToolCall): string {
+    const label = call.name.replace(/_/g, ' ');
+    const detail = this.getBridgeToolDetail(call);
+    return `${Colors.dim}  ▶ ${Colors.reset}${Colors.dim}${Colors.cyan}${label}${Colors.reset}${Colors.dim}${detail}${Colors.reset}\r\n`;
+  }
+
+  private formatBridgeToolResult(result: BridgeToolResult): string {
+    const ok = result.status === 'ok';
+    const icon = ok ? Icons.check : Icons.cross;
+    const color = ok ? Colors.green : Colors.red;
+    const summary = ok
+      ? this.summarizeBridgeToolContent(result.content || '')
+      : this.truncateBridgeToolText(result.error || 'Tool failed', 120);
+    return `${Colors.dim}    ${color}${icon}${Colors.reset}${Colors.dim} ${result.name} ${ok ? 'ok' : 'error'}${summary ? ` - ${summary}` : ''}${Colors.reset}\r\n`;
+  }
+
+  private getBridgeToolDetail(call: BridgeToolCall): string {
+    const input = call.arguments || {};
+    const fromKeys = (...keys: string[]): string => {
+      for (const key of keys) {
+        const value = input[key];
+        if (value !== undefined && value !== null && String(value).trim()) {
+          return String(value);
+        }
+      }
+      return '';
+    };
+
+    switch (call.name) {
+    case 'read_file':
+    case 'write_file':
+    case 'edit_file':
+      return this.formatBridgeToolDetailValue(fromKeys('file_path', 'path', 'file', 'filename'));
+    case 'glob':
+      return this.formatBridgeToolDetailValue(fromKeys('pattern'));
+    case 'grep':
+      return this.formatBridgeToolDetailValue(fromKeys('pattern', 'query'));
+    case 'ls':
+      return this.formatBridgeToolDetailValue(fromKeys('directory', 'path'));
+    case 'shell':
+    case 'shell_background':
+      return this.formatBridgeToolDetailValue(fromKeys('command'), 100);
+    case 'read_skill':
+    case 'skill_view':
+      return this.formatBridgeToolDetailValue(fromKeys('name', 'skill'));
+    case 'list_skill_files':
+      return this.formatBridgeToolDetailValue(fromKeys('name', 'skill'));
+    case 'task_create':
+      return this.formatBridgeToolDetailValue(fromKeys('title', 'name'));
+    case 'task_update':
+    case 'task_get':
+      return this.formatBridgeToolDetailValue(fromKeys('id', 'taskId'));
+    case 'memory_read':
+    case 'memory_search':
+    case 'rag_search':
+      return this.formatBridgeToolDetailValue(fromKeys('query', 'key'));
+    case 'memory_write':
+      return this.formatBridgeToolDetailValue(fromKeys('filename', 'key', 'title'));
+    case 'cast_command':
+      return this.formatBridgeToolDetailValue(fromKeys('command'));
+    default: {
+      const firstKey = Object.keys(input)[0];
+      if (!firstKey) {
+        return '';
+      }
+      return this.formatBridgeToolDetailValue(`${firstKey}=${String(input[firstKey])}`);
+    }
+    }
+  }
+
+  private formatBridgeToolDetailValue(value: string, maxLength = 80): string {
+    const trimmed = value.trim();
+    return trimmed ? ` ${this.truncateBridgeToolText(trimmed, maxLength)}` : '';
+  }
+
+  private summarizeBridgeToolContent(content: string): string {
+    if (!content) {
+      return '';
+    }
+
+    const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const bytes = Buffer.byteLength(content, 'utf-8');
+    if (lines.length > 1 || bytes > 240) {
+      const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+      return `${lines.length} lines, ${size}`;
+    }
+    return this.truncateBridgeToolText(lines[0] || content, 120);
+  }
+
+  private truncateBridgeToolText(value: string, maxLength: number): string {
+    const clean = stripAnsi(value).replace(/\s+/g, ' ').trim();
+    return clean.length > maxLength ? `${clean.slice(0, Math.max(0, maxLength - 3))}...` : clean;
+  }
+
+  private async autostartBridgeIfConfigured(): Promise<void> {
+    if (!this.bridgeCommands?.startAutostart) {
+      return;
+    }
+
+    try {
+      const output = await this.bridgeCommands.startAutostart(process.cwd());
+      if (output) {
+        process.stdout.write(output.endsWith('\n') || output.endsWith('\r\n') ? output : `${output}\r\n`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stdout.write(this.ui.warning(`Bridge autostart skipped: ${message}`));
+    }
+  }
+
+  private writeExternalBlock(output: string): void {
+    if (!output) {
+      return;
+    }
+    const formatted = output.endsWith('\n') || output.endsWith('\r\n') ? output : `${output}\r\n`;
+    this.smartInput?.beginExternalOutput?.();
+    process.stdout.write(formatted);
+    this.smartInput?.endExternalOutput?.();
+  }
+
+  private async handleMessage(message: string): Promise<void> {
+    this.abortController = new AbortController();
+    this.smartInput?.refresh();
+
+    let separatorWritten = false;
 
     try {
       let messageToProcess = message;
 
-      const planCheck = await this.planMode.shouldEnterPlanMode(message);
+      const forcePlanMode = this.inputMode === 'plan';
+      const planCheck = forcePlanMode
+        ? { shouldPlan: true }
+        : await this.planMode.shouldEnterPlanMode(message);
       if (planCheck.shouldPlan) {
-        const usePlan = await this.smartInput!.askChoice(
-          '📝 Complex task. Create a plan?',
-          [
-            { key: 'y', label: 'yes', description: 'Create structured plan' },
-            { key: 'n', label: 'no', description: 'Proceed without plan' },
-          ]
-        );
-
-        if (usePlan === 'y') {
+        if (forcePlanMode) {
           const plannedMessage = await this.runInteractivePlanMode(message);
           if (!plannedMessage) {
-            this.isProcessing = false;
-            this.smartInput?.exitPassiveMode();
+            this.smartInput?.refresh();
             return;
           }
           messageToProcess = plannedMessage;
         } else {
-          // No plan selected: wrap with execution directive so the agent acts immediately
-          messageToProcess = `[EXECUTE NOW — no explanation, no questions, use tools immediately]\n\n${message}`;
+          const usePlan = await this.smartInput!.askChoice(
+            '📝 Complex task. Create a plan?',
+            [
+              { key: 'y', label: 'yes', description: 'Create structured plan' },
+              { key: 'n', label: 'no', description: 'Proceed without plan' },
+            ]
+          );
+
+          if (!usePlan) {
+            this.smartInput?.refresh();
+            return;
+          }
+
+          if (usePlan === 'y') {
+            const plannedMessage = await this.runInteractivePlanMode(message);
+            if (!plannedMessage) {
+              this.smartInput?.refresh();
+              return;
+            }
+            messageToProcess = plannedMessage;
+          } else {
+            // No plan selected: wrap with execution directive so the agent acts immediately
+            messageToProcess = `[EXECUTE NOW — no explanation, no questions, use tools immediately]\n\n${message}`;
+          }
         }
       }
 
+      const referenceResult = this.expandReferenceMentions(messageToProcess);
+      messageToProcess = referenceResult.expandedMessage;
+
       const mentionResult = await this.mentionsService.processMessage(messageToProcess);
+      if (referenceResult.references.length > 0) {
+        for (const ref of referenceResult.references) {
+          this.writeInline(`${Colors.dim}$${ref.name} ${ref.label} injected${Colors.reset}\r\n`);
+        }
+        this.writeInline('\r\n');
+      }
       if (mentionResult.mentions.length > 0) {
         const summary = this.mentionsService.getMentionsSummary(mentionResult.mentions);
         for (const line of summary) {
-          process.stdout.write(`${Colors.dim}${line}${Colors.reset}\r\n`);
+          this.writeInline(`${Colors.dim}${line}${Colors.reset}\r\n`);
         }
-        process.stdout.write('\r\n');
+        this.writeInline('\r\n');
       }
 
       this.startSpinner('Thinking');
 
       let firstChunk = true;
-      let fullResponse = '';
+      let hasToolOutput = false;
+      let hasAssistantHeader = false;
+      let textBuffer = '';
+      let inTextMode = false;
+
+      const startTextMode = () => {
+        if (!inTextMode) {
+          this.smartInput?.beginExternalOutput();
+          if (!hasAssistantHeader) {
+            process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
+            hasAssistantHeader = true;
+          }
+          inTextMode = true;
+        }
+      };
+
+      const endTextMode = () => {
+        if (inTextMode) {
+          if (textBuffer) {
+            process.stdout.write(textBuffer);
+            textBuffer = '';
+          }
+          process.stdout.write('\r\n');
+          this.smartInput?.writeOutputLine(this.buildSeparatorLine());
+          separatorWritten = true;
+          this.smartInput?.endExternalOutput();
+          inTextMode = false;
+        }
+      };
+
+      const flushTextBuffer = () => {
+        if (!textBuffer) return;
+        if (inTextMode) {
+          process.stdout.write(textBuffer);
+        } else {
+          this.writeInline(textBuffer);
+        }
+        textBuffer = '';
+      };
 
       const toolLabel = (chunk: string): string | null => {
-        if (chunk.includes('▶ read file') || chunk.includes('▶ read_file')) return 'Reading';
-        if (chunk.includes('▶ write file') || chunk.includes('▶ write_file')) return 'Writing';
-        if (chunk.includes('▶ edit file') || chunk.includes('▶ edit_file')) return 'Editing';
-        if (chunk.includes('▶ shell')) return 'Running';
-        if (chunk.includes('▶ glob') || chunk.includes('▶ grep') || chunk.includes('▶ ls')) return 'Searching';
-        if (chunk.includes('▶ web search') || chunk.includes('▶ web_search')) return 'Searching web';
-        if (chunk.includes('▶ web fetch') || chunk.includes('▶ web_fetch')) return 'Fetching';
-        if (chunk.includes('▶ memory')) return 'Memory';
-        if (chunk.includes('▶ task')) return 'Tasks';
-        if (chunk.includes('▶')) return 'Working';
+        const plain = stripAnsi(chunk);
+        if (plain.includes('▶ read file') || plain.includes('▶ read_file')) return 'Reading';
+        if (plain.includes('▶ write file') || plain.includes('▶ write_file')) return 'Writing';
+        if (plain.includes('▶ edit file') || plain.includes('▶ edit_file')) return 'Editing';
+        if (plain.includes('▶ shell')) return 'Running';
+        if (plain.includes('▶ glob') || plain.includes('▶ grep') || plain.includes('▶ ls')) return 'Searching';
+        if (plain.includes('▶ web search') || plain.includes('▶ web_search')) return 'Searching web';
+        if (plain.includes('▶ web fetch') || plain.includes('▶ web_fetch')) return 'Fetching';
+        if (plain.includes('▶ rag search') || plain.includes('▶ rag_search')) return 'RAG';
+        if (plain.includes('▶ memory')) return 'Memory';
+        if (plain.includes('▶ cast command') || plain.includes('▶ cast_command')) return 'Cast command';
+        if (plain.includes('▶ task')) return 'Tasks';
+        if (plain.includes('▶')) return 'Working';
         return null;
       };
 
@@ -625,26 +1489,32 @@ export class ReplService {
         const isToolChunk = newLabel !== null;
 
         if (isToolChunk) {
-          this.stopSpinner();
-          process.stdout.write(chunk);
-          if (firstChunk) {
+          endTextMode();
+          flushTextBuffer();
+          this.writeInline(chunk);
+          if (firstChunk && !hasToolOutput) {
             this.startSpinner('Working');
+            hasToolOutput = true;
           }
         } else if (isMeta || isToolResultChunk(chunk)) {
-          process.stdout.write(chunk);
+          endTextMode();
+          flushTextBuffer();
+          this.writeInline(chunk);
         } else {
           if (firstChunk) {
             this.stopSpinner();
-            process.stdout.write(`\r\n${Colors.bold}Cast${Colors.reset}\r\n`);
             firstChunk = false;
           }
-          fullResponse += chunk;
-          process.stdout.write(chunk);
+          startTextMode();
+          textBuffer += chunk;
+          if (this.shouldFlushStreamText(textBuffer)) {
+            flushTextBuffer();
+          }
         }
       }
 
       if (!firstChunk) {
-        process.stdout.write('\r\n');
+        endTextMode();
       } else {
         this.stopSpinner();
       }
@@ -652,36 +1522,36 @@ export class ReplService {
       this.stopSpinner();
       const msg = (error as Error).message;
       if (!msg.includes('abort')) {
-        process.stdout.write(`\r\n  ${Colors.red}Error${Colors.reset}  ${Colors.dim}${msg}${Colors.reset}\r\n\r\n`);
+        this.writeInline(`\r\n  ${Colors.red}Error${Colors.reset}  ${Colors.dim}${msg}${Colors.reset}\r\n\r\n`);
       }
     } finally {
-      this.isProcessing = false;
       this.abortController = null;
-      this.smartInput?.exitPassiveMode();
+      if (!separatorWritten) {
+        this.smartInput?.writeOutputLine(this.buildSeparatorLine());
+      }
+      this.smartInput?.refresh();
     }
   }
 
   private async runInteractivePlanMode(userMessage: string): Promise<string | null> {
     process.stdout.write(`\r\n${Colors.cyan}${Colors.bold}📋 PLAN MODE${Colors.reset}\r\n`);
-    process.stdout.write(`${Colors.dim}Build plan first, execute after approval${Colors.reset}\r\n\r\n`);
+    process.stdout.write(`${Colors.dim}Exploring project, then building plan…${Colors.reset}\r\n\r\n`);
 
-    const clarifyingQuestions = await this.planMode.generateClarifyingQuestions(userMessage);
-    const answers: string[] = [];
+    const projectContext = await this.planMode.gatherProjectContext();
+    const clarifications: string[] = [];
+    const questions = await this.planMode.generateClarifyingQuestions(userMessage);
 
-    if (clarifyingQuestions.length > 0) {
-      process.stdout.write(`${Colors.dim}I need a few quick clarifications:${Colors.reset}\r\n`);
-      for (let i = 0; i < clarifyingQuestions.length; i++) {
-        const q = clarifyingQuestions[i];
-        const answer = await this.smartInput!.question(`${Colors.yellow}Q${i + 1}:${Colors.reset} ${q} `);
-        if (answer.trim()) {
-          answers.push(`- ${q} => ${answer.trim()}`);
-        }
+    for (const question of questions) {
+      const answer = await this.smartInput!.question(`${Colors.cyan}${question}${Colors.reset} `);
+      if (answer.trim()) {
+        clarifications.push(`${question} ${answer.trim()}`);
       }
-      process.stdout.write('\r\n');
     }
 
-    const context = answers.length > 0 ? `User clarifications:\n${answers.join('\n')}` : undefined;
-    let plan = await this.planMode.generatePlan(userMessage, context);
+    const planningContext = clarifications.length > 0
+      ? `${projectContext}\n\nUser clarifications:\n${clarifications.join('\n')}`
+      : projectContext;
+    let plan = await this.planMode.generatePlan(userMessage, planningContext);
 
     while (true) {
       process.stdout.write(this.planMode.formatPlanForDisplay(plan));
@@ -692,7 +1562,7 @@ export class ReplService {
         { key: 'c', label: 'cancel', description: 'Cancel and return to prompt' },
       ]);
 
-      if (action === 'c') {
+      if (!action || action === 'c') {
         process.stdout.write(`${Colors.dim}  Plan cancelled${Colors.reset}\r\n\r\n`);
         return null;
       }
@@ -707,7 +1577,7 @@ export class ReplService {
         continue;
       }
 
-      return this.buildPlanExecutionPrompt(userMessage, plan, answers);
+      return this.buildPlanExecutionPrompt(userMessage, plan, clarifications);
     }
   }
 
@@ -738,84 +1608,274 @@ export class ReplService {
     return lines.join('\n');
   }
 
-  private spinnerLabel = 'Thinking';
-
   private startSpinner(label: string): void {
     this.spinnerLabel = label;
-    let i = 0;
+    this.spinnerFrameIndex = 0;
+    if (this.spinnerTimer) {
+      clearInterval(this.spinnerTimer);
+    }
     this.spinnerTimer = setInterval(() => {
-      const spinner = Icons.spinner[i % Icons.spinner.length];
-      i++;
-      process.stdout.write(
-        `\r${Colors.dim}${spinner}${Colors.reset} ${Colors.dim}${this.spinnerLabel}...${Colors.reset}`
-      );
+      this.spinnerFrameIndex = (this.spinnerFrameIndex + 1) % Icons.spinner.length;
+      this.smartInput?.refresh();
     }, 80);
+    this.smartInput?.refresh();
+  }
+
+  private shouldFlushStreamText(buffer: string): boolean {
+    if (buffer.length >= 24) return true;
+    return /[\n.!?]$/.test(buffer);
   }
 
   private updateSpinner(label: string): void {
     this.spinnerLabel = label;
+    this.smartInput?.refresh();
   }
 
   private stopSpinner(): void {
     if (this.spinnerTimer) {
       clearInterval(this.spinnerTimer);
       this.spinnerTimer = null;
-      process.stdout.write('\r\x1b[K');
     }
+    this.spinnerLabel = '';
+    this.spinnerFrameIndex = 0;
+    this.smartInput?.refresh();
   }
 
   private cmdTools(): void {
     const allTools = this.toolsRegistry.getAllTools();
-    const w = (s: string) => process.stdout.write(s);
-
-    w('\r\n');
+    const sections: Array<{ title: string; lines: string[] }> = [];
 
     if (allTools.length > 0) {
-      const maxLen = Math.max(...allTools.map(t => t.name.length));
-      w(`  ${Colors.bold}Built-in${Colors.reset}  ${Colors.dim}(${allTools.length})${Colors.reset}\r\n`);
-      w(`  ${Colors.dim}${'─'.repeat(48)}${Colors.reset}\r\n`);
-      for (const t of allTools) {
-        const desc = t.description.length > 55 ? t.description.slice(0, 52) + '...' : t.description;
-        w(`  ${Colors.cyan}${t.name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
-      }
+      sections.push({
+        title: `Built-in (${allTools.length})`,
+        lines: allTools.map((t) => {
+          const desc = t.description.length > 55 ? t.description.slice(0, 52) + '...' : t.description;
+          return `${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}`;
+        }),
+      });
     }
 
     const mcpTools = this.mcpRegistry.getAllMcpTools();
     if (mcpTools.length > 0) {
-      w('\r\n');
       const shown = mcpTools.slice(0, 15);
-      const maxLen = Math.max(...shown.map(t => t.name.length));
-      w(`  ${Colors.bold}MCP${Colors.reset}  ${Colors.dim}(${mcpTools.length})${Colors.reset}\r\n`);
-      w(`  ${Colors.dim}${'─'.repeat(48)}${Colors.reset}\r\n`);
-      for (const t of shown) {
+      const lines = shown.map((t) => {
         const desc = t.description.length > 50 ? t.description.slice(0, 47) + '...' : t.description;
-        w(`  ${Colors.cyan}${t.name.padEnd(maxLen)}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}\r\n`);
-      }
+        return `${Colors.cyan}${t.name}${Colors.reset}  ${Colors.dim}${desc}${Colors.reset}`;
+      });
       if (mcpTools.length > 15) {
-        w(`  ${Colors.dim}... and ${mcpTools.length - 15} more. Run /mcp tools for full list${Colors.reset}\r\n`);
+        lines.push(`${Colors.dim}... and ${mcpTools.length - 15} more. Run /mcp tools for full list${Colors.reset}`);
       }
+      sections.push({ title: `MCP (${mcpTools.length})`, lines });
     }
 
     if (allTools.length === 0 && mcpTools.length === 0) {
-      w(`  ${Colors.dim}No tools available${Colors.reset}\r\n`);
+      sections.push({ title: 'Available', lines: [`${Colors.dim}No tools available${Colors.reset}`] });
     }
 
-    w('\r\n');
+    process.stdout.write(this.ui.panel({
+      title: 'Tools',
+      subtitle: `${allTools.length + mcpTools.length} available`,
+      sections,
+    }));
   }
 
   private getModelDisplayName(): string {
+    const modelConfig = this.getDefaultModelConfig();
+    return `${modelConfig.provider}/${modelConfig.model}`;
+  }
+
+  private getDefaultModelConfig(): { provider: ProviderType; model: string } {
     try {
       const modelConfig = this.configManager.getModelConfig('default');
-      if (modelConfig) {
-        return `${modelConfig.provider}/${modelConfig.model}`;
+      if (modelConfig?.provider && modelConfig?.model) {
+        return {
+          provider: modelConfig.provider,
+          model: modelConfig.model,
+        };
       }
     } catch {
     }
-    return `${this.configService.getProvider()}/${this.configService.getModel()}`;
+
+    return {
+      provider: this.configService.getProvider() as ProviderType,
+      model: this.configService.getModel(),
+    };
+  }
+
+  private getInputFooterLines(): string[] {
+    const terminalWidth = process.stdout.columns || 80;
+    const right = this.getContextLeftFooterLabel();
+    const left = this.getFooterLeftLabel('full');
+
+    if (!right) {
+      return [left];
+    }
+
+    const gap = Math.max(2, terminalWidth - visibleWidth(left) - visibleWidth(right));
+    const combined = `${left}${' '.repeat(gap)}${right}`;
+
+    if (visibleWidth(combined) <= terminalWidth) {
+      return [combined];
+    }
+
+    const compactLeft = this.getFooterLeftLabel('compact');
+    const compactGap = Math.max(2, terminalWidth - visibleWidth(compactLeft) - visibleWidth(right));
+    const compactCombined = `${compactLeft}${' '.repeat(compactGap)}${right}`;
+
+    if (visibleWidth(compactCombined) <= terminalWidth) {
+      return [compactCombined];
+    }
+
+    const minimalLeft = this.getFooterLeftLabel('minimal');
+    const minimalGap = Math.max(2, terminalWidth - visibleWidth(minimalLeft) - visibleWidth(right));
+    const minimalCombined = `${minimalLeft}${' '.repeat(minimalGap)}${right}`;
+
+    if (visibleWidth(minimalCombined) <= terminalWidth) {
+      return [minimalCombined];
+    }
+
+    return [left];
+  }
+
+  private getFooterLeftLabel(mode: 'full' | 'compact' | 'minimal'): string {
+    const parts: string[] = [];
+
+    if (this.isProcessing && this.spinnerLabel) {
+      const spinner = Icons.spinner[this.spinnerFrameIndex % Icons.spinner.length];
+      parts.push(`${Colors.accent}${spinner} ${this.spinnerLabel.toLowerCase()}${Colors.reset}`);
+    }
+
+    if (mode !== 'minimal') {
+      parts.push(this.getInputModeLabel());
+      parts.push(`${Colors.dim}${mode === 'full' ? 'Shift+Tab mode' : 'Shift+Tab'}${Colors.reset}`);
+    }
+
+    parts.push(`${Colors.dim}${mode === 'full' ? 'Tab queue' : 'Tab'}${Colors.reset}`);
+
+    if (this.pendingLines.length > 0) {
+      parts.push(`${Colors.magenta}queue ${this.pendingLines.length}${Colors.reset}`);
+    }
+
+    const separator = mode === 'full' ? '  ·  ' : ' · ';
+    return parts.join(`${Colors.subtle}${separator}${Colors.reset}`);
+  }
+
+  private cycleInputMode(): void {
+    const order: ReplInputMode[] = ['request-always', 'accept-edits', 'plan'];
+    const currentIndex = order.indexOf(this.inputMode);
+    this.inputMode = order[(currentIndex + 1) % order.length] ?? 'request-always';
+    this.smartInput?.refresh();
+  }
+
+  private getInputModeLabel(): string {
+    switch (this.inputMode) {
+    case 'accept-edits':
+      return `${Colors.green}ACCEPT EDITS${Colors.reset}`;
+    case 'plan':
+      return `${Colors.accent}PLAN MODE${Colors.reset}`;
+    case 'request-always':
+    default:
+      return `${Colors.cyan}REQUEST ALWAYS${Colors.reset}`;
+    }
+  }
+
+  private getContextLeftFooterLabel(): string {
+    try {
+      const modelConfig = typeof (this.configManager as any).getModelConfig === 'function'
+        ? (this.configManager as any).getModelConfig()
+        : undefined;
+      const provider = modelConfig?.provider ?? this.configService.getProvider();
+      const model = modelConfig?.model ?? this.configService.getModel();
+      const tokenCount = typeof (this.deepAgent as any).getTokenCount === 'function'
+        ? (this.deepAgent as any).getTokenCount()
+        : 0;
+      const usage = getModelContextUsage(provider, model, tokenCount);
+      if (!usage) {
+        return '';
+      }
+      return `${Colors.dim}${Math.round(usage.remainingPercent)}% context left${Colors.reset}`;
+    } catch {
+      return '';
+    }
   }
 
   stop(): void {
     this.stopSpinner();
     this.smartInput?.destroy();
+  }
+
+  async shutdown(): Promise<void> {
+    this.stop();
+    try {
+      await this.saveSessionSummaryBeforeShutdown();
+      await this.platformService.close();
+    } finally {
+      await this.endLocalStateSession();
+    }
+  }
+
+  private async saveSessionSummaryBeforeShutdown(): Promise<void> {
+    const saveSummary = (this.deepAgent as any).saveSessionSummaryToMemory;
+    if (typeof saveSummary !== 'function') {
+      return;
+    }
+
+    try {
+      await saveSummary.call(this.deepAgent, { timeoutMs: 7000 });
+    } catch {
+      // Shutdown should not be blocked by best-effort memory summaries.
+    }
+  }
+
+  private async startLocalStateSession(initResult: { projectPath?: string | null }): Promise<void> {
+    if (!this.localSessionStore || this.localSessionId) {
+      return;
+    }
+
+    try {
+      const session = await this.localSessionStore.startSession({
+        projectRoot: initResult.projectPath || process.cwd(),
+        platformProjectId: this.getPlatformProjectId(),
+        model: this.getModelDisplayName(),
+      });
+      this.localSessionId = session.id;
+      this.deepAgent.setLocalSessionId(session.id);
+    } catch (error) {
+      this.warnLocalStateDisabled(error);
+    }
+  }
+
+  private async endLocalStateSession(): Promise<void> {
+    if (!this.localSessionStore || !this.localSessionId) {
+      return;
+    }
+
+    const sessionId = this.localSessionId;
+    this.localSessionId = null;
+    this.deepAgent.setLocalSessionId(null);
+    try {
+      await this.localSessionStore.endSession(sessionId, {
+        totalTokens: this.deepAgent.getTokenCount(),
+      });
+    } catch (error) {
+      this.warnLocalStateDisabled(error);
+    }
+  }
+
+  private getPlatformProjectId(): string | undefined {
+    try {
+      return (this.platformService as any).getProject?.()?.id;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private warnLocalStateDisabled(error: unknown): void {
+    if (this.localStateWarningShown) {
+      return;
+    }
+    this.localStateWarningShown = true;
+    const message = error instanceof Error ? error.message : String(error);
+    process.stdout.write(`  ${Colors.warning}! Local state disabled: ${message}${Colors.reset}\r\n`);
   }
 }

@@ -164,7 +164,7 @@ export class PermissionService {
     dangerLevel: DangerLevel,
   ): Promise<PermissionResponse> {
     console.log('');
-    this.promptService.warn(`Permission required to execute command:`);
+    this.promptService.warn('Permission required to execute command:');
     console.log(`  ${command}`);
     console.log('');
 
@@ -181,12 +181,12 @@ export class PermissionService {
       },
       ...(dangerLevel !== DangerLevel.DANGEROUS
         ? [
-            {
-              key: 'allow-always',
-              label: 'Always allow',
-              description: 'Never ask again for this command',
-            },
-          ]
+          {
+            key: 'allow-always',
+            label: 'Always allow',
+            description: 'Never ask again for this command',
+          },
+        ]
         : []),
       { key: 'deny', label: 'Deny', description: 'Do not execute' },
     ];
@@ -194,16 +194,16 @@ export class PermissionService {
     const choice = await this.promptService.choice('What do you want to do?', choices);
 
     switch (choice) {
-      case 'allow-once':
-        return { allowed: true, scope: PermissionScope.ONCE };
-      case 'allow-session':
-        return { allowed: true, scope: PermissionScope.SESSION };
-      case 'allow-always':
-        return { allowed: true, scope: PermissionScope.ALWAYS };
-      case 'deny':
-        return { allowed: false, scope: PermissionScope.ONCE };
-      default:
-        return { allowed: false, scope: PermissionScope.ONCE };
+    case 'allow-once':
+      return { allowed: true, scope: PermissionScope.ONCE };
+    case 'allow-session':
+      return { allowed: true, scope: PermissionScope.SESSION };
+    case 'allow-always':
+      return { allowed: true, scope: PermissionScope.ALWAYS };
+    case 'deny':
+      return { allowed: false, scope: PermissionScope.ONCE };
+    default:
+      return { allowed: false, scope: PermissionScope.ONCE };
     }
   }
 

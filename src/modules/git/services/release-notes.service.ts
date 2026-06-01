@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { execSync } from 'child_process';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { MultiLlmService } from '../../../common/services/multi-llm.service';
+import { LlmClientFactory } from '../../../common/services/llm-client.factory';
+import { extractText } from '../../../common/types/llm.types';
 import { PromptLoaderService } from '../../core/services/prompt-loader.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -25,7 +25,7 @@ export interface ReleaseNotesData {
 @Injectable()
 export class ReleaseNotesService {
   constructor(
-    private readonly multiLlmService: MultiLlmService,
+    private readonly llmClientFactory: LlmClientFactory,
     private readonly promptLoader: PromptLoaderService,
   ) {}
 
@@ -53,16 +53,16 @@ export class ReleaseNotesService {
       const notes = this.buildReleaseNotes({
         version: releaseVersion,
         date: dateStr,
-        features: aiData.features,
-        accessibility: aiData.accessibility,
-        notes: aiData.notes,
-        library: aiData.library,
-        search: aiData.search,
-        bugfixes: aiData.bugfixes,
-        performance: aiData.performance,
-        uiux: aiData.uiux,
-        breaking: aiData.breaking,
-        dependencies: dependencies.length > 0 ? dependencies : aiData.dependencies,
+        features: aiData.features ?? [],
+        accessibility: aiData.accessibility ?? [],
+        notes: aiData.notes ?? [],
+        library: aiData.library ?? [],
+        search: aiData.search ?? [],
+        bugfixes: aiData.bugfixes ?? [],
+        performance: aiData.performance ?? [],
+        uiux: aiData.uiux ?? [],
+        breaking: aiData.breaking ?? [],
+        dependencies: dependencies.length > 0 ? dependencies : (aiData.dependencies ?? []),
         contributors: this.getContributors(sinceTag),
       });
       
@@ -102,7 +102,7 @@ export class ReleaseNotesService {
       if (sinceTag) {
         cmd = `git log ${sinceTag}..HEAD --pretty=format:"%H|%s|%an|%ad" --date=short`;
       } else {
-        cmd = `git log -30 --pretty=format:"%H|%s|%an|%ad" --date=short`;
+        cmd = 'git log -30 --pretty=format:"%H|%s|%an|%ad" --date=short';
       }
       
       const output = execSync(cmd, { cwd, encoding: 'utf-8' });
@@ -117,7 +117,7 @@ export class ReleaseNotesService {
       const cwd = process.cwd();
       const cmd = sinceTag 
         ? `git diff --name-only ${sinceTag}..HEAD`
-        : `git diff --name-only HEAD~30..HEAD`;
+        : 'git diff --name-only HEAD~30..HEAD';
       
       const output = execSync(cmd, { cwd, encoding: 'utf-8' });
       return output.trim().split('\n').filter(f => f);
@@ -151,7 +151,7 @@ export class ReleaseNotesService {
       const cwd = process.cwd();
       const cmd = sinceTag
         ? `git log ${sinceTag}..HEAD --pretty=format:"%an" | sort | uniq`
-        : `git log -30 --pretty=format:"%an" | sort | uniq`;
+        : 'git log -30 --pretty=format:"%an" | sort | uniq';
       
       const output = execSync(cmd, { cwd, encoding: 'utf-8' });
       return output.trim().split('\n').filter(n => n).slice(0, 10);
@@ -161,7 +161,7 @@ export class ReleaseNotesService {
   }
 
   private async generateAIAnalysis(commits: string[], changedFiles: string[]): Promise<Partial<ReleaseNotesData>> {
-    const llm = this.multiLlmService.createModel('cheap');
+    const llm = this.llmClientFactory.create('cheap');
     
     const commitMessages = commits.map(c => {
       const parts = c.split('|');
@@ -206,11 +206,11 @@ Categorize into these sections (return empty array if none):
 
     try {
       const response = await llm.invoke([
-        new SystemMessage(this.promptLoader.getPrompt('release')),
-        new HumanMessage(prompt),
+        { role: 'system', content: this.promptLoader.getPrompt('release') },
+        { role: 'user', content: prompt },
       ]);
 
-      const content = this.extractContent(response.content);
+      const content = extractText(response);
       const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
       
       if (jsonMatch) {
