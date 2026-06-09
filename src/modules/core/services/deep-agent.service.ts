@@ -42,6 +42,7 @@ import {
   DeepAgentRuntimeEnvelope,
   DeepAgentStreamVersion,
 } from './deep-agent-event-adapter.service';
+import type { ChatStreamChunk } from '../../../ui/cast-design/tool-call.types';
 
 interface FileInfo {
   path: string;
@@ -1128,7 +1129,7 @@ export class DeepAgentService {
     return COMPACT_CHAT_PATTERNS.some((pattern) => pattern.test(normalized));
   }
 
-  private async *streamCompactChat(message: string): AsyncGenerator<string> {
+  private async *streamCompactChat(message: string): AsyncGenerator<ChatStreamChunk> {
     const activeModel = this.model ?? this.llmClientFactory.create('default');
     const outboundMessages = [
       new SystemMessage(COMPACT_CHAT_SYSTEM_PROMPT),
@@ -1153,7 +1154,7 @@ export class DeepAgentService {
             : this.extractTextFromModelContent((chunk as any)?.content ?? chunk);
           if (text) {
             fullResponse += text;
-            yield text;
+            yield { kind: 'text', text };
           }
 
           if ((chunk as any)?.type === 'usage') {
@@ -1176,7 +1177,7 @@ export class DeepAgentService {
         const text = this.extractTextFromModelContent((response as any)?.content ?? response);
         if (text) {
           fullResponse += text;
-          yield text;
+          yield { kind: 'text', text };
         }
 
         const usage = this.extractUsage(response);
@@ -1188,7 +1189,7 @@ export class DeepAgentService {
         }
       }
     } catch (error) {
-      yield `\n\x1b[31m  Stream error: ${(error as Error).message}\x1b[0m\n`;
+      yield { kind: 'text', text: `\n\x1b[31m  Stream error: ${(error as Error).message}\x1b[0m\n` };
       return;
     }
 
@@ -1269,224 +1270,6 @@ export class DeepAgentService {
   private estimateTokens(text: string): number {
     if (!text) return 0;
     return Math.max(1, Math.ceil(text.length / 4));
-  }
-
-  private formatToolStart(toolName: string, input: any): string {
-    const dim = '\x1b[2m';
-    const cyan = '\x1b[36m';
-    const reset = '\x1b[0m';
-    let detail = '';
-
-    const filePath = (i: any): string => {
-      if (!i) return '';
-      if (typeof i === 'string') return i;
-      const v = i.file_path || i.path || i.filename || i.file || i.filepath;
-      if (v) return String(v);
-      for (const key of Object.keys(i)) {
-        if (key.toLowerCase().includes('path') || key.toLowerCase().includes('file')) {
-          return String(i[key]);
-        }
-      }
-      return '';
-    };
-
-    switch (toolName) {
-    case 'read_file':
-      detail = filePath(input) ? ` ${filePath(input)}` : '';
-      break;
-    case 'write_file':
-      detail = filePath(input) ? ` ${filePath(input)}` : '';
-      break;
-    case 'edit_file':
-      detail = filePath(input) ? ` ${filePath(input)}` : '';
-      break;
-    case 'glob':
-      detail = input?.pattern ? ` ${input.pattern}` : '';
-      if (input?.cwd) detail += ` in ${input.cwd}`;
-      break;
-    case 'grep':
-      detail = input?.pattern ? ` "${input.pattern}"` : '';
-      if (input?.file_pattern) detail += ` (${input.file_pattern})`;
-      break;
-    case 'shell':
-      if (input?.command) {
-        const cmd = input.command.length > 80 ? input.command.slice(0, 80) + '...' : input.command;
-        detail = ` ${cmd}`;
-      }
-      break;
-    case 'shell_background':
-      if (input?.command) {
-        const cmd = input.command.length > 60 ? input.command.slice(0, 60) + '...' : input.command;
-        detail = ` ${cmd}`;
-      }
-      break;
-    case 'ls':
-      detail = ` ${input?.directory || input?.path || '.'}`;
-      break;
-    case 'web_search':
-      detail = input?.query ? ` "${input.query}"` : '';
-      break;
-    case 'web_fetch':
-      detail = input?.url ? ` ${input.url}` : '';
-      break;
-    case 'task_create':
-      detail = input?.title ? ` "${input.title}"` : '';
-      break;
-    case 'task_update':
-      detail = input?.id ? ` #${input.id} → ${input?.status || ''}` : '';
-      break;
-    case 'task_list':
-      detail = '';
-      break;
-    case 'task_get':
-      detail = input?.id ? ` #${input.id}` : '';
-      break;
-    case 'ask_user_question':
-      detail = input?.question ? ` "${input.question.slice(0, 50)}${input.question.length > 50 ? '...' : ''}"` : '';
-      break;
-    case 'enter_plan_mode':
-      detail = ' Starting plan...';
-      break;
-    case 'exit_plan_mode':
-      detail = ' Submitting plan';
-      break;
-    case 'memory_write':
-      detail = input?.key ? ` ${input.key}` : '';
-      break;
-    case 'memory_read':
-      detail = input?.key ? ` ${input.key}` : '';
-      break;
-    case 'memory_search':
-      detail = input?.query ? ` "${input.query}"` : '';
-      break;
-    case 'rag_search':
-      detail = input?.query ? ` "${String(input.query).slice(0, 80)}${String(input.query).length > 80 ? '...' : ''}"` : '';
-      if (input?.topK) detail += ` topK=${input.topK}`;
-      break;
-    case 'task': {
-      const taskInput = this.normalizeDelegatedTaskInput(input);
-      const agentName = this.getDelegatedAgentName(taskInput);
-      const description = this.getDelegatedAgentTask(taskInput);
-      detail = agentName ? ` agent ${agentName}` : '';
-      if (description && description !== 'Delegated sub-agent task') {
-        const text = description;
-        detail += ` "${text.slice(0, 80)}${text.length > 80 ? '...' : ''}"`;
-      }
-      break;
-    }
-    case 'list_skills':
-      detail = ' available';
-      break;
-    case 'read_skill':
-      detail = input?.name ? ` ${input.name}` : '';
-      break;
-    case 'list_agents':
-      detail = ' available';
-      break;
-    case 'cast_command':
-      detail = input?.command ? ` ${input.command}` : '';
-      break;
-    case 'mcp_list_servers':
-      detail = ' Listing MCP servers';
-      break;
-    case 'mcp_list_tools':
-      detail = input?.server ? ` server=${input.server}` : ' (all servers)';
-      break;
-    default:
-      if (input) {
-        const keys = Object.keys(input);
-        if (keys.length > 0) {
-          const firstVal = String(input[keys[0]]).slice(0, 60);
-          detail = ` ${keys[0]}=${firstVal}`;
-        }
-      }
-    }
-
-    const toolLabel = toolName.replace(/_/g, ' ');
-    return `\n${dim}  \u25b6 ${reset}${dim}${cyan}${toolLabel}${reset}${dim}${detail}${reset}\n`;
-  }
-
-  private formatToolEnd(toolName: string, output: string): string {
-    output = this.sanitizeTextForDisplay(output);
-    if (!output || output.length === 0) return '';
-
-    const dim = '\x1b[2m';
-    const green = '\x1b[32m';
-    const red = '\x1b[31m';
-    const reset = '\x1b[0m';
-
-    const ok = (msg: string) => `${dim}    ${green}\u2713${reset}${dim} ${msg}${reset}\n`;
-    const err = (msg: string) => `${dim}    ${red}\u2717${reset}${dim} ${msg}${reset}\n`;
-    const rows = (lines: string[], max: number, lineMax = 130) => {
-      const visible = lines.slice(0, max);
-      const more = lines.length > max ? lines.length - max : 0;
-      let out = visible.map(l => `${dim}    ${l.slice(0, lineMax)}${reset}`).join('\n');
-      if (more > 0) out += `\n${dim}    \u2026 ${more} more${reset}`;
-      return out + '\n';
-    };
-
-    switch (toolName) {
-    case 'read_file': {
-      const lineCount = output.split('\n').length;
-      const bytes = output.length;
-      return ok(`${lineCount} lines, ${bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(1) + ' KB'}`);
-    }
-    case 'write_file':
-      return ok(output.length > 160 ? output.slice(0, 159) + '…' : output);
-    case 'edit_file': {
-      if (output.startsWith('Error') || output.startsWith('error')) {
-        return err(output.length > 160 ? output.slice(0, 159) + '…' : output);
-      }
-      return ok(output.length > 160 ? output.slice(0, 159) + '…' : output);
-    }
-    case 'glob': {
-      const lines = output.split('\n').filter(l => l.trim());
-      if (lines.length === 0) return `${dim}    no matches${reset}\n`;
-      return rows(lines, 6, 100);
-    }
-    case 'grep': {
-      const lines = output.split('\n').filter(l => l.trim());
-      if (lines.length === 0) return `${dim}    no matches${reset}\n`;
-      return rows(lines, 6, 120);
-    }
-    case 'shell':
-    case 'shell_background': {
-      const lines = output.split('\n').filter((_, i) => i === 0 || output.split('\n')[i].trim());
-      return rows(lines, 8, 150);
-    }
-    case 'ls': {
-      const lines = output.split('\n').filter(l => l.trim());
-      return rows(lines, 10, 100);
-    }
-    case 'web_search': {
-      const lines = output.split('\n').filter(l => l.trim());
-      return rows(lines, 5, 120);
-    }
-    case 'web_fetch': {
-      const lines = output.split('\n').filter(l => l.trim());
-      return rows(lines, 4, 120);
-    }
-    case 'memory_write':
-      return ok('saved');
-    case 'memory_read':
-    case 'memory_search': {
-      const lines = output.split('\n').filter(l => l.trim());
-      return rows(lines, 4, 120);
-    }
-    case 'rag_search': {
-      const lines = output.split('\n').filter(l => l.trim());
-      return rows(lines, 6, 140);
-    }
-    case 'cast_command':
-      if (/denied/i.test(output)) {
-        return err('Cast command denied');
-      }
-      return ok('Output returned to Cast');
-    default: {
-      const lines = output.split('\n').filter(l => l.trim());
-      return rows(lines, 4, 120);
-    }
-    }
   }
 
   private async autoSummarize(force = false): Promise<boolean> {
@@ -1881,10 +1664,13 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
       .replace(/\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED_JWT]');
   }
 
-  async *chat(message: string): AsyncGenerator<string> {
+  async *chat(message: string): AsyncGenerator<ChatStreamChunk> {
     const summarized = await this.autoSummarize();
     if (summarized) {
-      yield `\n\x1b[2m  \u2500 conversation compacted (${this.messages.length} messages retained)\x1b[0m\n`;
+      yield {
+        kind: 'text',
+        text: `\n\x1b[2m  \u2500 conversation compacted (${this.messages.length} messages retained)\x1b[0m\n`,
+      };
     }
 
     if (this.pendingContextRefresh) {
@@ -1965,7 +1751,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           { version: 'v2', recursionLimit },
         );
     } catch (error) {
-      yield `\n\x1b[31m  Error starting agent: ${(error as Error).message}\x1b[0m\n`;
+      yield { kind: 'text', text: `\n\x1b[31m  Error starting agent: ${(error as Error).message}\x1b[0m\n` };
       return;
     }
 
@@ -1996,7 +1782,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               if (useLeanAgent) {
                 leanResponseBuffer += text;
               } else {
-                yield text;
+                yield { kind: 'text', text };
                 fullResponse += text;
               }
             }
@@ -2016,7 +1802,15 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
                 activeDelegatedAgentRuns.set(lastLocalToolKey, run.id);
               }
             }
-            yield this.formatToolStart(runtimeEvent.toolName, runtimeEvent.input);
+            yield {
+              kind: 'tool',
+              event: {
+                type: 'started',
+                toolName: runtimeEvent.toolName,
+                callId: runtimeEvent.callId,
+                input: runtimeEvent.input,
+              },
+            };
           }
 
           if (runtimeEvent.type === 'runtime.tool.completed') {
@@ -2030,8 +1824,17 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             const output = this.extractToolOutputText(runtimeEvent.outputPreview || runtimeEvent.summary || '');
             if (output) {
               this.lastToolOutputs.push({ tool: toolName, output });
-              yield this.formatToolEnd(toolName, output);
             }
+            yield {
+              kind: 'tool',
+              event: {
+                type: 'completed',
+                toolName,
+                callId: runtimeEvent.callId ?? localToolKey,
+                output,
+                durationMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
+              },
+            };
             activeLocalToolCalls.delete(localToolKey);
             if (this.isDelegationTool(toolName)) {
               this.completeDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), output);
@@ -2067,7 +1870,16 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               status: 'error',
               latencyMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
             });
-            yield `\n\x1b[31m  \u2717 Error: ${message}\x1b[0m\n`;
+            yield {
+              kind: 'tool',
+              event: {
+                type: 'failed',
+                toolName,
+                callId: runtimeEvent.callId ?? localToolKey,
+                message,
+                durationMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
+              },
+            };
           }
 
           if (runtimeEvent.type === 'runtime.usage') {
@@ -2086,7 +1898,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             if (useLeanAgent) {
               leanResponseBuffer += text;
             } else {
-              yield text;
+              yield { kind: 'text', text };
               fullResponse += text;
             }
           }
@@ -2100,7 +1912,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               if (useLeanAgent) {
                 leanResponseBuffer += fallbackText;
               } else {
-                yield fallbackText;
+                yield { kind: 'text', text: fallbackText };
                 fullResponse += fallbackText;
               }
             }
@@ -2143,7 +1955,15 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               activeDelegatedAgentRuns.set(lastLocalToolKey, run.id);
             }
           }
-          yield this.formatToolStart(event.name, toolInput);
+          yield {
+            kind: 'tool',
+            event: {
+              type: 'started',
+              toolName: event.name,
+              callId: lastLocalToolKey,
+              input: toolInput,
+            },
+          };
         }
 
         if (event.event === 'on_tool_end') {
@@ -2158,8 +1978,17 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           const output = this.extractToolOutputText(raw);
           if (output) {
             this.lastToolOutputs.push({ tool: toolName, output });
-            yield this.formatToolEnd(toolName, output);
           }
+          yield {
+            kind: 'tool',
+            event: {
+              type: 'completed',
+              toolName,
+              callId: localToolKey,
+              output,
+              durationMs: Math.max(0, Date.now() - localTool.startedAt),
+            },
+          };
           activeLocalToolCalls.delete(localToolKey);
           if (this.isDelegationTool(toolName)) {
             this.completeDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), output);
@@ -2195,20 +2024,29 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             status: 'error',
             latencyMs: Math.max(0, Date.now() - localTool.startedAt),
           });
-          yield `\n\x1b[31m  \u2717 Error: ${error?.message || 'Unknown error'}\x1b[0m\n`;
+          yield {
+            kind: 'tool',
+            event: {
+              type: 'failed',
+              toolName,
+              callId: localToolKey,
+              message: error?.message || 'Unknown error',
+              durationMs: Math.max(0, Date.now() - localTool.startedAt),
+            },
+          };
         }
       }
     } catch (error) {
       const msg = (error as Error).message;
       if (!msg.includes('abort') && !msg.includes('cancel')) {
-        yield `\n\x1b[31m  Stream error: ${msg}\x1b[0m\n`;
+        yield { kind: 'text', text: `\n\x1b[31m  Stream error: ${msg}\x1b[0m\n` };
       }
     }
 
     if (useLeanAgent && leanResponseBuffer.trim()) {
       const finalResponse = this.sanitizeLeanFinalResponse(leanResponseBuffer, message);
       if (finalResponse) {
-        yield finalResponse;
+        yield { kind: 'text', text: finalResponse };
         fullResponse = finalResponse;
       }
     }
@@ -2259,7 +2097,9 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     const before = this.getSessionTokenUsage();
     let output = '';
     for await (const chunk of this.chat(prompt)) {
-      output += chunk;
+      if (chunk.kind === 'text') {
+        output += chunk.text;
+      }
     }
     const after = this.getSessionTokenUsage();
 
@@ -2496,8 +2336,11 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
 
       let fullResponse = '';
       for await (const chunk of this.chat(message)) {
-        fullResponse += chunk;
-        process.stdout.write(chunk);
+        if (chunk.kind !== 'text') {
+          continue;
+        }
+        fullResponse += chunk.text;
+        process.stdout.write(chunk.text);
       }
 
       return { success: true, output: fullResponse.trim() };

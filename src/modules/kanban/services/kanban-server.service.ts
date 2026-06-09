@@ -275,7 +275,9 @@ export class KanbanServerService {
         process.stdout.write(startMsg);
 
         for await (const chunk of agent.chat(prompt)) {
-          process.stdout.write(chunk);
+          if (chunk.kind === 'text') {
+            process.stdout.write(chunk.text);
+          }
         }
       } catch (err) {
         const errMsg = `  Kanban: Auto-planner error: ${err}\r\n`;

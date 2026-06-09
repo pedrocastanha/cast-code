@@ -6,6 +6,19 @@ import { join } from 'node:path';
 
 import { DeepAgentService } from './deep-agent.service';
 import { EFFORT_PROFILES } from '../../config/types/config.types';
+import type { ChatStreamChunk } from '../../../ui/cast-design/tool-call.types';
+import { getToolInputSummary, getToolResultSummary } from '../../../ui/cast-design/tool-call-details';
+
+const textFromChunks = (chunks: ChatStreamChunk[]): string =>
+  chunks
+    .filter((chunk): chunk is Extract<ChatStreamChunk, { kind: 'text' }> => chunk.kind === 'text')
+    .map((chunk) => chunk.text)
+    .join('');
+
+const toolEventsFromChunks = (chunks: ChatStreamChunk[]) =>
+  chunks
+    .filter((chunk): chunk is Extract<ChatStreamChunk, { kind: 'tool' }> => chunk.kind === 'tool')
+    .map((chunk) => chunk.event);
 
 class HumanMessage {
   readonly role = 'user';
@@ -131,12 +144,12 @@ describe('DeepAgentService compact chat route', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    assert.match(chunks.join(''), /All done/);
+    assert.match(textFromChunks(chunks), /All done/);
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(recorded.map(([kind]) => kind), ['message', 'tool', 'message']);
     assert.equal(recorded[0][1].role, 'user');
@@ -173,12 +186,12 @@ describe('DeepAgentService compact chat route', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    assert.match(chunks.join(''), /All done/);
+    assert.match(textFromChunks(chunks), /All done/);
     await new Promise((resolve) => setImmediate(resolve));
     const toolCall = recorded.find(([kind]) => kind === 'tool');
     assert.equal(toolCall[1].toolName, 'shell');
@@ -253,7 +266,7 @@ describe('DeepAgentService compact chat route', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
@@ -261,7 +274,7 @@ describe('DeepAgentService compact chat route', () => {
     assert.equal(adapterCalls.length, 1);
     assert.equal(adapterCalls[0].streamVersion, 'auto');
     assert.equal(adapterCalls[0].recursionLimit, Math.max(8, EFFORT_PROFILES.balanced.maxToolCalls * 2));
-    assert.match(chunks.join(''), /All done/);
+    assert.match(textFromChunks(chunks), /All done/);
     assert.deepEqual(tracked.map((item) => item.type), [
       'runtime.run.started',
       'runtime.tool.started',
@@ -375,13 +388,13 @@ describe('DeepAgentService compact chat route', () => {
     (service as any).cachedBasePrompt = 'x'.repeat(20_000);
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('oi', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('oi')) {
       chunks.push(chunk);
     }
 
     assert.equal(deepAgentCalls, 0);
-    assert.match(chunks.join(''), /Posso ajudar/);
+    assert.match(textFromChunks(chunks), /Posso ajudar/);
     assert(capturedMessages.length <= 2, 'compact route should not send history or agent context');
     assert(
       String(capturedMessages[0].content).length < 500,
@@ -422,12 +435,12 @@ describe('DeepAgentService compact chat route', () => {
     (service as any).cachedBasePrompt = 'x'.repeat(20_000);
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('o que vc pode fazer?', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('o que vc pode fazer?')) {
       chunks.push(chunk);
     }
 
-    const output = chunks.join('');
+    const output = textFromChunks(chunks);
     assert.equal(deepAgentCalls, 0);
     assert.match(output, /Posso explicar código/);
     assert.doesNotMatch(output, /list agents|Available Sub-Agents|▶/i);
@@ -893,16 +906,14 @@ describe('DeepAgentService system prompt engineering workflow', () => {
   });
 
   test('tool start output names delegated sub-agents with task description', () => {
-    const service = buildService();
-
-    const output = (service as any).formatToolStart('task', {
+    const summary = getToolInputSummary('task', {
       subagent_type: 'reviewer',
       description: 'Review plan-mode behavior',
     });
 
-    assert.match(output, /agent reviewer/);
-    assert.match(output, /Review plan-mode behavior/);
-    assert.doesNotMatch(output, /subagent_type=reviewer/);
+    assert.match(summary, /agent reviewer/);
+    assert.match(summary, /Review plan-mode behavior/);
+    assert.doesNotMatch(summary, /subagent_type=reviewer/);
   });
 
   test('records delegated task tool calls as agent runs', async () => {
@@ -949,12 +960,14 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    assert.match(chunks.join(''), /agent reviewer/);
+    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
+    assert.ok(started && started.type === 'started');
+    assert.match(getToolInputSummary('task', started.input), /agent reviewer/);
     assert.deepEqual(calls.map(([kind]) => kind), ['create', 'start', 'complete']);
     assert.equal(calls[0][1].agentName, 'reviewer');
     assert.equal(calls[0][1].task, 'Review the proposed patch in parallel');
@@ -1010,13 +1023,16 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    assert.match(chunks.join(''), /agent backend/);
-    assert.match(chunks.join(''), /Inspect runtime implementation/);
+    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
+    assert.ok(started && started.type === 'started');
+    const summary = getToolInputSummary('task', started.input);
+    assert.match(summary, /agent backend/);
+    assert.match(summary, /Inspect runtime implementation/);
     assert.equal(calls[0][1].agentName, 'backend');
     assert.equal(calls[0][1].task, 'Inspect runtime implementation in parallel');
     assert.match(calls[2][2][0].content, /Backend runtime is covered/);
@@ -1080,12 +1096,14 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    assert.match(chunks.join(''), /agent tester/);
+    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
+    assert.ok(started && started.type === 'started');
+    assert.match(getToolInputSummary('task', started.input), /agent tester/);
     assert.equal(calls[0][1].agentName, 'tester');
     assert.equal(calls[0][1].task, 'Inspect observability and test gaps');
     assert.match(calls[2][2][0].content, /Test coverage is acceptable/);
@@ -1211,49 +1229,35 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    assert.match(chunks.join(''), /agent reviewer/);
+    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
+    assert.ok(started && started.type === 'started');
+    assert.match(getToolInputSummary('task', started.input), /agent reviewer/);
     assert.equal(calls[0][1].agentName, 'reviewer');
     assert.equal(calls[0][1].task, 'Review fallback compatibility');
     assert.match(calls[2][2][0].content, /Test coverage is acceptable/);
   });
 
   test('tool start output uses readable labels for skill discovery tools', () => {
-    const service = buildService();
-
-    assert.match(
-      (service as any).formatToolStart('list_skills', {}),
-      /list skills/,
-    );
-    assert.match(
-      (service as any).formatToolStart('read_skill', { name: 'planning' }),
-      /planning/,
-    );
-    assert.match(
-      (service as any).formatToolStart('list_agents', {}),
-      /list agents/,
-    );
-    assert.match(
-      (service as any).formatToolStart('cast_command', { command: '/up' }),
-      /\/up/,
-    );
+    assert.match(getToolInputSummary('list_skills', {}), /available/);
+    assert.match(getToolInputSummary('read_skill', { name: 'planning' }), /planning/);
+    assert.match(getToolInputSummary('list_agents', {}), /available/);
+    assert.match(getToolInputSummary('cast_command', { command: '/up' }), /\/up/);
   });
 
   test('tool end output keeps Cast command results compact in the UI', () => {
-    const service = buildService();
-
-    const output = (service as any).formatToolEnd(
+    const summary = getToolResultSummary(
       'cast_command',
       'Cast command finished: /pr main\n\nOutput:\n! No commits found between feat/cast-platform and main',
     );
 
-    assert.match(output, /output returned to Cast/i);
-    assert.doesNotMatch(output, /No commits found/);
-    assert.doesNotMatch(output, /executed/i);
+    assert.match(summary, /output returned/i);
+    assert.doesNotMatch(summary, /No commits found/);
+    assert.doesNotMatch(summary, /executed/i);
   });
 
   test('drops raw runtime control objects from assistant output', async () => {
@@ -1274,12 +1278,12 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    const output = chunks.join('');
+    const output = textFromChunks(chunks);
     assert.match(output, /Human text/);
     assert.doesNotMatch(output, /lg_name|lc_kwargs|langchain_core/);
   });
@@ -1312,13 +1316,15 @@ describe('DeepAgentService system prompt engineering workflow', () => {
     (service as any).cachedBasePrompt = 'base';
     (service as any).cachedSystemPrompt = (service as any).buildContextualPrompt('run it', false);
 
-    const chunks: string[] = [];
+    const chunks: ChatStreamChunk[] = [];
     for await (const chunk of service.chat('run it')) {
       chunks.push(chunk);
     }
 
-    const output = chunks.join('');
+    const output = textFromChunks(chunks);
+    const completed = toolEventsFromChunks(chunks).find((event) => event.type === 'completed');
     assert.match(output, /Done/);
-    assert.doesNotMatch(output, /lg_name|lc_kwargs|Command/);
+    assert.ok(completed && completed.type === 'completed');
+    assert.doesNotMatch(completed.output || '', /lg_name|lc_kwargs|Command/);
   });
 });
