@@ -48,6 +48,7 @@ export interface ISmartInput {
   beginExternalOutput?(): void;
   endExternalOutput?(): void;
   printExternal(text: string): void;
+  rewriteLinesAbove(lineCount: number, content: string): void;
   writeOutputLine(line: string): void;
   showPrompt(): void;
   enterPassiveMode(): void;
@@ -291,6 +292,28 @@ export class SmartInput implements ISmartInput {
     if (text.length > 0 && !text.endsWith('\n')) {
       process.stdout.write('\r\n');
     }
+    this.render();
+  }
+
+  rewriteLinesAbove(lineCount: number, content: string) {
+    if (lineCount <= 0) {
+      this.printExternal(content);
+      return;
+    }
+
+    const write = (text: string) => process.stdout.write(text);
+    write(`\x1b[${lineCount}A\r`);
+    write('\x1b[0J');
+    write(content);
+    if (content.length > 0 && !content.endsWith('\n') && !content.endsWith('\r\n')) {
+      write('\r\n');
+    }
+
+    if (this.externalOutputActive || this.isPaused || this.mode === 'question') {
+      return;
+    }
+
+    this.clearRenderedBlock();
     this.render();
   }
 
