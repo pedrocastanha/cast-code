@@ -44,10 +44,11 @@ import { ScheduleCommandsService } from '../../scheduler/commands/schedule-comma
 import { SandboxCommandsService } from '../../sandbox/commands/sandbox-commands.service';
 import { BridgeCommandsService } from '../../bridge/commands/bridge-commands.service';
 import { SwarmCommandsService } from '../../swarm/commands/swarm-commands.service';
-import type { BridgeToolCall, BridgeToolResult } from '../../bridge/types/bridge.types';
 import { RuntimeTelemetryProjectorService } from '../../runtime/services/runtime-telemetry-projector.service';
 import type { CastRuntimeEvent } from '../../runtime/types/runtime-event.types';
 import { CommandUiService } from './command-ui.service';
+import { ToolUiService } from './tool-ui.service';
+import type { ChatStreamChunk } from '../../../ui/cast-design/tool-call.types';
 import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
 
 type CastReference = {
@@ -64,6 +65,7 @@ type ReplInputMode = 'request-always' | 'accept-edits' | 'plan';
 @Injectable()
 export class ReplService {
   private readonly ui = new CommandUiService();
+  private toolUi: ToolUiService | null = null;
   private smartInput: SmartInput | null = null;
   private abortController: AbortController | null = null;
   private pendingLines: string[] = [];
@@ -163,6 +165,7 @@ export class ReplService {
       await this.handleLine(msg);
     });
 
+    this.toolUi = this.createToolUi();
     this.smartInput = new SmartInput({
       prompt: `${Colors.cyan}›${Colors.reset} `,
       promptVisibleLen: 2,
@@ -175,6 +178,11 @@ export class ReplService {
       onCancel: () => this.handleCancel(),
       onExit: () => this.handleExit(),
       onCycleMode: () => this.cycleInputMode(),
+      onExpandToolOutput: () => {
+        if (this.getToolUi().expandLast()) {
+          this.smartInput?.refresh();
+        }
+      },
     });
 
     this.permissionService.setPermissionHandler((command, dangerLevel) =>
@@ -917,6 +925,31 @@ export class ReplService {
     process.stdout.write(text);
   }
 
+  private createToolUi(): ToolUiService {
+    return new ToolUiService({
+      write: (text) => this.writeInline(text),
+      rewrite: (lineCount, content) => {
+        if (this.smartInput) {
+          this.smartInput.rewriteLinesAbove(lineCount, content);
+          return;
+        }
+        process.stdout.write(content);
+      },
+      getTerminalWidth: () => process.stdout.columns || 80,
+    });
+  }
+
+  private getToolUi(): ToolUiService {
+    if (!this.toolUi) {
+      this.toolUi = this.createToolUi();
+    }
+    return this.toolUi;
+  }
+
+  private isMetaTextChunk(text: string): boolean {
+    return text.includes('tokens:') || text.includes('conversation compacted');
+  }
+
   private async handleCommand(command: string): Promise<void> {
     const parts = command.slice(1).split(/\s+/);
     const cmd = parts[0].toLowerCase();
@@ -1168,6 +1201,7 @@ export class ReplService {
     };
 
     try {
+      this.getToolUi().reset();
       this.startSpinner(`${providerLabel} thinking`);
       const bridgeOutput = await this.bridgeCommands!.runPrompt(message, process.cwd(), {
         onOutputChunk: (chunk) => {
@@ -1182,13 +1216,32 @@ export class ReplService {
           this.stopSpinner();
           flushOutput();
           writeHeader();
-          process.stdout.write(this.formatBridgeToolStart(call));
+          this.getToolUi().handle({
+            type: 'started',
+            toolName: call.name,
+            callId: call.id,
+            input: call.arguments,
+          });
           this.updateSpinner(`Bridge tool ${call.name}`);
         },
         onToolResult: (result) => {
           this.stopSpinner();
           writeHeader();
-          process.stdout.write(this.formatBridgeToolResult(result));
+          if (result.status === 'ok') {
+            this.getToolUi().handle({
+              type: 'completed',
+              toolName: result.name,
+              callId: result.id,
+              output: result.content || '',
+            });
+          } else {
+            this.getToolUi().handle({
+              type: 'failed',
+              toolName: result.name,
+              callId: result.id,
+              message: result.error || 'Tool failed',
+            });
+          }
           this.updateSpinner(`${providerLabel} thinking`);
         },
         onRuntimeEvent: (event: CastRuntimeEvent) => {
@@ -1222,100 +1275,6 @@ export class ReplService {
         this.smartInput?.endExternalOutput?.();
       }
     }
-  }
-
-  private formatBridgeToolStart(call: BridgeToolCall): string {
-    const label = call.name.replace(/_/g, ' ');
-    const detail = this.getBridgeToolDetail(call);
-    return `${Colors.dim}  ▶ ${Colors.reset}${Colors.dim}${Colors.cyan}${label}${Colors.reset}${Colors.dim}${detail}${Colors.reset}\r\n`;
-  }
-
-  private formatBridgeToolResult(result: BridgeToolResult): string {
-    const ok = result.status === 'ok';
-    const icon = ok ? Icons.check : Icons.cross;
-    const color = ok ? Colors.green : Colors.red;
-    const summary = ok
-      ? this.summarizeBridgeToolContent(result.content || '')
-      : this.truncateBridgeToolText(result.error || 'Tool failed', 120);
-    return `${Colors.dim}    ${color}${icon}${Colors.reset}${Colors.dim} ${result.name} ${ok ? 'ok' : 'error'}${summary ? ` - ${summary}` : ''}${Colors.reset}\r\n`;
-  }
-
-  private getBridgeToolDetail(call: BridgeToolCall): string {
-    const input = call.arguments || {};
-    const fromKeys = (...keys: string[]): string => {
-      for (const key of keys) {
-        const value = input[key];
-        if (value !== undefined && value !== null && String(value).trim()) {
-          return String(value);
-        }
-      }
-      return '';
-    };
-
-    switch (call.name) {
-    case 'read_file':
-    case 'write_file':
-    case 'edit_file':
-      return this.formatBridgeToolDetailValue(fromKeys('file_path', 'path', 'file', 'filename'));
-    case 'glob':
-      return this.formatBridgeToolDetailValue(fromKeys('pattern'));
-    case 'grep':
-      return this.formatBridgeToolDetailValue(fromKeys('pattern', 'query'));
-    case 'ls':
-      return this.formatBridgeToolDetailValue(fromKeys('directory', 'path'));
-    case 'shell':
-    case 'shell_background':
-      return this.formatBridgeToolDetailValue(fromKeys('command'), 100);
-    case 'read_skill':
-    case 'skill_view':
-      return this.formatBridgeToolDetailValue(fromKeys('name', 'skill'));
-    case 'list_skill_files':
-      return this.formatBridgeToolDetailValue(fromKeys('name', 'skill'));
-    case 'task_create':
-      return this.formatBridgeToolDetailValue(fromKeys('title', 'name'));
-    case 'task_update':
-    case 'task_get':
-      return this.formatBridgeToolDetailValue(fromKeys('id', 'taskId'));
-    case 'memory_read':
-    case 'memory_search':
-    case 'rag_search':
-      return this.formatBridgeToolDetailValue(fromKeys('query', 'key'));
-    case 'memory_write':
-      return this.formatBridgeToolDetailValue(fromKeys('filename', 'key', 'title'));
-    case 'cast_command':
-      return this.formatBridgeToolDetailValue(fromKeys('command'));
-    default: {
-      const firstKey = Object.keys(input)[0];
-      if (!firstKey) {
-        return '';
-      }
-      return this.formatBridgeToolDetailValue(`${firstKey}=${String(input[firstKey])}`);
-    }
-    }
-  }
-
-  private formatBridgeToolDetailValue(value: string, maxLength = 80): string {
-    const trimmed = value.trim();
-    return trimmed ? ` ${this.truncateBridgeToolText(trimmed, maxLength)}` : '';
-  }
-
-  private summarizeBridgeToolContent(content: string): string {
-    if (!content) {
-      return '';
-    }
-
-    const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
-    const bytes = Buffer.byteLength(content, 'utf-8');
-    if (lines.length > 1 || bytes > 240) {
-      const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
-      return `${lines.length} lines, ${size}`;
-    }
-    return this.truncateBridgeToolText(lines[0] || content, 120);
-  }
-
-  private truncateBridgeToolText(value: string, maxLength: number): string {
-    const clean = stripAnsi(value).replace(/\s+/g, ' ').trim();
-    return clean.length > maxLength ? `${clean.slice(0, Math.max(0, maxLength - 3))}...` : clean;
   }
 
   private async autostartBridgeIfConfigured(): Promise<void> {
@@ -1411,6 +1370,7 @@ export class ReplService {
         this.writeInline('\r\n');
       }
 
+      this.getToolUi().reset();
       this.startSpinner('Thinking');
 
       let firstChunk = true;
@@ -1454,63 +1414,44 @@ export class ReplService {
         textBuffer = '';
       };
 
-      const toolLabel = (chunk: string): string | null => {
-        const plain = stripAnsi(chunk);
-        if (plain.includes('▶ read file') || plain.includes('▶ read_file')) return 'Reading';
-        if (plain.includes('▶ write file') || plain.includes('▶ write_file')) return 'Writing';
-        if (plain.includes('▶ edit file') || plain.includes('▶ edit_file')) return 'Editing';
-        if (plain.includes('▶ shell')) return 'Running';
-        if (plain.includes('▶ glob') || plain.includes('▶ grep') || plain.includes('▶ ls')) return 'Searching';
-        if (plain.includes('▶ web search') || plain.includes('▶ web_search')) return 'Searching web';
-        if (plain.includes('▶ web fetch') || plain.includes('▶ web_fetch')) return 'Fetching';
-        if (plain.includes('▶ rag search') || plain.includes('▶ rag_search')) return 'RAG';
-        if (plain.includes('▶ memory')) return 'Memory';
-        if (plain.includes('▶ cast command') || plain.includes('▶ cast_command')) return 'Cast command';
-        if (plain.includes('▶ task')) return 'Tasks';
-        if (plain.includes('▶')) return 'Working';
-        return null;
-      };
-
-      const isMetaOutput = (chunk: string): boolean =>
-        chunk.includes('tokens:') || chunk.includes('conversation compacted');
-
-      const isToolResultChunk = (chunk: string): boolean =>
-        chunk.startsWith('\x1b[2m') || (chunk.startsWith('\n\x1b') && !chunk.includes('▶'));
-
-      for await (const chunk of this.deepAgent.chat(mentionResult.expandedMessage)) {
-        if (this.abortController?.signal.aborted) break;
-
-        const newLabel = toolLabel(chunk);
-        if (newLabel) {
-          this.updateSpinner(newLabel);
-        }
-
-        const isMeta = isMetaOutput(chunk);
-        const isToolChunk = newLabel !== null;
-
-        if (isToolChunk) {
+      const handleStreamChunk = (chunk: ChatStreamChunk) => {
+        if (chunk.kind === 'tool') {
           endTextMode();
           flushTextBuffer();
-          this.writeInline(chunk);
+          const spinnerLabel = this.getToolUi().getSpinnerLabel(chunk.event);
+          if (spinnerLabel) {
+            this.updateSpinner(spinnerLabel);
+          }
+          this.getToolUi().handle(chunk.event);
           if (firstChunk && !hasToolOutput) {
             this.startSpinner('Working');
             hasToolOutput = true;
           }
-        } else if (isMeta || isToolResultChunk(chunk)) {
+          return;
+        }
+
+        const text = chunk.text;
+        if (this.isMetaTextChunk(text)) {
           endTextMode();
           flushTextBuffer();
-          this.writeInline(chunk);
-        } else {
-          if (firstChunk) {
-            this.stopSpinner();
-            firstChunk = false;
-          }
-          startTextMode();
-          textBuffer += chunk;
-          if (this.shouldFlushStreamText(textBuffer)) {
-            flushTextBuffer();
-          }
+          this.writeInline(text);
+          return;
         }
+
+        if (firstChunk) {
+          this.stopSpinner();
+          firstChunk = false;
+        }
+        startTextMode();
+        textBuffer += text;
+        if (this.shouldFlushStreamText(textBuffer)) {
+          flushTextBuffer();
+        }
+      };
+
+      for await (const chunk of this.deepAgent.chat(mentionResult.expandedMessage)) {
+        if (this.abortController?.signal.aborted) break;
+        handleStreamChunk(chunk);
       }
 
       if (!firstChunk) {
@@ -1751,6 +1692,10 @@ export class ReplService {
     }
 
     parts.push(`${Colors.dim}${mode === 'full' ? 'Tab queue' : 'Tab'}${Colors.reset}`);
+
+    if (this.toolUi?.hasExpandable()) {
+      parts.push(`${Colors.dim}Ctrl+O expand tool${Colors.reset}`);
+    }
 
     if (this.pendingLines.length > 0) {
       parts.push(`${Colors.magenta}queue ${this.pendingLines.length}${Colors.reset}`);

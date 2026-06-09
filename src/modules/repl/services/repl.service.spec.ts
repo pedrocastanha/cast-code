@@ -324,21 +324,25 @@ describe('ReplService', () => {
         },
       },
     });
+    const printed: string[] = [];
     (service as any).smartInput = {
       refresh: () => {},
       beginExternalOutput: () => {},
       endExternalOutput: () => {},
       writeOutputLine: () => {},
+      printExternal: (value: string) => printed.push(stripAnsi(value)),
+      rewriteLinesAbove: (_lineCount: number, value: string) => printed.push(stripAnsi(value)),
     };
 
     const { output } = await captureStdoutAsync(async () => {
       await (service as any).processLine('le package');
     });
 
-    const plain = stripAnsi(output);
+    const plain = stripAnsi(output) + printed.join('');
     assert.match(plain, /Claude CLI/);
-    assert.match(plain, /▶ read file package\.json/);
-    assert.match(plain, /✓ read_file ok - 2 lines,/);
+    assert.match(plain, /╭─ Read/);
+    assert.match(plain, /package\.json/);
+    assert.match(plain, /✓/);
     assert.match(plain, /Bridge final answer/);
   });
 
@@ -1254,14 +1258,14 @@ describe('ReplService', () => {
         reinitializeModel: async () => {},
         getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
         chat: async function* () {
-          yield 'O';
-          yield 'l';
-          yield 'á';
-          yield '!';
-          yield ' Como';
-          yield ' posso';
-          yield ' ajudar?';
-          yield '\n\x1b[2m  ─ in: 8 | out: 12\x1b[0m\n';
+          yield { kind: 'text', text: 'O' };
+          yield { kind: 'text', text: 'l' };
+          yield { kind: 'text', text: 'á' };
+          yield { kind: 'text', text: '!' };
+          yield { kind: 'text', text: ' Como' };
+          yield { kind: 'text', text: ' posso' };
+          yield { kind: 'text', text: ' ajudar?' };
+          yield { kind: 'text', text: '\n\x1b[2m  ─ in: 8 | out: 12\x1b[0m\n' };
         },
       },
       mentionsService: {
@@ -1282,6 +1286,7 @@ describe('ReplService', () => {
         beginExternalOutput: () => { beginExternalOutputCalls += 1; },
         endExternalOutput: () => { endExternalOutputCalls += 1; },
         printExternal: (value: string) => writes.push(value),
+        rewriteLinesAbove: (_lineCount: number, value: string) => writes.push(value),
         writeOutputLine: (value: string) => outputLines.push(value),
       };
 
@@ -1353,9 +1358,25 @@ describe('ReplService', () => {
         reinitializeModel: async () => {},
         getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
         chat: async function* () {
-          yield '\n\x1b[2m  ▶ \x1b[0m\x1b[2m\x1b[38;5;45mcast command\x1b[0m\x1b[2m /up\x1b[0m\n';
-          yield '\x1b[2m    \x1b[32m✓\x1b[0m\x1b[2m Cast command executed: /up\x1b[0m\n';
-          yield 'Realizei o comando /up.';
+          yield {
+            kind: 'tool',
+            event: {
+              type: 'started',
+              toolName: 'cast_command',
+              callId: 'tool-1',
+              input: { command: '/up' },
+            },
+          };
+          yield {
+            kind: 'tool',
+            event: {
+              type: 'completed',
+              toolName: 'cast_command',
+              callId: 'tool-1',
+              output: 'Cast command executed: /up',
+            },
+          };
+          yield { kind: 'text', text: 'Realizei o comando /up.' };
         },
       },
       mentionsService: {
@@ -1376,12 +1397,14 @@ describe('ReplService', () => {
         beginExternalOutput: () => { events.push('begin'); },
         endExternalOutput: () => { events.push('end'); },
         printExternal: (value: string) => events.push(`print:${stripAnsi(value)}`),
+        rewriteLinesAbove: (_lineCount: number, value: string) => events.push(`rewrite:${stripAnsi(value)}`),
         writeOutputLine: (value: string) => outputLines.push(value),
       };
 
       await (service as any).handleMessage('man, vc pode usar o /up?');
 
-      const toolPrintIndex = events.findIndex((event) => event.startsWith('print:') && event.includes('▶ cast command /up'));
+      const toolPrintIndex = events.findIndex((event) =>
+        (event.startsWith('print:') || event.startsWith('rewrite:')) && event.includes('/up'));
       const beginIndex = events.indexOf('begin');
       const finalTextIndex = events.findIndex((event) => event.startsWith('stdout:') && event.includes('Realizei o comando /up.'));
       const castHeaderPrint = events.find((event) => event.startsWith('print:') && /^\s*print:\s*Cast\s*$/m.test(event));
@@ -1405,10 +1428,26 @@ describe('ReplService', () => {
         reinitializeModel: async () => {},
         getSessionTokenUsage: () => ({ input: 0, output: 0, cachedInput: 0 }),
         chat: async function* () {
-          yield 'Vou rodar o comando.';
-          yield '\n\x1b[2m  ▶ \x1b[0m\x1b[2m\x1b[38;5;45mcast command\x1b[0m\x1b[2m /pr main\x1b[0m\n';
-          yield '\x1b[2m    \x1b[32m✓\x1b[0m\x1b[2m Output returned to Cast\x1b[0m\n';
-          yield 'Nao criei a PR porque nao havia commits.';
+          yield { kind: 'text', text: 'Vou rodar o comando.' };
+          yield {
+            kind: 'tool',
+            event: {
+              type: 'started',
+              toolName: 'cast_command',
+              callId: 'tool-1',
+              input: { command: '/pr main' },
+            },
+          };
+          yield {
+            kind: 'tool',
+            event: {
+              type: 'completed',
+              toolName: 'cast_command',
+              callId: 'tool-1',
+              output: 'Output returned to Cast',
+            },
+          };
+          yield { kind: 'text', text: 'Nao criei a PR porque nao havia commits.' };
         },
       },
       mentionsService: {
@@ -1429,6 +1468,7 @@ describe('ReplService', () => {
         beginExternalOutput: () => { events.push('begin'); },
         endExternalOutput: () => { events.push('end'); },
         printExternal: (value: string) => events.push(`print:${stripAnsi(value)}`),
+        rewriteLinesAbove: (_lineCount: number, value: string) => events.push(`rewrite:${stripAnsi(value)}`),
         writeOutputLine: () => {},
       };
 
