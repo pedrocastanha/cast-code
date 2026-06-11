@@ -25,12 +25,11 @@ export class MultilineBuffer {
   }
 
   getLines(): readonly string[] {
-    return this.lines;
+    return [...this.lines];
   }
 
   setText(text: string): void {
     this.lines = text.split('\n');
-    if (this.lines.length === 0) this.lines = [''];
     this.row = this.lines.length - 1;
     this.col = this.lines[this.row].length;
   }
@@ -94,7 +93,7 @@ export class MultilineBuffer {
 
   deleteWordBack(): void {
     const before = this.lines[this.row].slice(0, this.col);
-    const match = before.match(/\S+\s*$/);
+    const match = before.match(/\S+\s*$/) ?? before.match(/\s+$/);
     if (match) {
       const len = match[0].length;
       const line = this.lines[this.row];

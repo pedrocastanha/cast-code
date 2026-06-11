@@ -114,4 +114,28 @@ describe('MultilineBuffer', () => {
     assert.deepEqual(b.cursor, { row: 0, col: 0 });
     assert.equal(b.lineCount, 1);
   });
+
+  test('deleteWordBack deletes whitespace-only prefix', () => {
+    const b = new MultilineBuffer();
+    b.insert('   ');
+    b.deleteWordBack();
+    assert.equal(b.text, '');
+  });
+
+  test('deleteForward keeps cursor in place after joining lines', () => {
+    const b = new MultilineBuffer();
+    b.insert('ab\ncd');
+    b.moveToStart();
+    b.moveEnd();
+    b.deleteForward();
+    assert.deepEqual(b.cursor, { row: 0, col: 2 });
+  });
+
+  test('getLines returns a copy, not a live reference', () => {
+    const b = new MultilineBuffer();
+    b.insert('a');
+    const lines = b.getLines();
+    b.insert('b');
+    assert.deepEqual([...lines], ['a']);
+  });
 });
