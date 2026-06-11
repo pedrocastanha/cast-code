@@ -1430,6 +1430,11 @@ export class ReplService {
           return;
         }
 
+        if (chunk.kind === 'agent') {
+          // Agent event handling will be implemented in a later task
+          return;
+        }
+
         const text = chunk.text;
         if (this.isMetaTextChunk(text)) {
           endTextMode();
