@@ -120,3 +120,57 @@ describe('BranchSplitService.normalizeGroupSizes', () => {
     assert.equal(result.length, 2);
   });
 });
+
+describe('BranchSplitService.createBranches', () => {
+  test('creates one branch per group from merge-base containing only its files', () => {
+    const dir = makeFixtureRepo(8); // 8 new files + base.txt modified = 9
+    const service = makeService();
+    const analysis = service.analyzeDiff('main', dir);
+    const groups: BranchSplitGroup[] = [
+      { name: 'auth', responsibility: 'auth files', commit: 'feat: auth files',
+        files: analysis.files.filter((f) => f.path.startsWith('src/auth/')).map((f) => f.path) },
+      { name: 'rest', responsibility: 'everything else', commit: 'feat: rest',
+        files: analysis.files.filter((f) => !f.path.startsWith('src/auth/')).map((f) => f.path) },
+    ];
+
+    const created = service.createBranches(analysis, groups, dir);
+
+    assert.equal(created.length, 2);
+    assert.equal(created[0].branch, 'feature--split/1-auth');
+    const diff = git(dir, `diff --name-only ${analysis.base}..feature--split/1-auth`).split('\n').filter(Boolean);
+    assert.deepEqual(diff.sort(), [...groups[0].files].sort());
+    assert.equal(git(dir, 'branch --show-current').trim(), 'feature');
+    assert.equal(git(dir, 'rev-parse HEAD').trim(), analysis.headSha);
+    assert.ok(!git(dir, 'worktree list').includes('branch-split-wt'));
+  });
+
+  test('handles deletions', () => {
+    const dir = makeFixtureRepo(5);
+    git(dir, 'rm -q base.txt');
+    git(dir, 'commit -qm "remove base"');
+    const service = makeService();
+    const analysis = service.analyzeDiff('main', dir);
+    const groups: BranchSplitGroup[] = [
+      { name: 'all', responsibility: 'all', commit: 'feat: all', files: analysis.files.map((f) => f.path) },
+    ];
+    const created = service.createBranches(analysis, groups, dir);
+    const lsTree = git(dir, `ls-tree -r --name-only ${created[0].branch}`);
+    assert.ok(!lsTree.includes('base.txt'));
+  });
+
+  test('refuses when split branches already exist without force', () => {
+    const dir = makeFixtureRepo(5);
+    git(dir, 'branch feature--split/1-old');
+    const service = makeService();
+    const analysis = service.analyzeDiff('main', dir);
+    assert.throws(
+      () => service.createBranches(analysis, [{ name: 'x', responsibility: 'x', commit: 'c', files: ['base.txt'] }], dir),
+      /already exist/i,
+    );
+    const created = service.createBranches(
+      analysis, [{ name: 'x', responsibility: 'x', commit: 'feat: x', files: ['base.txt'] }], dir, { force: true },
+    );
+    assert.equal(created.length, 1);
+    assert.ok(!git(dir, 'branch --list "feature--split/*"').includes('1-old'));
+  });
+});
