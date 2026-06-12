@@ -200,3 +200,50 @@ describe('BranchSplitService.writeArtifacts', () => {
     assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8'), /\.branches\//);
   });
 });
+
+function installFakeGh(dir: string, log: string): string {
+  const binDir = path.join(dir, 'fakebin');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(path.join(binDir, 'gh'), [
+    '#!/bin/sh',
+    `echo "$@" >> "${log}"`,
+    'case "$1 $2" in',
+    '  "auth status") exit 0 ;;',
+    '  "pr list") echo "[]" ;;',
+    '  "pr create") echo "https://github.com/o/r/pull/7" ;;',
+    'esac',
+    'exit 0',
+  ].join('\n'), { mode: 0o755 });
+  fs.writeFileSync(path.join(binDir, 'git'), `#!/bin/sh\necho "git $@" >> "${log}"\nexit 0\n`, { mode: 0o755 });
+  return binDir;
+}
+
+describe('BranchSplitService.createPullRequests', () => {
+  test('pushes branches and opens PRs from the manifest, recording URLs', async () => {
+    const dir = makeFixtureRepo(5);
+    const service = makeService();
+    const analysis = service.analyzeDiff('main', dir);
+    const created = service.createBranches(analysis, [
+      { name: 'all', responsibility: 'all', commit: 'feat: all', files: analysis.files.map((f) => f.path) },
+    ], dir);
+    service.writeArtifacts(analysis, created, [{ title: 'feat: all', description: 'd' }], dir);
+
+    const log = path.join(dir, 'gh.log');
+    const binDir = installFakeGh(dir, log);
+    const result = await service.createPullRequests(dir, { env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` } });
+
+    assert.equal(result.created.length, 1);
+    assert.equal(result.failed.length, 0);
+    assert.equal(result.created[0].prUrl, 'https://github.com/o/r/pull/7');
+    const logged = fs.readFileSync(log, 'utf-8');
+    assert.match(logged, /pr create --base feature --head feature--split\/1-all/);
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, '.branches', 'manifest.json'), 'utf-8'));
+    assert.equal(manifest.branches[0].prUrl, 'https://github.com/o/r/pull/7');
+  });
+
+  test('fails fast without a manifest', async () => {
+    const dir = makeFixtureRepo(2);
+    const service = makeService();
+    await assert.rejects(() => service.createPullRequests(dir), /branch-split first/i);
+  });
+});
