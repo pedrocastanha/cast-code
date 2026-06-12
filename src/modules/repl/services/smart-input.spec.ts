@@ -1,19 +1,26 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { stripAnsi, visibleWidth } from '../../../ui/cast-design/cli-renderer';
-import { Colors } from '../utils/theme';
+import { stripAnsi } from '../../../ui/cast-design/cli-renderer';
+import { LiveRegionCompositor } from '../../../ui/live-region/compositor';
 import { SmartInput, type SmartInputOptions } from './smart-input';
 
-const buildInput = (overrides: Partial<SmartInputOptions> = {}) => new SmartInput({
-  prompt: '› ',
-  promptVisibleLen: 2,
-  getCommandSuggestions: () => [],
-  getMentionSuggestions: () => [],
-  onSubmit: () => {},
-  onCancel: () => {},
-  onExit: () => {},
-  ...overrides,
-});
+const buildInput = (overrides: Partial<SmartInputOptions> = {}) => {
+  const compositor = new LiveRegionCompositor({
+    write: () => {},
+    isTTY: false,
+    columns: 80,
+  });
+  const input = new SmartInput({
+    compositor,
+    getCommandSuggestions: () => [],
+    getMentionSuggestions: () => [],
+    onSubmit: () => {},
+    onCancel: () => {},
+    onExit: () => {},
+    ...overrides,
+  });
+  return { input, compositor };
+};
 
 function captureStdout(run: () => void): string {
   const originalWrite = process.stdout.write;
@@ -31,97 +38,18 @@ function captureStdout(run: () => void): string {
   }
 }
 
-describe('SmartInput render layout', () => {
-  test('renders the prompt row as a full-width highlighted input band', () => {
-    const input = buildInput({
-      getFooterLines: () => ['tab to queue message'],
+describe('SmartInput buffer + suggestions', () => {
+  test('typing characters fills the multiline buffer', () => {
+    const { input } = buildInput();
+    captureStdout(() => {
+      (input as any).handleData('hello');
     });
-    (input as any).terminalWidth = 24;
-    (input as any).buffer = '[Image #1]';
-    (input as any).cursor = '[Image #1]'.length;
-
-    const output = captureStdout(() => {
-      (input as any).render();
-    });
-
-    assert.match(output, /\x1b\[48;2;48;25;40m/);
-    assert.match(
-      output,
-      /\x1b\[48;2;48;25;40m\x1b\[38;5;250m {24}\x1b\[0m\r\n.*› \[Image #1\] {12}\x1b\[0m\r\n\x1b\[48;2;48;25;40m\x1b\[38;5;250m {24}\x1b\[0m\x1b\[J\r\ntab to queue message/,
-    );
-  });
-
-  test('shows a dim placeholder when the input is empty', () => {
-    const input = buildInput({
-      placeholder: 'Ask Cast anything...',
-    });
-    (input as any).terminalWidth = 40;
-
-    const output = captureStdout(() => {
-      (input as any).render();
-    });
-
-    assert.match(stripAnsi(output), /›  Ask Cast anything\.\.\./);
-    assert.match(output, /\x1b\[2mAsk Cast anything\.\.\./);
-  });
-
-  test('keeps the input band active after ANSI resets in the prompt', () => {
-    const input = buildInput({
-      prompt: `${Colors.cyan}›${Colors.reset} `,
-      promptVisibleLen: 2,
-    });
-    (input as any).terminalWidth = 16;
-
-    const output = captureStdout(() => {
-      (input as any).render();
-    });
-
-    assert.match(
-      output,
-      /\x1b\[38;5;45m›\x1b\[0m\x1b\[48;2;48;25;40m\x1b\[38;5;250m/,
-      'background should be restored after the colored prompt resets ANSI styles',
-    );
-  });
-
-  test('hard-wraps long input before rendering footer lines', () => {
-    const input = buildInput({
-      getFooterLines: () => ['footer'],
-    });
-    (input as any).terminalWidth = 10;
-    (input as any).buffer = 'aaaaaaaaaa';
-    (input as any).cursor = 10;
-
-    const output = captureStdout(() => {
-      (input as any).render();
-    });
-
-    assert.match(
-      output,
-      /\x1b\[48;2;48;25;40m\x1b\[38;5;250m {10}\x1b\[0m\r\n.*› aaaaaaaa\x1b\[0m\r\n\x1b\[48;2;48;25;40m\x1b\[38;5;250maa {8}\x1b\[0m\r\n\x1b\[48;2;48;25;40m\x1b\[38;5;250m {10}\x1b\[0m\x1b\[J\r\nfooter/,
-      'input rows should be physically separated before footer is drawn',
-    );
-  });
-
-  test('moves back over wrapped footer rows before placing the input cursor', () => {
-    const input = buildInput({
-      getFooterLines: () => ['1234567890123456789012345'],
-    });
-    (input as any).terminalWidth = 10;
-
-    const output = captureStdout(() => {
-      (input as any).render();
-    });
-
-    assert.match(
-      output,
-      /\x1b\[3A\x1b\[1A\x1b\[3G$/,
-      'footer wraps to three visual rows, then cursor restore moves over the input padding row',
-    );
+    assert.equal((input as any).inputBox.buffer.text, 'hello');
   });
 
   test('shift-tab invokes the mode cycle handler without editing the buffer', () => {
     let cycles = 0;
-    const input = buildInput({
+    const { input } = buildInput({
       onCycleMode: () => {
         cycles += 1;
       },
@@ -132,11 +60,11 @@ describe('SmartInput render layout', () => {
     });
 
     assert.equal(cycles, 1);
-    assert.equal((input as any).buffer, '');
+    assert.equal((input as any).inputBox.buffer.text, '');
   });
 
   test('shows dollar-reference suggestions and accepts the selected token', () => {
-    const input = buildInput();
+    const { input } = buildInput();
     ((input as any).opts as any).getReferenceSuggestions = (partial: string) => [
       { text: `$frontend${partial}`, display: `$frontend${partial}`, description: 'agent - UI work' },
     ];
@@ -154,39 +82,72 @@ describe('SmartInput render layout', () => {
       (input as any).handleData('\t');
     });
 
-    assert.equal((input as any).buffer, 'Use $frontend');
-    assert.equal((input as any).cursor, 'Use $frontend'.length);
+    assert.equal((input as any).inputBox.buffer.text, 'Use $frontend');
   });
 
-  test('truncates long suggestion descriptions to the terminal width', () => {
-    const input = buildInput();
-    (input as any).terminalWidth = 28;
-    (input as any).suggestions = [
-      {
-        text: '$frontend',
-        display: '$frontend',
-        description: 'agent - Frontend specialist for UI implementation with a very long capability summary',
-      },
-    ];
-
-    const output = captureStdout(() => {
-      (input as any).render();
+  test('computes command suggestions from a slash prefix', () => {
+    const { input } = buildInput({
+      getCommandSuggestions: (value) =>
+        value.startsWith('/he')
+          ? [{ text: '/help', display: '/help', description: 'show help' }]
+          : [],
     });
 
-    const visibleLines = stripAnsi(output)
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0);
+    captureStdout(() => {
+      (input as any).handleData('/he');
+    });
 
-    assert(
-      visibleLines.every((line) => visibleWidth(line) <= 28),
-      `all suggestion lines should fit the terminal width:\n${visibleLines.join('\n')}`,
+    assert.deepEqual(
+      (input as any).suggestions.map((s: { text: string }) => s.text),
+      ['/help'],
     );
+  });
+
+  test('backslash continuation inserts a newline instead of submitting', () => {
+    let submitted: string | null = null;
+    const { input } = buildInput({ onSubmit: (line) => { submitted = line; } });
+
+    captureStdout(() => {
+      (input as any).handleData('foo\\');
+      (input as any).handleData('\r');
+      (input as any).handleData('bar');
+    });
+
+    assert.equal(submitted, null);
+    assert.equal((input as any).inputBox.buffer.text, 'foo\nbar');
+  });
+
+  test('enter submits and echoes the trimmed line into scrollback', () => {
+    let submitted: string | null = null;
+    const writes: string[] = [];
+    const compositor = new LiveRegionCompositor({
+      write: (s) => writes.push(s),
+      isTTY: false,
+      columns: 80,
+    });
+    const input = new SmartInput({
+      compositor,
+      getCommandSuggestions: () => [],
+      getMentionSuggestions: () => [],
+      onSubmit: (line) => { submitted = line; },
+      onCancel: () => {},
+      onExit: () => {},
+    });
+
+    captureStdout(() => {
+      (input as any).handleData('hi there');
+      (input as any).handleData('\r');
+    });
+
+    assert.equal(submitted, 'hi there');
+    assert.equal((input as any).inputBox.buffer.text, '');
+    assert.match(stripAnsi(writes.join('')), /› hi there/);
   });
 });
 
 describe('SmartInput choice menu', () => {
   test('arrow down and enter select the highlighted choice', async () => {
-    const input = buildInput();
+    const { input } = buildInput();
     const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
     const originalWrite = process.stdout.write;
@@ -219,7 +180,7 @@ describe('SmartInput choice menu', () => {
   });
 
   test('tab resolves the highlighted choice alternate action', async () => {
-    const input = buildInput();
+    const { input } = buildInput();
     const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
     const originalWrite = process.stdout.write;
@@ -262,7 +223,7 @@ describe('SmartInput choice menu', () => {
   });
 
   test('accepts choices after input was paused for an external prompt', async () => {
-    const input = buildInput();
+    const { input } = buildInput();
     const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
     const originalWrite = process.stdout.write;
@@ -305,7 +266,7 @@ describe('SmartInput choice menu', () => {
   });
 
   test('accepts y/n shortcuts when choice keys match', async () => {
-    const input = buildInput();
+    const { input } = buildInput();
     const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
     const originalWrite = process.stdout.write;
@@ -340,7 +301,7 @@ describe('SmartInput choice menu', () => {
   });
 
   test('renders selected choice without an extra blank line after confirmation', async () => {
-    const input = buildInput();
+    const { input } = buildInput();
     const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
     const originalWrite = process.stdout.write;
@@ -381,7 +342,7 @@ describe('SmartInput choice menu', () => {
   });
 
   test('q resolves as cancellation instead of a selectable command', async () => {
-    const input = buildInput();
+    const { input } = buildInput();
     const originalStdinTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const originalStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
     const originalWrite = process.stdout.write;

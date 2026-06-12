@@ -11,6 +11,7 @@ import { AgentRegistryService } from '../../agents/services/agent-registry.servi
 import { SkillRegistryService } from '../../skills/services/skill-registry.service';
 import { PlanModeService } from '../../core/services/plan-mode.service';
 import { SmartInput, type Suggestion } from './smart-input';
+import { LiveRegionCompositor } from '../../../ui/live-region/compositor';
 import { WelcomeScreenService } from './welcome-screen.service';
 import { ReplCommandsService } from './commands/repl-commands.service';
 import { GitCommandsService } from './commands/git-commands.service';
@@ -67,6 +68,7 @@ export class ReplService {
   private readonly ui = new CommandUiService();
   private toolUi: ToolUiService | null = null;
   private smartInput: SmartInput | null = null;
+  private compositor!: LiveRegionCompositor;
   private abortController: AbortController | null = null;
   private pendingLines: string[] = [];
   private isProcessing = false;
@@ -166,9 +168,14 @@ export class ReplService {
     });
 
     this.toolUi = this.createToolUi();
+    const compositor = new LiveRegionCompositor({
+      write: (s: string) => process.stdout.write(s),
+      get columns() { return process.stdout.columns || 80; },
+      get isTTY() { return Boolean(process.stdout.isTTY); },
+    });
+    this.compositor = compositor;
     this.smartInput = new SmartInput({
-      prompt: `${Colors.cyan}›${Colors.reset} `,
-      promptVisibleLen: 2,
+      compositor,
       getCommandSuggestions: (input) => this.getCommandSuggestions(input),
       getMentionSuggestions: (partial) => this.getMentionSuggestions(partial),
       getReferenceSuggestions: (partial) => this.getReferenceSuggestions(partial),

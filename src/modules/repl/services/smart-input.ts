@@ -2,7 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Colors } from '../utils/theme';
-import { truncateVisible, visibleWidth } from '../../../ui/cast-design/cli-renderer';
+import { visibleWidth } from '../../../ui/cast-design/cli-renderer';
+import { KeyDecoder } from '../../../ui/live-region/key-decoder';
+import { InputBoxBlock } from '../../../ui/live-region/input-box-block';
+import { FooterBlock } from '../../../ui/live-region/footer-block';
+import type { LiveRegionCompositor } from '../../../ui/live-region/compositor';
 
 const HISTORY_FILE = path.join(os.homedir(), '.cast', 'history');
 const MAX_HISTORY = 500;
@@ -10,7 +14,12 @@ const MAX_HISTORY = 500;
 function loadHistory(): string[] {
   try {
     const content = fs.readFileSync(HISTORY_FILE, 'utf-8');
-    return content.split('\n').filter(Boolean).reverse().slice(0, MAX_HISTORY);
+    return content
+      .split('\n')
+      .filter(Boolean)
+      .reverse()
+      .slice(0, MAX_HISTORY)
+      .map((l) => l.replace(/\\n/g, '\n'));
   } catch {
     return [];
   }
@@ -53,16 +62,16 @@ export interface ISmartInput {
   showPrompt(): void;
   enterPassiveMode(): void;
   exitPassiveMode(): void;
+  setFooterStatus(status: { mode: string; model: string; hints: string[] }): void;
 }
 
 export interface SmartInputOptions {
-  prompt: string;
-  promptVisibleLen: number;
   getCommandSuggestions: (input: string) => Suggestion[];
   getMentionSuggestions: (partial: string) => Suggestion[];
   getReferenceSuggestions?: (partial: string) => Suggestion[];
   getFooterLines?: () => string[];
   placeholder?: string;
+  compositor: LiveRegionCompositor;
   onSubmit: (line: string) => void;
   onCancel: () => void;
   onExit: () => void;
@@ -71,8 +80,10 @@ export interface SmartInputOptions {
 }
 
 export class SmartInput implements ISmartInput {
-  private buffer = '';
-  private cursor = 0;
+  private readonly decoder = new KeyDecoder();
+  private readonly inputBox: InputBoxBlock;
+  private readonly footer = new FooterBlock();
+  private readonly compositor: LiveRegionCompositor;
 
   private history: string[] = [];
   private historyIndex = -1;
@@ -80,8 +91,6 @@ export class SmartInput implements ISmartInput {
 
   private suggestions: Suggestion[] = [];
   private selectedIndex = -1;
-  private renderedLines = 0;
-  private renderedInputRows = 0;
 
   private mode: 'input' | 'passive' | 'question' | 'choice' = 'input';
   private questionResolve: ((answer: string) => void) | null = null;
@@ -92,20 +101,19 @@ export class SmartInput implements ISmartInput {
   private choiceResolve: ((answer: string) => void) | null = null;
   private choiceRenderedLines = 0;
 
-  private prompt: string;
-  private promptLen: number;
   private opts: SmartInputOptions;
 
   private dataHandler: ((data: string) => void) | null = null;
-  private terminalWidth = 80;
+  private resizeHandler: (() => void) | null = null;
   private isPaused = false;
   private externalOutputActive = false;
-  private cursorRow = 0;
 
   constructor(opts: SmartInputOptions) {
     this.opts = opts;
-    this.prompt = opts.prompt;
-    this.promptLen = opts.promptVisibleLen;
+    this.inputBox = new InputBoxBlock({ placeholder: opts.placeholder });
+    this.compositor = opts.compositor;
+    this.compositor.addBlock(this.inputBox);
+    this.compositor.addBlock(this.footer);
     this.history = loadHistory();
   }
 
@@ -113,23 +121,20 @@ export class SmartInput implements ISmartInput {
     this.setRawMode(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
+    process.stdout.write('\x1b[?2004h');
 
-    this.terminalWidth = process.stdout.columns || 80;
-
-    process.stdout.on('resize', () => {
-      this.terminalWidth = process.stdout.columns || 80;
-    });
+    this.resizeHandler = () => this.refreshLiveRegion();
+    process.stdout.on('resize', this.resizeHandler);
 
     this.dataHandler = (data: string) => this.handleData(data);
     process.stdin.on('data', this.dataHandler);
 
     this.mode = 'input';
-    this.render();
+    this.refreshLiveRegion();
   }
 
   enterPassiveMode() {
     this.mode = 'passive';
-    this.clearSuggestions();
   }
 
   exitPassiveMode() {
@@ -137,17 +142,17 @@ export class SmartInput implements ISmartInput {
   }
 
   showPrompt() {
-    this.buffer = '';
-    this.cursor = 0;
+    this.inputBox.buffer.clear();
     this.suggestions = [];
     this.selectedIndex = -1;
-    this.cursorRow = 0;
+    this.historyIndex = -1;
     this.mode = 'input';
-    this.render();
+    this.refreshLiveRegion();
   }
 
   async question(query: string): Promise<string> {
     this.ensurePromptInputActive();
+    this.compositor.clear();
     this.mode = 'question';
     this.questionBuffer = '';
     process.stdout.write(query + ' ');
@@ -167,7 +172,7 @@ export class SmartInput implements ISmartInput {
 
     if (this.shouldUseInteractiveChoice()) {
       this.ensurePromptInputActive();
-      this.clearRenderedBlock();
+      this.compositor.clear();
       this.mode = 'choice';
       this.choiceMessage = message;
       this.choiceOptions = choices;
@@ -215,8 +220,7 @@ export class SmartInput implements ISmartInput {
       process.stdin.removeListener('data', this.dataHandler);
     }
     this.setRawMode(false);
-    this.clearRenderedBlock();
-    this.clearSuggestions();
+    this.compositor.clear();
     process.stdout.write('\r\n');
   }
 
@@ -238,12 +242,17 @@ export class SmartInput implements ISmartInput {
   }
 
   destroy() {
-    this.clearSuggestions();
+    process.stdout.write('\x1b[?2004l');
     this.externalOutputActive = false;
     if (this.dataHandler) {
       process.stdin.removeListener('data', this.dataHandler);
       this.dataHandler = null;
     }
+    if (this.resizeHandler) {
+      process.stdout.removeListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
+    this.compositor.destroy();
     this.setRawMode(false);
   }
 
@@ -257,14 +266,19 @@ export class SmartInput implements ISmartInput {
     if (this.isPaused || this.mode === 'question' || this.mode === 'choice' || this.externalOutputActive) {
       return;
     }
-    this.render();
+    this.refreshLiveRegion();
+  }
+
+  setFooterStatus(status: { mode: string; model: string; hints: string[] }): void {
+    this.footer.setStatus(status);
+    this.refreshLiveRegion();
   }
 
   beginExternalOutput() {
     if (this.isPaused || this.mode === 'question' || this.externalOutputActive) {
       return;
     }
-    this.clearRenderedBlock();
+    this.compositor.clear();
     this.externalOutputActive = true;
   }
 
@@ -273,26 +287,16 @@ export class SmartInput implements ISmartInput {
       return;
     }
     this.externalOutputActive = false;
-    this.render();
+    this.refreshLiveRegion();
   }
 
   printExternal(text: string) {
-    if (this.externalOutputActive) {
+    if (this.externalOutputActive || this.isPaused || this.mode === 'question') {
       process.stdout.write(text);
       return;
     }
 
-    if (this.isPaused || this.mode === 'question') {
-      process.stdout.write(text);
-      return;
-    }
-
-    this.clearRenderedBlock();
-    process.stdout.write(text);
-    if (text.length > 0 && !text.endsWith('\n')) {
-      process.stdout.write('\r\n');
-    }
-    this.render();
+    this.compositor.scrollOut(text);
   }
 
   rewriteLinesAbove(lineCount: number, content: string) {
@@ -301,6 +305,18 @@ export class SmartInput implements ISmartInput {
       return;
     }
 
+    if (this.externalOutputActive || this.isPaused || this.mode === 'question') {
+      const write = (text: string) => process.stdout.write(text);
+      write(`\x1b[${lineCount}A\r`);
+      write('\x1b[0J');
+      write(content);
+      if (content.length > 0 && !content.endsWith('\n') && !content.endsWith('\r\n')) {
+        write('\r\n');
+      }
+      return;
+    }
+
+    this.compositor.clear();
     const write = (text: string) => process.stdout.write(text);
     write(`\x1b[${lineCount}A\r`);
     write('\x1b[0J');
@@ -308,13 +324,7 @@ export class SmartInput implements ISmartInput {
     if (content.length > 0 && !content.endsWith('\n') && !content.endsWith('\r\n')) {
       write('\r\n');
     }
-
-    if (this.externalOutputActive || this.isPaused || this.mode === 'question') {
-      return;
-    }
-
-    this.clearRenderedBlock();
-    this.render();
+    this.refreshLiveRegion();
   }
 
   private handleData(data: string) {
@@ -484,181 +494,197 @@ export class SmartInput implements ISmartInput {
   }
 
   private handleInputData(data: string) {
-    let needsRender = false;
+    const events = this.decoder.feed(data);
     let bufferChanged = false;
-    let i = 0;
+    let changed = false;
+    const buffer = this.inputBox.buffer;
 
-    while (i < data.length) {
-      if (data[i] === '\x1b' && data[i + 1] === '[') {
-        const rest = data.slice(i);
-
-        if (rest.startsWith('\x1b[A')) { this.keyUp(); i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[B')) { this.keyDown(); i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[C')) { this.keyRight(); i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[D')) { this.keyLeft(); i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[Z')) { this.keyShiftTab(); i += 3; continue; }
-        if (rest.startsWith('\x1b[H')) { this.cursor = 0; i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[F')) { this.cursor = this.buffer.length; i += 3; needsRender = true; continue; }
-        if (rest.startsWith('\x1b[3~')) { this.keyDelete(); i += 4; needsRender = true; bufferChanged = true; continue; }
-
-        i++;
-        continue;
-      }
-
-      const code = data.charCodeAt(i);
-
-      switch (code) {
-      case 0x0d:
-      case 0x0a:
-        this.keyEnter();
-        i++;
-        continue;
-
-      case 0x09:
-        this.keyTab();
-        needsRender = true;
-        break;
-
-      case 0x7f:
-      case 0x08:
-        this.keyBackspace();
-        needsRender = true;
+    for (const event of events) {
+      switch (event.type) {
+      case 'char':
+        buffer.insert(event.char);
         bufferChanged = true;
+        changed = true;
         break;
 
-      case 0x03:
-        this.keyCtrlC();
-        i++;
-        continue;
+      case 'paste':
+        buffer.insert(event.text);
+        bufferChanged = true;
+        changed = true;
+        break;
 
-      case 0x04:
-        if (this.buffer.length === 0) {
-          this.clearSuggestions();
-          process.stdout.write('\r\n');
-          this.opts.onExit();
+      case 'newline':
+        buffer.newline();
+        bufferChanged = true;
+        changed = true;
+        break;
+
+      case 'enter':
+        this.keyEnter();
+        return;
+
+      case 'up':
+        this.keyUp();
+        changed = true;
+        break;
+
+      case 'down':
+        this.keyDown();
+        changed = true;
+        break;
+
+      case 'left':
+        buffer.moveLeft();
+        changed = true;
+        break;
+
+      case 'right':
+        buffer.moveRight();
+        changed = true;
+        break;
+
+      case 'home':
+        buffer.moveHome();
+        changed = true;
+        break;
+
+      case 'end':
+        buffer.moveEnd();
+        changed = true;
+        break;
+
+      case 'backspace':
+        buffer.backspace();
+        bufferChanged = true;
+        changed = true;
+        break;
+
+      case 'delete':
+        buffer.deleteForward();
+        bufferChanged = true;
+        changed = true;
+        break;
+
+      case 'tab':
+        this.keyTab();
+        bufferChanged = true;
+        changed = true;
+        break;
+
+      case 'shift-tab':
+        this.keyShiftTab();
+        changed = true;
+        break;
+
+      case 'ctrl':
+        if (this.handleCtrl(event.key)) {
           return;
         }
-        break;
-
-      case 0x0c:
-        this.clearSuggestions();
-        process.stdout.write('\x1b[2J\x1b[H');
-        needsRender = true;
-        break;
-
-      case 0x15:
-        this.buffer = this.buffer.slice(this.cursor);
-        this.cursor = 0;
-        needsRender = true;
         bufferChanged = true;
+        changed = true;
         break;
-
-      case 0x0b:
-        this.buffer = this.buffer.slice(0, this.cursor);
-        needsRender = true;
-        bufferChanged = true;
-        break;
-
-      case 0x01:
-        this.cursor = 0;
-        needsRender = true;
-        break;
-
-      case 0x05:
-        this.cursor = this.buffer.length;
-        needsRender = true;
-        break;
-
-      case 0x17:
-        this.deleteWordBack();
-        needsRender = true;
-        bufferChanged = true;
-        break;
-
-      case 0x0f:
-        if (this.opts.onExpandToolOutput) {
-          this.clearSuggestions();
-          process.stdout.write('\r\n');
-          this.opts.onExpandToolOutput();
-          needsRender = true;
-        }
-        break;
-
-      default:
-        if (code >= 0x20) {
-          this.buffer =
-              this.buffer.slice(0, this.cursor) +
-              data[i] +
-              this.buffer.slice(this.cursor);
-          this.cursor++;
-          needsRender = true;
-          bufferChanged = true;
-        }
       }
-
-      i++;
     }
 
-    if (needsRender) {
-      if (bufferChanged) {
-        this.computeSuggestions();
+    if (bufferChanged) {
+      this.computeSuggestions();
+    }
+    if (changed) {
+      this.refreshLiveRegion();
+    }
+  }
+
+  /** Returns true when the key triggered an exit/early return. */
+  private handleCtrl(key: string): boolean {
+    const buffer = this.inputBox.buffer;
+    switch (key) {
+    case 'a':
+      buffer.moveHome();
+      return false;
+    case 'e':
+      buffer.moveEnd();
+      return false;
+    case 'u':
+      buffer.killToStart();
+      return false;
+    case 'k':
+      buffer.killToEnd();
+      return false;
+    case 'w':
+      buffer.deleteWordBack();
+      return false;
+    case 'l':
+      process.stdout.write('\x1b[2J\x1b[H');
+      this.refreshLiveRegion();
+      return true;
+    case 'c':
+      this.keyCtrlC();
+      return true;
+    case 'd':
+      if (buffer.isEmpty) {
+        this.suggestions = [];
+        this.selectedIndex = -1;
+        this.footer.setSuggestions([], -1);
+        this.compositor.clear();
+        process.stdout.write('\r\n');
+        this.opts.onExit();
+        return true;
       }
-      this.render();
+      return false;
+    case 'o':
+      if (this.opts.onExpandToolOutput) {
+        this.compositor.clear();
+        process.stdout.write('\r\n');
+        this.opts.onExpandToolOutput();
+        this.refreshLiveRegion();
+      }
+      return true;
+    default:
+      return false;
     }
   }
 
   private keyUp() {
+    const buffer = this.inputBox.buffer;
     if (this.suggestions.length > 0) {
       this.selectedIndex =
         this.selectedIndex <= 0
           ? this.suggestions.length - 1
           : this.selectedIndex - 1;
-    } else {
-      if (this.historyIndex === -1) this.savedBuffer = this.buffer;
-      if (this.historyIndex < this.history.length - 1) {
-        this.historyIndex++;
-        this.buffer = this.history[this.historyIndex];
-        this.cursor = this.buffer.length;
-      }
+      return;
+    }
+
+    if (buffer.moveUp()) {
+      return;
+    }
+
+    if (this.historyIndex === -1) this.savedBuffer = buffer.text;
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex++;
+      buffer.setText(this.history[this.historyIndex]);
     }
   }
 
   private keyDown() {
+    const buffer = this.inputBox.buffer;
     if (this.suggestions.length > 0) {
       this.selectedIndex =
         this.selectedIndex >= this.suggestions.length - 1
           ? 0
           : this.selectedIndex + 1;
-    } else {
-      if (this.historyIndex > 0) {
-        this.historyIndex--;
-        this.buffer = this.history[this.historyIndex];
-        this.cursor = this.buffer.length;
-      } else if (this.historyIndex === 0) {
-        this.historyIndex = -1;
-        this.buffer = this.savedBuffer;
-        this.cursor = this.buffer.length;
-      }
+      return;
     }
-  }
 
-  private keyLeft() { if (this.cursor > 0) this.cursor--; }
-  private keyRight() { if (this.cursor < this.buffer.length) this.cursor++; }
-
-  private keyBackspace() {
-    if (this.cursor > 0) {
-      this.buffer =
-        this.buffer.slice(0, this.cursor - 1) +
-        this.buffer.slice(this.cursor);
-      this.cursor--;
+    if (buffer.moveDown()) {
+      return;
     }
-  }
 
-  private keyDelete() {
-    if (this.cursor < this.buffer.length) {
-      this.buffer =
-        this.buffer.slice(0, this.cursor) +
-        this.buffer.slice(this.cursor + 1);
+    if (this.historyIndex > 0) {
+      this.historyIndex--;
+      buffer.setText(this.history[this.historyIndex]);
+    } else if (this.historyIndex === 0) {
+      this.historyIndex = -1;
+      buffer.setText(this.savedBuffer);
     }
   }
 
@@ -666,10 +692,22 @@ export class SmartInput implements ISmartInput {
     if (this.selectedIndex >= 0 && this.suggestions.length > 0) {
       this.acceptSuggestion();
       this.computeSuggestions();
-      this.render();
-    } else {
-      this.submitLine();
+      this.refreshLiveRegion();
+      return;
     }
+
+    const buffer = this.inputBox.buffer;
+    const lines = buffer.getLines();
+    const { row, col } = buffer.cursor;
+    const currentLine = lines[row];
+    if (currentLine.endsWith('\\') && col === currentLine.length) {
+      buffer.backspace();
+      buffer.newline();
+      this.refreshLiveRegion();
+      return;
+    }
+
+    this.submitLine();
   }
 
   private keyTab() {
@@ -686,118 +724,61 @@ export class SmartInput implements ISmartInput {
   }
 
   private keyShiftTab() {
-    this.clearSuggestions();
+    this.suggestions = [];
+    this.selectedIndex = -1;
+    this.footer.setSuggestions([], -1);
     this.opts.onCycleMode?.();
   }
 
   private lastCtrlCTime = 0;
 
   private keyCtrlC() {
-    if (this.buffer.length > 0) {
-      this.buffer = '';
-      this.cursor = 0;
+    const buffer = this.inputBox.buffer;
+    if (!buffer.isEmpty) {
+      buffer.clear();
       this.suggestions = [];
       this.selectedIndex = -1;
       this.lastCtrlCTime = Date.now();
-      this.clearSuggestions();
-      process.stdout.write('\r\n');
-      this.render();
+      this.footer.setSuggestions([], -1);
+      this.compositor.scrollOut('\r\n');
+      this.refreshLiveRegion();
     } else {
       const now = Date.now();
       if (now - this.lastCtrlCTime < 1500) {
-        this.clearSuggestions();
+        this.suggestions = [];
+        this.selectedIndex = -1;
+        this.footer.setSuggestions([], -1);
+        this.compositor.clear();
         process.stdout.write('\r\n');
         this.opts.onExit();
         return;
       }
       this.lastCtrlCTime = now;
-      this.clearSuggestions();
-      process.stdout.write(`\r\n${Colors.dim}  Press Ctrl+C again to exit${Colors.reset}\r\n`);
-      this.render();
+      this.suggestions = [];
+      this.selectedIndex = -1;
+      this.footer.setSuggestions([], -1);
+      this.compositor.scrollOut(`\r\n${Colors.dim}  Press Ctrl+C again to exit${Colors.reset}\r\n`);
+      this.refreshLiveRegion();
     }
-  }
-
-  private deleteWordBack() {
-    const before = this.buffer.slice(0, this.cursor);
-    const match = before.match(/\S+\s*$/);
-    if (match) {
-      const len = match[0].length;
-      this.buffer =
-        this.buffer.slice(0, this.cursor - len) +
-        this.buffer.slice(this.cursor);
-      this.cursor -= len;
-    }
-  }
-
-  private submitLine() {
-    const line = this.buffer;
-    this.clearSuggestions();
-
-    const termWidth = this.getTerminalWidth();
-    const inputRows = this.renderedInputRows;
-    const curRow = this.cursorRow;
-
-    if (curRow < inputRows - 1) {
-      process.stdout.write(`\x1b[${inputRows - 1 - curRow}B`);
-    }
-    if (inputRows > 1) {
-      process.stdout.write(`\x1b[${inputRows - 1}A`);
-    }
-    process.stdout.write('\r');
-
-    for (let i = 0; i < inputRows; i++) {
-      process.stdout.write('\x1b[2K');
-      if (i < inputRows - 1) process.stdout.write('\n');
-    }
-    if (inputRows > 1) {
-      process.stdout.write(`\x1b[${inputRows - 1}A`);
-    }
-    process.stdout.write('\r');
-
-    if (line.trim()) {
-      const display = ` ${line}`;
-      const padLen = Math.max(0, termWidth - display.length);
-      process.stdout.write(`\x1b[48;5;235m\x1b[38;5;250m${display}${' '.repeat(padLen)}\x1b[0m\r\n`);
-    } else {
-      process.stdout.write('\r\n');
-    }
-
-    this.renderedInputRows = 0;
-    this.renderedLines = 0;
-    this.cursorRow = 0;
-
-    if (line.trim()) {
-      this.history.unshift(line);
-      if (this.history.length > MAX_HISTORY) this.history.pop();
-      appendHistory(line);
-    }
-
-    this.buffer = '';
-    this.cursor = 0;
-    this.historyIndex = -1;
-    this.suggestions = [];
-    this.selectedIndex = -1;
-
-    this.opts.onSubmit(line);
   }
 
   private acceptSuggestion() {
     const s = this.suggestions[this.selectedIndex];
     if (!s) return;
 
-    if (this.buffer.startsWith('/')) {
-      this.buffer = s.text;
-      this.cursor = this.buffer.length;
+    const buffer = this.inputBox.buffer;
+    const text = buffer.text;
+
+    if (text.startsWith('/')) {
+      buffer.setText(s.text);
     } else {
-      const atMatch = this.buffer.match(/@\[?[\w./:~-]*\]?$/);
+      const atMatch = text.match(/@\[?[\w./:~-]*\]?$/);
       if (atMatch && atMatch.index !== undefined) {
-        this.buffer = this.buffer.slice(0, atMatch.index) + s.text;
-        this.cursor = this.buffer.length;
+        buffer.setText(text.slice(0, atMatch.index) + s.text);
       } else {
-        const referenceMatch = this.buffer.match(/\$[\w.-]*$/);
+        const referenceMatch = text.match(/\$[\w.-]*$/);
         if (referenceMatch && referenceMatch.index !== undefined) {
-          this.buffer = this.buffer.slice(0, referenceMatch.index) + s.text;
-          this.cursor = this.buffer.length;
+          buffer.setText(text.slice(0, referenceMatch.index) + s.text);
         }
       }
     }
@@ -811,19 +792,20 @@ export class SmartInput implements ISmartInput {
 
   private computeSuggestions() {
     this.selectedIndex = -1;
+    const text = this.inputBox.buffer.text;
 
-    if (this.buffer.startsWith('/')) {
-      this.suggestions = this.opts.getCommandSuggestions(this.buffer);
+    if (text.startsWith('/')) {
+      this.suggestions = this.opts.getCommandSuggestions(text);
       return;
     }
 
-    const atMatch = this.buffer.match(/@\[?([\w./:~-]*)\]?$/);
+    const atMatch = text.match(/@\[?([\w./:~-]*)\]?$/);
     if (atMatch) {
       this.suggestions = this.opts.getMentionSuggestions(atMatch[1]);
       return;
     }
 
-    const referenceMatch = this.buffer.match(/\$([\w.-]*)$/);
+    const referenceMatch = text.match(/\$([\w.-]*)$/);
     if (referenceMatch && this.opts.getReferenceSuggestions) {
       this.suggestions = this.opts.getReferenceSuggestions(referenceMatch[1]);
       return;
@@ -832,236 +814,37 @@ export class SmartInput implements ISmartInput {
     this.suggestions = [];
   }
 
-  private calculateCursorPosition(): { row: number; col: number } {
-    const width = this.getTerminalWidth();
-    const totalLength = this.promptLen + this.cursor;
-    const row = Math.floor(totalLength / width) + 1;
-    const col = (totalLength % width) + 1;
-    return { row, col };
+  private submitLine() {
+    const line = this.inputBox.buffer.text;
+    const firstLine = line.split('\n')[0];
+    const extraLines = line.split('\n').length - 1;
+    const echo = line.trim()
+      ? `${Colors.dim}› ${firstLine}${extraLines > 0 ? ` (+${extraLines} lines)` : ''}${Colors.reset}\r\n`
+      : '\r\n';
+    this.inputBox.buffer.clear();
+    this.suggestions = [];
+    this.selectedIndex = -1;
+    this.historyIndex = -1;
+    this.footer.setSuggestions([], -1);
+    this.compositor.scrollOut(echo);
+    if (line.trim()) {
+      this.history.unshift(line);
+      if (this.history.length > MAX_HISTORY) this.history.pop();
+      appendHistory(line.replace(/\n/g, '\\n'));
+    }
+    this.opts.onSubmit(line);
   }
 
-  private getTerminalWidth(): number {
-    return Math.max(1, this.terminalWidth || process.stdout.columns || 80);
-  }
-
-  private countWrappedRows(value: string): number {
-    const width = this.getTerminalWidth();
-    const length = visibleWidth(value);
-    return Math.max(1, Math.ceil(Math.max(1, length) / width));
-  }
-
-  private countInputRows(totalLength: number): number {
-    const width = this.getTerminalWidth();
-    const linesUsed = Math.max(1, Math.ceil(Math.max(1, totalLength) / width));
-    const exactWrap = totalLength > 0 && totalLength % width === 0;
-    return linesUsed + (exactWrap ? 1 : 0) + 2;
-  }
-
-  private getFooterLines(): string[] {
-    return this.opts.getFooterLines ? this.opts.getFooterLines() : [];
-  }
-
-  private clearRenderedBlock() {
-    const write = (s: string) => process.stdout.write(s);
-
-    const linesToClear = this.renderedInputRows + this.renderedLines;
-    if (linesToClear <= 0) {
-      this.cursorRow = 0;
-      return;
+  private refreshLiveRegion() {
+    this.footer.setSuggestions(this.suggestions, this.selectedIndex);
+    if (this.suggestions.length === 0 && this.opts.getFooterLines) {
+      const legacy = this.opts.getFooterLines();
+      this.footer.setStatus({ mode: '', model: '', hints: legacy.length > 0 ? [legacy[0]] : [] });
     }
-
-    if (this.cursorRow > 0) {
-      write(`\x1b[${this.cursorRow}A`);
-    }
-    write('\r');
-
-    for (let i = 0; i < linesToClear; i++) {
-      write('\x1b[K');
-      if (i < linesToClear - 1) write('\n');
-    }
-
-    if (linesToClear > 1) {
-      write(`\x1b[${linesToClear - 1}A`);
-    }
-    write('\r');
-    this.cursorRow = 0;
-    this.renderedInputRows = 0;
-    this.renderedLines = 0;
-  }
-
-  writeOutputLine(line: string): void {
-    if (this.externalOutputActive || this.isPaused || this.mode === 'question') {
-      process.stdout.write(line + '\r\n');
-      return;
-    }
-    this.clearRenderedBlock();
-    process.stdout.write(line + '\r\n');
-    this.render();
-  }
-
-  private render() {
-    const write = (s: string) => process.stdout.write(s);
-    const inputLines = this.buildInputLines();
-    const promptRows = inputLines.length;
-    const footerLines = this.suggestions.length > 0 ? [] : this.getFooterLines();
-    const inputRows = promptRows;
-    this.clearRenderedBlock();
-
-    for (let i = 0; i < inputLines.length; i++) {
-      write(inputLines[i]);
-      if (i < inputLines.length - 1) {
-        write('\r\n');
-      }
-    }
-
-    write('\x1b[J');
-
-    let extraLines = 0;
-
-    for (const line of footerLines) {
-      write(`\r\n${line}`);
-      extraLines += this.countWrappedRows(line);
-    }
-
-    if (this.suggestions.length > 0) {
-      const maxVisible = 10;
-      const total = this.suggestions.length;
-
-      let scrollStart = 0;
-      if (this.selectedIndex >= 0 && total > maxVisible) {
-        scrollStart = Math.max(0, Math.min(
-          this.selectedIndex - Math.floor(maxVisible / 2),
-          total - maxVisible,
-        ));
-      }
-      const scrollEnd = Math.min(scrollStart + maxVisible, total);
-
-      if (scrollStart > 0) {
-        const line = `    ${Colors.dim}\u2191 ${scrollStart} above${Colors.reset}`;
-        write(`\r\n${line}`);
-        extraLines += this.countWrappedRows(line);
-      }
-
-      for (let i = scrollStart; i < scrollEnd; i++) {
-        const s = this.suggestions[i];
-        const line = this.formatSuggestionLine(s, i === this.selectedIndex);
-
-        write(`\r\n${line}`);
-        extraLines += this.countWrappedRows(line);
-      }
-
-      const remaining = total - scrollEnd;
-      if (remaining > 0) {
-        const line = `    ${Colors.dim}\u2193 ${remaining} below${Colors.reset}`;
-        write(`\r\n${line}`);
-        extraLines += this.countWrappedRows(line);
-      }
-    }
-
-    this.renderedLines = extraLines;
-    this.renderedInputRows = inputRows;
-
-    if (this.renderedLines > 0) {
-      write(`\x1b[${this.renderedLines}A`);
-    }
-
-    const { row: targetRow, col: targetCol } = this.calculateCursorPosition();
-    const afterWriteRow = inputRows - 1;
-    const delta = targetRow - afterWriteRow;
-
-    if (delta > 0) write(`\x1b[${delta}B`);
-    else if (delta < 0) write(`\x1b[${-delta}A`);
-    write(`\x1b[${targetCol}G`);
-
-    this.cursorRow = targetRow;
-  }
-
-  private formatSuggestionLine(s: Suggestion, selected: boolean): string {
-    const width = this.getTerminalWidth();
-    const marker = selected
-      ? `  ${Colors.primary}\u276f${Colors.reset} `
-      : '    ';
-    const markerWidth = 4;
-    const displayBudget = Math.max(1, width - markerWidth);
-    const plainDisplay = truncateVisible(s.display, displayBudget);
-    const display = selected
-      ? `${Colors.bold}${Colors.primary}${plainDisplay}${Colors.reset}`
-      : `${Colors.dim}${plainDisplay}${Colors.reset}`;
-
-    let description = '';
-    if (s.description && visibleWidth(plainDisplay) < displayBudget) {
-      const descriptionBudget = width - markerWidth - visibleWidth(plainDisplay) - 2;
-      if (descriptionBudget >= 8) {
-        description = `  ${Colors.muted}${truncateVisible(s.description, descriptionBudget)}${Colors.reset}`;
-      }
-    }
-
-    return `${marker}${display}${description}`;
-  }
-
-  private buildInputLines(): string[] {
-    const width = this.getTerminalWidth();
-    const firstInputWidth = Math.max(0, width - this.promptLen);
-    const lines: string[] = [this.formatInputBandLine('')];
-    let offset = 0;
-
-    if (firstInputWidth > 0) {
-      const firstChunk = this.buffer.slice(0, firstInputWidth);
-      const firstLine = firstChunk.length > 0
-        ? this.prompt + firstChunk
-        : this.formatPlaceholderLine();
-      lines.push(this.formatInputBandLine(firstLine));
-      offset = firstChunk.length;
-    } else {
-      lines.push(this.formatInputBandLine(this.prompt));
-    }
-
-    while (offset < this.buffer.length) {
-      lines.push(this.formatInputBandLine(this.buffer.slice(offset, offset + width)));
-      offset += width;
-    }
-
-    const totalLength = this.promptLen + this.buffer.length;
-    if (totalLength > 0 && totalLength % width === 0) {
-      lines.push(this.formatInputBandLine(''));
-    }
-    lines.push(this.formatInputBandLine(''));
-
-    return lines;
-  }
-
-  private formatInputBandLine(content: string): string {
-    const width = this.getTerminalWidth();
-    const padding = ' '.repeat(Math.max(0, width - visibleWidth(content)));
-    const bandStyle = '\x1b[48;2;48;25;40m\x1b[38;5;250m';
-    const styledContent = content.replace(/\x1b\[0m/g, `${Colors.reset}${bandStyle}`);
-    return `${bandStyle}${styledContent}${padding}${Colors.reset}`;
-  }
-
-  private formatPlaceholderLine(): string {
-    const placeholder = this.opts.placeholder;
-    if (!placeholder) {
-      return this.prompt;
-    }
-    return `${this.prompt} ${Colors.dim}${placeholder}${Colors.reset}`;
-  }
-
-  private clearSuggestions() {
-    if (this.renderedLines > 0) {
-      const width = this.getTerminalWidth();
-      const totalLength = this.promptLen + this.buffer.length;
-      const afterWriteRow = this.countInputRows(totalLength) - 1;
-      const exactWrap = totalLength > 0 && totalLength % width === 0;
-      const afterWriteCol = exactWrap ? 1 : (totalLength % width) + 1;
-
-      const delta = afterWriteRow - this.cursorRow;
-      if (delta > 0) process.stdout.write(`\x1b[${delta}B`);
-      else if (delta < 0) process.stdout.write(`\x1b[${-delta}A`);
-      process.stdout.write(`\x1b[${afterWriteCol}G\x1b[J`);
-
-      this.renderedLines = 0;
-      this.cursorRow = afterWriteRow;
-    }
+    const width = Math.max(1, process.stdout.columns || 80);
+    const pos = this.inputBox.cursorPosition(width);
+    this.compositor.setCursor(this.inputBox.id, pos.row, pos.col);
+    this.compositor.repaint();
   }
 
   private renderChoiceMenu() {
@@ -1075,9 +858,9 @@ export class SmartInput implements ISmartInput {
       `${Colors.cyan}${this.choiceMessage}${Colors.reset}`,
       '',
       ...this.choiceOptions.map((choice, index) => {
-        const selected = index === this.choiceSelectedIndex;
-        const marker = selected ? `${Colors.primary}❯${Colors.reset}` : ' ';
-        const label = selected
+        const isSelected = index === this.choiceSelectedIndex;
+        const marker = isSelected ? `${Colors.primary}❯${Colors.reset}` : ' ';
+        const label = isSelected
           ? `${Colors.bold}${Colors.primary}${choice.label}${Colors.reset}`
           : `${Colors.white}${choice.label}${Colors.reset}`;
         const desc = choice.description ? `  ${Colors.muted}${choice.description}${Colors.reset}` : '';
@@ -1087,10 +870,11 @@ export class SmartInput implements ISmartInput {
       `${Colors.dim}  ↑/↓ move · Enter select${tabHint} · number shortcuts · Ctrl+C cancel${Colors.reset}`,
     ];
 
+    const width = Math.max(1, process.stdout.columns || 80);
     let totalRows = 0;
     for (const line of lines) {
       process.stdout.write(`${line}\r\n`);
-      totalRows += this.countWrappedRows(line);
+      totalRows += Math.max(1, Math.ceil(Math.max(1, visibleWidth(line)) / width));
     }
     this.choiceRenderedLines = totalRows;
   }
@@ -1113,5 +897,13 @@ export class SmartInput implements ISmartInput {
     }
     process.stdout.write('\r');
     this.choiceRenderedLines = 0;
+  }
+
+  writeOutputLine(line: string): void {
+    if (this.externalOutputActive || this.isPaused || this.mode === 'question') {
+      process.stdout.write(line + '\r\n');
+      return;
+    }
+    this.compositor.scrollOut(line + '\r\n');
   }
 }
