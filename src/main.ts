@@ -16,6 +16,8 @@ import {
   formatBridgeProviderList,
   isBridgeProviderId,
 } from './modules/bridge/providers/claude-bridge-adapter';
+import { GitCommandsService } from './modules/repl/services/commands/git-commands.service';
+import { HeadlessSmartInput } from './modules/repl/services/headless-smart-input';
 
 config({ quiet: true });
 
@@ -271,6 +273,40 @@ async function bootstrap() {
     } catch (error) {
       const message = error instanceof Error ? error.stack || error.message : String(error);
       console.error('\nFailed to run schedule command:\n', message);
+      process.exitCode = 1;
+    } finally {
+      await app.close();
+    }
+    return;
+  }
+
+  if (command === 'up' || command === 'split-up') {
+    const app = await NestFactory.createApplicationContext(AppModule, {
+      logger: false,
+    });
+
+    try {
+      const configManager = app.get(ConfigManagerService);
+      if (!(await configManager.configExists())) {
+        console.error('No Cast config found. Run: cast init');
+        process.exitCode = 1;
+        return;
+      }
+      await configManager.loadConfig();
+
+      const flags = args.slice(1);
+      const autoYes = flags.includes('--yes') || flags.includes('-y') || !process.stdin.isTTY;
+      const headless = new HeadlessSmartInput({ autoYes });
+      const gitCommands = app.get(GitCommandsService);
+
+      const ok = command === 'up'
+        ? await gitCommands.cmdUp(headless, { push: !flags.includes('--no-push') })
+        : await gitCommands.cmdSplitUp(headless);
+
+      if (!ok) process.exitCode = 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.stack || error.message : String(error);
+      console.error(`\nFailed to run ${command}:\n`, message);
       process.exitCode = 1;
     } finally {
       await app.close();
