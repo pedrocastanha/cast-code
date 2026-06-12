@@ -1,5 +1,5 @@
 import { Box, Colors, Icons } from '../../modules/repl/utils/theme';
-import { padVisible, stripAnsi, truncateVisible, visibleWidth } from './cli-renderer';
+import { padVisible, stripAnsi, truncateVisible } from './cli-renderer';
 import {
   formatDuration,
   getToolDisplayName,
