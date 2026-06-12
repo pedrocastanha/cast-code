@@ -71,3 +71,52 @@ describe('BranchSplitService.analyzeDiff', () => {
     assert.throws(() => service.analyzeDiff('nope', dir), /not found/i);
   });
 });
+
+describe('BranchSplitService.validateGroups', () => {
+  const files = Array.from({ length: 12 }, (_, i) => `f${i}.ts`);
+  const service = makeService();
+
+  test('accepts a complete partition', () => {
+    const groups: BranchSplitGroup[] = [
+      { name: 'a', responsibility: 'r1', commit: 'feat: a', files: files.slice(0, 6) },
+      { name: 'b', responsibility: 'r2', commit: 'feat: b', files: files.slice(6) },
+    ];
+    assert.deepEqual(service.validateGroups(groups, files), []);
+  });
+
+  test('reports missing and duplicated files', () => {
+    const groups: BranchSplitGroup[] = [
+      { name: 'a', responsibility: 'r', commit: 'c', files: ['f0.ts', 'f1.ts'] },
+      { name: 'b', responsibility: 'r', commit: 'c', files: ['f1.ts'] },
+    ];
+    const errors = service.validateGroups(groups, ['f0.ts', 'f1.ts', 'f2.ts']);
+    assert.ok(errors.some((e) => e.includes('f2.ts')));      // missing
+    assert.ok(errors.some((e) => e.includes('f1.ts')));      // duplicated
+  });
+});
+
+describe('BranchSplitService.normalizeGroupSizes', () => {
+  const service = makeService();
+  const mkGroup = (name: string, n: number): BranchSplitGroup => ({
+    name, responsibility: name, commit: `feat: ${name}`,
+    files: Array.from({ length: n }, (_, i) => `${name}/${i}.ts`),
+  });
+
+  test('merges undersized groups into the smallest sibling', () => {
+    const result = service.normalizeGroupSizes([mkGroup('big', 10), mkGroup('tiny', 2), mkGroup('small', 4)]);
+    assert.equal(result.length, 2);
+    const sizes = result.map((g) => g.files.length).sort((a, b) => a - b);
+    assert.deepEqual(sizes, [6, 10]); // tiny+small merged
+    assert.equal(result.reduce((n, g) => n + g.files.length, 0), 16);
+  });
+
+  test('keeps a single undersized group when nothing to merge with', () => {
+    const result = service.normalizeGroupSizes([mkGroup('only', 3)]);
+    assert.equal(result.length, 1);
+  });
+
+  test('leaves well-sized groups alone', () => {
+    const result = service.normalizeGroupSizes([mkGroup('a', 7), mkGroup('b', 8)]);
+    assert.equal(result.length, 2);
+  });
+});
