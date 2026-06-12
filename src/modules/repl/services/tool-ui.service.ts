@@ -5,10 +5,12 @@ import {
   renderToolCallBlock,
 } from '../../../ui/cast-design/tool-call-renderer';
 import type { ToolCallRenderState, ToolUiEvent } from '../../../ui/cast-design/tool-call.types';
+import { renderDiffLines } from '../../../ui/cast-design/diff-renderer';
 
 interface ToolCallRecord extends ToolCallRenderState {
   renderedLineCount: number;
   fullOutput?: string;
+  input?: unknown;
 }
 
 export interface ToolUiOutput {
@@ -51,6 +53,7 @@ export class ToolUiService {
       this.calls.push({
         ...state,
         renderedLineCount: rendered.lineCount,
+        input: event.input,
       });
       this.output.write(rendered.content);
       return;
@@ -84,12 +87,20 @@ export class ToolUiService {
       ...state,
       fullOutput: event.type === 'completed' ? event.output : existing?.fullOutput,
       renderedLineCount: rendered.lineCount,
+      input: existing?.input,
     };
 
     if (index >= 0) {
       this.calls[index] = record;
     } else {
       this.calls.push(record);
+    }
+
+    if (event.type === 'completed' && isFileMutationTool(event.toolName)) {
+      const diffContent = buildDiffContent(event.toolName, existing?.input);
+      if (diffContent) {
+        this.output.write(diffContent);
+      }
     }
   }
 
@@ -129,4 +140,29 @@ export class ToolUiService {
     }
     return -1;
   }
+}
+
+function isFileMutationTool(toolName: string): boolean {
+  return toolName === 'edit_file' || toolName === 'write_file';
+}
+
+function buildDiffContent(toolName: string, input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const record = input as Record<string, unknown>;
+  let oldText: string;
+  let newText: string;
+
+  if (toolName === 'edit_file') {
+    if (typeof record.old_string !== 'string' || typeof record.new_string !== 'string') return null;
+    oldText = record.old_string;
+    newText = record.new_string;
+  } else {
+    if (typeof record.content !== 'string') return null;
+    oldText = '';
+    newText = record.content;
+  }
+
+  const lines = renderDiffLines(oldText, newText, 40);
+  if (lines.length === 0) return null;
+  return lines.map((l) => `    ${l}`).join('\r\n') + '\r\n';
 }
