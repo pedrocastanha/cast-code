@@ -44,6 +44,8 @@ Recarregue o shell e rode `cast`.
 | Criar descrições de pull request | `/pr` — gera corpo de PR com contexto rico |
 | Revisar código | `/review [arquivos]` — aponta problemas com contexto |
 | Delegar para agentes especialistas | `coder`, `architect`, `reviewer`, `frontend`, `backend`, `devops`, `tester` |
+| Acompanhar sub-agentes ao vivo | Árvore no terminal com status, ferramenta atual e tempo de cada agente |
+| Escrever mensagens multilinha | `Ctrl+J` ou `\` + Enter em qualquer terminal; `Ctrl+Enter` em kitty/WezTerm/Ghostty |
 | Conectar a 30+ ferramentas externas | MCP — Figma, GitHub, bancos de dados, browser e mais |
 | Trabalhar pelo celular | `/remote` — interface web segura via ngrok com entrada por voz |
 | Usar CLIs assinadas sem API key | `/bridge` — roda o Cast por Claude, Codex, Kimi, Qwen, Copilot ou OpenRouter CLI |
