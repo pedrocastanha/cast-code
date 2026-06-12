@@ -13,7 +13,7 @@ import { PlanModeService } from '../../core/services/plan-mode.service';
 import { SmartInput, type Suggestion } from './smart-input';
 import { LiveRegionCompositor } from '../../../ui/live-region/compositor';
 import { AgentTreeBlock } from '../../../ui/live-region/agent-tree-block';
-import { detectKittyProtocol, KITTY_ENABLE, KITTY_DISABLE } from '../../../ui/live-region/kitty-protocol';
+import { detectKittyProtocol, KITTY_ENABLE, KITTY_DISABLE, MODIFY_OTHER_KEYS_ENABLE, MODIFY_OTHER_KEYS_DISABLE } from '../../../ui/live-region/kitty-protocol';
 import { getToolInputSummary, getToolDisplayName } from '../../../ui/cast-design/tool-call-details';
 import { WelcomeScreenService } from './welcome-screen.service';
 import { ReplCommandsService } from './commands/repl-commands.service';
@@ -221,13 +221,16 @@ export class ReplService {
     this.kittySupported = await detectKittyProtocol({
       stdin: process.stdin,
       write: (s) => process.stdout.write(s),
-      timeoutMs: 50,
+      timeoutMs: 100,
     });
     if (this.kittySupported) {
       process.stdout.write(KITTY_ENABLE);
+    } else if (process.stdin.isTTY) {
+      // Fallback for VTE/xterm.js: disambiguate Shift+Enter via modifyOtherKeys.
+      process.stdout.write(MODIFY_OTHER_KEYS_ENABLE);
     }
 
-    const newlineHint = this.kittySupported ? 'Shift+Enter newline' : 'Ctrl+J newline';
+    const newlineHint = process.stdin.isTTY ? 'Shift+Enter newline' : 'Ctrl+J newline';
     this.smartInput.setFooterStatus({
       mode: this.getInputModeLabel(),
       model: this.getModelDisplayName(),
@@ -1764,7 +1767,7 @@ export class ReplService {
     const order: ReplInputMode[] = ['request-always', 'accept-edits', 'plan'];
     const currentIndex = order.indexOf(this.inputMode);
     this.inputMode = order[(currentIndex + 1) % order.length] ?? 'request-always';
-    const newlineHint = this.kittySupported ? 'Shift+Enter newline' : 'Ctrl+J newline';
+    const newlineHint = process.stdin.isTTY ? 'Shift+Enter newline' : 'Ctrl+J newline';
     this.smartInput?.setFooterStatus({
       mode: this.getInputModeLabel(),
       model: this.getModelDisplayName(),
@@ -1809,6 +1812,8 @@ export class ReplService {
     this.stopSpinner();
     if (this.kittySupported) {
       process.stdout.write(KITTY_DISABLE);
+    } else if (process.stdin.isTTY) {
+      process.stdout.write(MODIFY_OTHER_KEYS_DISABLE);
     }
     this.smartInput?.destroy();
   }
