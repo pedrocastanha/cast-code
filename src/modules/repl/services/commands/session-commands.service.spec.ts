@@ -33,12 +33,11 @@ const sessionSummary = {
 };
 
 describe('SessionsCommandsService', () => {
-  test('search lists matching sessions with resume command', async () => {
+  test('search lists matching sessions with picker hint', async () => {
     const service = new SessionsCommandsService(
       {
         searchSessions: async () => [sessionSummary],
       } as any,
-      { addSessionContext: () => undefined } as any,
     );
 
     const output = await captureStdout(() => service.cmdSessions(['search', 'scheduler']));
@@ -46,34 +45,6 @@ describe('SessionsCommandsService', () => {
     assert.match(output, /Sessions/);
     assert.match(output, /session-1/);
     assert.match(output, /scheduler presets/);
-    assert.match(output, /\/resume session-1/);
-  });
-
-  test('resume injects the selected session context into the agent', async () => {
-    let injected = '';
-    const service = new SessionsCommandsService(
-      {
-        findSession: async () => sessionSummary,
-        listSessionMessages: async () => [
-          { role: 'user', redactedContent: 'Can you improve the scheduler?', createdAt: '2026-05-15T10:00:00.000Z' },
-          { role: 'assistant', redactedContent: 'Implemented scheduler presets.', createdAt: '2026-05-15T10:10:00.000Z' },
-        ],
-        listSessionToolCalls: async () => [
-          { toolName: 'shell', status: 'ok', outputPreview: 'npm test passed', createdAt: '2026-05-15T10:12:00.000Z' },
-        ],
-      } as any,
-      {
-        addSessionContext: (_title: string, content: string) => {
-          injected = content;
-        },
-      } as any,
-    );
-
-    const output = await captureStdout(() => service.cmdResume(['scheduler']));
-
-    assert.match(output, /Session resumed/);
-    assert.match(output, /session-1/);
-    assert.match(injected, /Can you improve the scheduler/);
-    assert.match(injected, /npm test passed/);
+    assert.match(output, /\/resume/);
   });
 });

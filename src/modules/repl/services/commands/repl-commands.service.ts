@@ -100,7 +100,7 @@ export class ReplCommandsService {
           ['/benchmark', 'local benchmark lab'],
           ['/rollback [file]', 'restore file from snapshot'],
           ['/stats', 'show token and cost stats'],
-          ['/replay', 'save/view session replays'],
+          ['/resume', 'resume a saved session'],
           ['/vault', 'manage code snippet vault'],
         ]),
         commandSection('Mentions and Keys', [
