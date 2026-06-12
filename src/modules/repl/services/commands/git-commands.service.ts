@@ -149,11 +149,12 @@ export class GitCommandsService {
     success ? this.success('Committed') : this.error('Commit failed');
   }
 
-  async cmdUp(smartInput: ISmartInput): Promise<void> {
+  async cmdUp(smartInput: ISmartInput, opts?: { push?: boolean }): Promise<boolean> {
+    const shouldPush = opts?.push !== false;
 
     if (!this.commitGenerator.hasChanges()) {
       this.warning('No changes to commit');
-      return;
+      return true;
     }
 
     this.info('Analyzing changes...');
@@ -161,7 +162,7 @@ export class GitCommandsService {
     const message = await this.commitGenerator.generateCommitMessage();
     if (!message) {
       this.error('Failed to generate commit message');
-      return;
+      return false;
     }
 
     this.w(this.ui.panel({
@@ -170,15 +171,15 @@ export class GitCommandsService {
       sections: [{ lines: [colorize(message, 'cyan')] }],
     }));
 
-    const confirm = await smartInput.askChoice('Confirm and push?', [
-      { key: 'y', label: 'yes', description: 'Commit and push' },
+    const confirm = await smartInput.askChoice(shouldPush ? 'Confirm and push?' : 'Confirm commit?', [
+      { key: 'y', label: 'yes', description: shouldPush ? 'Commit and push' : 'Commit' },
       { key: 'n', label: 'no', description: 'Cancel' },
       { key: 'e', label: 'edit', description: 'Edit message' },
     ]);
 
     if (confirm === 'n') {
       this.warning('Cancelled');
-      return;
+      return true;
     }
 
     let finalMessage = message;
@@ -187,7 +188,7 @@ export class GitCommandsService {
       const instructions = await smartInput.question(colorize('  Instructions for AI: ', 'cyan'));
       if (!instructions.trim()) {
         this.warning('Cancelled');
-        return;
+        return true;
       }
 
       this.info('Regenerating...');
@@ -201,13 +202,13 @@ export class GitCommandsService {
         }));
 
         const confirmRefined = await smartInput.askChoice('Use this?', [
-          { key: 'y', label: 'yes', description: 'Commit and push' },
+          { key: 'y', label: 'yes', description: shouldPush ? 'Commit and push' : 'Commit' },
           { key: 'n', label: 'no', description: 'Cancel' },
         ]);
 
         if (confirmRefined === 'n') {
           this.warning('Cancelled');
-          return;
+          return true;
         }
         finalMessage = refined;
       } else {
@@ -219,25 +220,33 @@ export class GitCommandsService {
     const commitSuccess = this.commitGenerator.executeCommit(finalMessage, true);
     if (!commitSuccess) {
       this.error('Commit failed');
-      return;
+      return false;
     }
 
     this.success('Committed');
+
+    if (!shouldPush) {
+      this.w(colorize('  Push skipped (--no-push)\r\n', 'muted'));
+      return true;
+    }
+
     this.w(colorize('  Pushing...\r\n', 'muted'));
 
     const pushResult = this.commitGenerator.executePush();
     if (pushResult.success) {
       this.success('Pushed');
+      return true;
     } else {
       this.error(`Push failed: ${pushResult.error}`);
+      return false;
     }
   }
 
-  async cmdSplitUp(smartInput: ISmartInput): Promise<void> {
+  async cmdSplitUp(smartInput: ISmartInput): Promise<boolean> {
 
     if (!this.commitGenerator.hasChanges()) {
       this.warning('No changes to commit');
-      return;
+      return true;
     }
 
     this.info('Analyzing changes for split commits...');
@@ -247,13 +256,13 @@ export class GitCommandsService {
       proposedCommits = await this.commitGenerator.splitCommits();
     } catch (error) {
       this.error(`Failed to split commits: ${this.providerErrorMessage(error)}`);
-      return;
+      return false;
     }
     const commits = (proposedCommits || []).filter(c => c.files && c.files.length > 0);
 
     if (commits.length === 0) {
       this.error('Failed to split commits');
-      return;
+      return false;
     }
 
     this.w(this.ui.panel({
@@ -269,7 +278,7 @@ export class GitCommandsService {
         },
       ],
     }));
-    
+
     const confirm = await smartInput.askChoice('Execute these commits?', [
       { key: 'y', label: 'yes', description: `Commit all ${commits.length}` },
       { key: 'n', label: 'no', description: 'Cancel' },
@@ -277,7 +286,7 @@ export class GitCommandsService {
 
     if (confirm !== 'y') {
       this.warning('Cancelled');
-      return;
+      return true;
     }
 
     this.w(colorize('  Executing...\r\n', 'muted'));
@@ -306,11 +315,14 @@ export class GitCommandsService {
 
         if (pushResult.success) {
           this.success('Pushed');
+          return true;
         } else {
           this.error(`Push failed: ${pushResult.error}`);
+          return false;
         }
       } else {
         this.w(colorize('  Push skipped\r\n\r\n', 'muted'));
+        return true;
       }
     } else {
       this.error(`Failed after ${result.committed} commit(s): ${result.error}`);
@@ -321,6 +333,7 @@ export class GitCommandsService {
       } else {
         this.w('\r\n');
       }
+      return false;
     }
   }
 
