@@ -174,3 +174,29 @@ describe('BranchSplitService.createBranches', () => {
     assert.ok(!git(dir, 'branch --list "feature--split/*"').includes('1-old'));
   });
 });
+
+describe('BranchSplitService.writeArtifacts', () => {
+  test('writes README, manifest and one PR.md per branch; gitignores .branches/', () => {
+    const dir = makeFixtureRepo(5);
+    const service = makeService();
+    const analysis = service.analyzeDiff('main', dir);
+    const created = [
+      { branch: 'feature--split/1-auth', dir: 'feature--split__1-auth', commit: 'feat: auth',
+        responsibility: 'auth', files: ['src/auth/f0.ts'], title: 'feat: auth' },
+    ];
+    service.writeArtifacts(analysis, created, [
+      { title: 'feat: auth', description: '## Summary\nauth changes' },
+    ], dir);
+
+    const root = path.join(dir, '.branches');
+    assert.ok(fs.existsSync(path.join(root, 'README.md')));
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf-8'));
+    assert.equal(manifest.version, 1);
+    assert.equal(manifest.current, 'feature');
+    assert.equal(manifest.branches[0].branch, 'feature--split/1-auth');
+    const prMd = fs.readFileSync(path.join(root, 'feature--split__1-auth', 'PR.md'), 'utf-8');
+    assert.match(prMd, /feat: auth/);
+    assert.match(prMd, /gh pr create --base feature --head "feature--split\/1-auth"/);
+    assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8'), /\.branches\//);
+  });
+});
