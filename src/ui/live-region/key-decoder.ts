@@ -117,9 +117,21 @@ export class KeyDecoder {
           }
           continue; // other CSI-u (incl. ?-flag replies) swallowed
         }
-        if (final === '~' && params === '3') {
-          events.push({ type: 'delete' });
-          continue;
+        if (final === '~') {
+          if (params === '3') {
+            events.push({ type: 'delete' });
+            continue;
+          }
+          // xterm modifyOtherKeys (formatOtherKeys=0): ESC [ 27 ; <mod> ; <codepoint> ~
+          const parts = params.split(';');
+          if (parts[0] === '27' && parts[2] === '13') {
+            const mod = Number.parseInt(parts[1] || '1', 10);
+            // modifiers = 1 + bitmask (shift=1, alt=2, ctrl=4), same as kitty:
+            // Shift+Enter inserts a newline, anything else submits
+            const shiftHeld = ((mod - 1) & 1) === 1;
+            events.push(shiftHeld ? { type: 'newline' } : { type: 'enter' });
+          }
+          continue; // other ~ sequences swallowed
         }
         const simple = CSI_SIMPLE[final];
         if (simple && params === '') {

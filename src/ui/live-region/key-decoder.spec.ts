@@ -98,3 +98,45 @@ describe('KeyDecoder', () => {
     ]);
   });
 });
+
+describe('modifyOtherKeys enter sequences', () => {
+  test('Shift+Enter (ESC[27;2;13~) emits newline', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(d.feed('\x1b[27;2;13~'), [{ type: 'newline' }]);
+  });
+
+  test('Ctrl+Enter (ESC[27;5;13~) emits enter', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(d.feed('\x1b[27;5;13~'), [{ type: 'enter' }]);
+  });
+
+  test('Shift+Ctrl+Enter (ESC[27;6;13~) emits newline (shift bit set)', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(d.feed('\x1b[27;6;13~'), [{ type: 'newline' }]);
+  });
+
+  test('sequence split across chunks is reassembled', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(d.feed('\x1b[27;2'), []);
+    assert.deepEqual(d.feed(';13~'), [{ type: 'newline' }]);
+  });
+
+  test('modified non-enter key (ESC[27;2;97~) is swallowed', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(d.feed('\x1b[27;2;97~'), []);
+  });
+
+  test('delete (ESC[3~) still decodes', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(d.feed('\x1b[3~'), [{ type: 'delete' }]);
+  });
+
+  test('text around the sequence still decodes', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(d.feed('a\x1b[27;2;13~b'), [
+      { type: 'char', char: 'a' },
+      { type: 'newline' },
+      { type: 'char', char: 'b' },
+    ]);
+  });
+});
