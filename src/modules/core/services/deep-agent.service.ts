@@ -1763,7 +1763,7 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     let leanResponseBuffer = '';
     const pendingToolInputs: { name: string; input: any }[] = [];
     const activeLocalToolCalls = new Map<string, { name: string; input: unknown; startedAt: number }>();
-    const activeDelegatedAgentRuns = new Map<string, string>();
+    const activeDelegatedAgentRuns = new Map<string, { runId: string; agentName: string; task: string; startedAt: number }>();
     let localToolSequence = 0;
     let lastLocalToolKey = '';
 
@@ -1798,19 +1798,31 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             });
             if (this.isDelegationTool(runtimeEvent.toolName)) {
               const run = this.startDelegatedAgentRun(runtimeEvent.input);
-              if (run) {
-                activeDelegatedAgentRuns.set(lastLocalToolKey, run.id);
-              }
+              const agentName = this.getDelegatedAgentName(runtimeEvent.input);
+              const task = this.getDelegatedAgentTask(runtimeEvent.input);
+              const agentId = run?.id ?? lastLocalToolKey;
+              activeDelegatedAgentRuns.set(lastLocalToolKey, {
+                runId: agentId,
+                agentName,
+                task,
+                startedAt: Date.now(),
+              });
+              yield {
+                kind: 'agent',
+                event: { type: 'spawned', agentId, agentName, task },
+              };
             }
-            yield {
-              kind: 'tool',
-              event: {
-                type: 'started',
-                toolName: runtimeEvent.toolName,
-                callId: runtimeEvent.callId,
-                input: runtimeEvent.input,
-              },
-            };
+            if (!this.isDelegationTool(runtimeEvent.toolName)) {
+              yield {
+                kind: 'tool',
+                event: {
+                  type: 'started',
+                  toolName: runtimeEvent.toolName,
+                  callId: runtimeEvent.callId,
+                  input: runtimeEvent.input,
+                },
+              };
+            }
           }
 
           if (runtimeEvent.type === 'runtime.tool.completed') {
@@ -1825,20 +1837,34 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             if (output) {
               this.lastToolOutputs.push({ tool: toolName, output });
             }
-            yield {
-              kind: 'tool',
-              event: {
-                type: 'completed',
-                toolName,
-                callId: runtimeEvent.callId ?? localToolKey,
-                output,
-                durationMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
-              },
-            };
+            if (!this.isDelegationTool(toolName)) {
+              yield {
+                kind: 'tool',
+                event: {
+                  type: 'completed',
+                  toolName,
+                  callId: runtimeEvent.callId ?? localToolKey,
+                  output,
+                  durationMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
+                },
+              };
+            }
             activeLocalToolCalls.delete(localToolKey);
             if (this.isDelegationTool(toolName)) {
-              this.completeDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), output);
+              const delegated = activeDelegatedAgentRuns.get(localToolKey);
+              this.completeDelegatedAgentRun(delegated?.runId, output);
               activeDelegatedAgentRuns.delete(localToolKey);
+              if (delegated) {
+                yield {
+                  kind: 'agent',
+                  event: {
+                    type: 'completed',
+                    agentId: delegated.runId,
+                    durationMs: Date.now() - delegated.startedAt,
+                    summary: output ? output.split('\n')[0].slice(0, 120) : undefined,
+                  },
+                };
+              }
             }
             this.recordLocalToolCall({
               toolName,
@@ -1860,8 +1886,20 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             const message = runtimeEvent.message || 'Unknown error';
             activeLocalToolCalls.delete(localToolKey);
             if (this.isDelegationTool(toolName)) {
-              this.failDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), new Error(message));
+              const delegated = activeDelegatedAgentRuns.get(localToolKey);
+              this.failDelegatedAgentRun(delegated?.runId, new Error(message));
               activeDelegatedAgentRuns.delete(localToolKey);
+              if (delegated) {
+                yield {
+                  kind: 'agent',
+                  event: {
+                    type: 'failed',
+                    agentId: delegated.runId,
+                    durationMs: Date.now() - delegated.startedAt,
+                    error: message,
+                  },
+                };
+              }
             }
             this.recordLocalToolCall({
               toolName,
@@ -1870,16 +1908,18 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
               status: 'error',
               latencyMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
             });
-            yield {
-              kind: 'tool',
-              event: {
-                type: 'failed',
-                toolName,
-                callId: runtimeEvent.callId ?? localToolKey,
-                message,
-                durationMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
-              },
-            };
+            if (!this.isDelegationTool(toolName)) {
+              yield {
+                kind: 'tool',
+                event: {
+                  type: 'failed',
+                  toolName,
+                  callId: runtimeEvent.callId ?? localToolKey,
+                  message,
+                  durationMs: runtimeEvent.durationMs ?? Math.max(0, Date.now() - localTool.startedAt),
+                },
+              };
+            }
           }
 
           if (runtimeEvent.type === 'runtime.usage') {
@@ -1951,19 +1991,31 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           });
           if (this.isDelegationTool(event.name)) {
             const run = this.startDelegatedAgentRun(toolInput);
-            if (run) {
-              activeDelegatedAgentRuns.set(lastLocalToolKey, run.id);
-            }
+            const agentName = this.getDelegatedAgentName(toolInput);
+            const task = this.getDelegatedAgentTask(toolInput);
+            const agentId = run?.id ?? lastLocalToolKey;
+            activeDelegatedAgentRuns.set(lastLocalToolKey, {
+              runId: agentId,
+              agentName,
+              task,
+              startedAt: Date.now(),
+            });
+            yield {
+              kind: 'agent',
+              event: { type: 'spawned', agentId, agentName, task },
+            };
           }
-          yield {
-            kind: 'tool',
-            event: {
-              type: 'started',
-              toolName: event.name,
-              callId: lastLocalToolKey,
-              input: toolInput,
-            },
-          };
+          if (!this.isDelegationTool(event.name)) {
+            yield {
+              kind: 'tool',
+              event: {
+                type: 'started',
+                toolName: event.name,
+                callId: lastLocalToolKey,
+                input: toolInput,
+              },
+            };
+          }
         }
 
         if (event.event === 'on_tool_end') {
@@ -1979,20 +2031,34 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           if (output) {
             this.lastToolOutputs.push({ tool: toolName, output });
           }
-          yield {
-            kind: 'tool',
-            event: {
-              type: 'completed',
-              toolName,
-              callId: localToolKey,
-              output,
-              durationMs: Math.max(0, Date.now() - localTool.startedAt),
-            },
-          };
+          if (!this.isDelegationTool(toolName)) {
+            yield {
+              kind: 'tool',
+              event: {
+                type: 'completed',
+                toolName,
+                callId: localToolKey,
+                output,
+                durationMs: Math.max(0, Date.now() - localTool.startedAt),
+              },
+            };
+          }
           activeLocalToolCalls.delete(localToolKey);
           if (this.isDelegationTool(toolName)) {
-            this.completeDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), output);
+            const delegated = activeDelegatedAgentRuns.get(localToolKey);
+            this.completeDelegatedAgentRun(delegated?.runId, output);
             activeDelegatedAgentRuns.delete(localToolKey);
+            if (delegated) {
+              yield {
+                kind: 'agent',
+                event: {
+                  type: 'completed',
+                  agentId: delegated.runId,
+                  durationMs: Date.now() - delegated.startedAt,
+                  summary: output ? output.split('\n')[0].slice(0, 120) : undefined,
+                },
+              };
+            }
           }
           this.recordLocalToolCall({
             toolName,
@@ -2014,8 +2080,20 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
           const toolName = localTool.name || event.name || lastToolName || 'tool';
           activeLocalToolCalls.delete(localToolKey);
           if (this.isDelegationTool(toolName)) {
-            this.failDelegatedAgentRun(activeDelegatedAgentRuns.get(localToolKey), error);
+            const delegated = activeDelegatedAgentRuns.get(localToolKey);
+            this.failDelegatedAgentRun(delegated?.runId, error);
             activeDelegatedAgentRuns.delete(localToolKey);
+            if (delegated) {
+              yield {
+                kind: 'agent',
+                event: {
+                  type: 'failed',
+                  agentId: delegated.runId,
+                  durationMs: Date.now() - delegated.startedAt,
+                  error: String((error as any)?.message ?? error),
+                },
+              };
+            }
           }
           this.recordLocalToolCall({
             toolName,
@@ -2024,16 +2102,18 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
             status: 'error',
             latencyMs: Math.max(0, Date.now() - localTool.startedAt),
           });
-          yield {
-            kind: 'tool',
-            event: {
-              type: 'failed',
-              toolName,
-              callId: localToolKey,
-              message: error?.message || 'Unknown error',
-              durationMs: Math.max(0, Date.now() - localTool.startedAt),
-            },
-          };
+          if (!this.isDelegationTool(toolName)) {
+            yield {
+              kind: 'tool',
+              event: {
+                type: 'failed',
+                toolName,
+                callId: localToolKey,
+                message: error?.message || 'Unknown error',
+                durationMs: Math.max(0, Date.now() - localTool.startedAt),
+              },
+            };
+          }
         }
       }
     } catch (error) {

@@ -20,6 +20,11 @@ const toolEventsFromChunks = (chunks: ChatStreamChunk[]) =>
     .filter((chunk): chunk is Extract<ChatStreamChunk, { kind: 'tool' }> => chunk.kind === 'tool')
     .map((chunk) => chunk.event);
 
+const agentEventsFromChunks = (chunks: ChatStreamChunk[]) =>
+  chunks
+    .filter((chunk): chunk is Extract<ChatStreamChunk, { kind: 'agent' }> => chunk.kind === 'agent')
+    .map((chunk) => chunk.event);
+
 class HumanMessage {
   readonly role = 'user';
   constructor(public readonly content: string) {}
@@ -965,9 +970,10 @@ describe('DeepAgentService system prompt engineering workflow', () => {
       chunks.push(chunk);
     }
 
-    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
-    assert.ok(started && started.type === 'started');
-    assert.match(getToolInputSummary('task', started.input), /agent reviewer/);
+    const spawned = agentEventsFromChunks(chunks).find((event) => event.type === 'spawned');
+    assert.ok(spawned && spawned.type === 'spawned');
+    assert.equal(spawned.agentName, 'reviewer');
+    assert.equal(spawned.task, 'Review the proposed patch in parallel');
     assert.deepEqual(calls.map(([kind]) => kind), ['create', 'start', 'complete']);
     assert.equal(calls[0][1].agentName, 'reviewer');
     assert.equal(calls[0][1].task, 'Review the proposed patch in parallel');
@@ -1028,11 +1034,10 @@ describe('DeepAgentService system prompt engineering workflow', () => {
       chunks.push(chunk);
     }
 
-    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
-    assert.ok(started && started.type === 'started');
-    const summary = getToolInputSummary('task', started.input);
-    assert.match(summary, /agent backend/);
-    assert.match(summary, /Inspect runtime implementation/);
+    const spawned = agentEventsFromChunks(chunks).find((event) => event.type === 'spawned');
+    assert.ok(spawned && spawned.type === 'spawned');
+    assert.equal(spawned.agentName, 'backend');
+    assert.match(spawned.task, /Inspect runtime implementation/);
     assert.equal(calls[0][1].agentName, 'backend');
     assert.equal(calls[0][1].task, 'Inspect runtime implementation in parallel');
     assert.match(calls[2][2][0].content, /Backend runtime is covered/);
@@ -1101,9 +1106,9 @@ describe('DeepAgentService system prompt engineering workflow', () => {
       chunks.push(chunk);
     }
 
-    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
-    assert.ok(started && started.type === 'started');
-    assert.match(getToolInputSummary('task', started.input), /agent tester/);
+    const spawned = agentEventsFromChunks(chunks).find((event) => event.type === 'spawned');
+    assert.ok(spawned && spawned.type === 'spawned');
+    assert.equal(spawned.agentName, 'tester');
     assert.equal(calls[0][1].agentName, 'tester');
     assert.equal(calls[0][1].task, 'Inspect observability and test gaps');
     assert.match(calls[2][2][0].content, /Test coverage is acceptable/);
@@ -1234,9 +1239,9 @@ describe('DeepAgentService system prompt engineering workflow', () => {
       chunks.push(chunk);
     }
 
-    const started = toolEventsFromChunks(chunks).find((event) => event.type === 'started' && event.toolName === 'task');
-    assert.ok(started && started.type === 'started');
-    assert.match(getToolInputSummary('task', started.input), /agent reviewer/);
+    const spawned = agentEventsFromChunks(chunks).find((event) => event.type === 'spawned');
+    assert.ok(spawned && spawned.type === 'spawned');
+    assert.equal(spawned.agentName, 'reviewer');
     assert.equal(calls[0][1].agentName, 'reviewer');
     assert.equal(calls[0][1].task, 'Review fallback compatibility');
     assert.match(calls[2][2][0].content, /Test coverage is acceptable/);
