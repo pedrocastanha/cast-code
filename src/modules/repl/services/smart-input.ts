@@ -107,6 +107,7 @@ export class SmartInput implements ISmartInput {
   private resizeHandler: (() => void) | null = null;
   private isPaused = false;
   private externalOutputActive = false;
+  private hasExplicitStatus = false;
 
   constructor(opts: SmartInputOptions) {
     this.opts = opts;
@@ -270,6 +271,7 @@ export class SmartInput implements ISmartInput {
   }
 
   setFooterStatus(status: { mode: string; model: string; hints: string[] }): void {
+    this.hasExplicitStatus = true;
     this.footer.setStatus(status);
     this.refreshLiveRegion();
   }
@@ -837,7 +839,7 @@ export class SmartInput implements ISmartInput {
 
   private refreshLiveRegion() {
     this.footer.setSuggestions(this.suggestions, this.selectedIndex);
-    if (this.suggestions.length === 0 && this.opts.getFooterLines) {
+    if (this.suggestions.length === 0 && !this.hasExplicitStatus && this.opts.getFooterLines) {
       const legacy = this.opts.getFooterLines();
       this.footer.setStatus({ mode: '', model: '', hints: legacy.length > 0 ? [legacy[0]] : [] });
     }

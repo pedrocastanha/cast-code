@@ -12,6 +12,9 @@ import { SkillRegistryService } from '../../skills/services/skill-registry.servi
 import { PlanModeService } from '../../core/services/plan-mode.service';
 import { SmartInput, type Suggestion } from './smart-input';
 import { LiveRegionCompositor } from '../../../ui/live-region/compositor';
+import { AgentTreeBlock } from '../../../ui/live-region/agent-tree-block';
+import { detectKittyProtocol, KITTY_ENABLE, KITTY_DISABLE } from '../../../ui/live-region/kitty-protocol';
+import { getToolInputSummary, getToolDisplayName } from '../../../ui/cast-design/tool-call-details';
 import { WelcomeScreenService } from './welcome-screen.service';
 import { ReplCommandsService } from './commands/repl-commands.service';
 import { GitCommandsService } from './commands/git-commands.service';
@@ -69,6 +72,8 @@ export class ReplService {
   private toolUi: ToolUiService | null = null;
   private smartInput: SmartInput | null = null;
   private compositor!: LiveRegionCompositor;
+  private agentTree!: AgentTreeBlock;
+  private kittySupported = false;
   private abortController: AbortController | null = null;
   private pendingLines: string[] = [];
   private isProcessing = false;
@@ -174,6 +179,9 @@ export class ReplService {
       get isTTY() { return Boolean(process.stdout.isTTY); },
     });
     this.compositor = compositor;
+    this.agentTree = new AgentTreeBlock((content) => this.compositor.scrollOut(content));
+    this.compositor.addBlock(this.agentTree, 0);
+    this.compositor.onTick(() => this.agentTree.tick());
     this.smartInput = new SmartInput({
       compositor,
       getCommandSuggestions: (input) => this.getCommandSuggestions(input),
@@ -205,6 +213,27 @@ export class ReplService {
 
     process.stdout.write(this.buildSeparatorLine() + '\r\n');
     await this.autostartBridgeIfConfigured();
+
+    if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+    }
+    this.kittySupported = await detectKittyProtocol({
+      stdin: process.stdin,
+      write: (s) => process.stdout.write(s),
+      timeoutMs: 50,
+    });
+    if (this.kittySupported) {
+      process.stdout.write(KITTY_ENABLE);
+    }
+
+    const newlineHint = this.kittySupported ? 'Ctrl+Enter newline' : 'Ctrl+J newline';
+    this.smartInput.setFooterStatus({
+      mode: this.getInputModeLabel(),
+      model: this.getModelDisplayName(),
+      hints: [newlineHint],
+    });
+
     this.smartInput.start();
   }
 
@@ -1423,6 +1452,17 @@ export class ReplService {
 
       const handleStreamChunk = (chunk: ChatStreamChunk) => {
         if (chunk.kind === 'tool') {
+          if (chunk.event.agentId) {
+            if (chunk.event.type === 'started') {
+              const summary = getToolInputSummary(chunk.event.toolName, chunk.event.input);
+              this.agentTree?.setCurrentTool(
+                chunk.event.agentId,
+                `${getToolDisplayName(chunk.event.toolName)} ${summary}`.trim(),
+              );
+              this.compositor?.repaint();
+            }
+            return;
+          }
           endTextMode();
           flushTextBuffer();
           const spinnerLabel = this.getToolUi().getSpinnerLabel(chunk.event);
@@ -1438,7 +1478,8 @@ export class ReplService {
         }
 
         if (chunk.kind === 'agent') {
-          // Agent event handling will be implemented in a later task
+          this.agentTree?.handle(chunk.event);
+          this.compositor?.repaint();
           return;
         }
 
@@ -1479,6 +1520,8 @@ export class ReplService {
       }
     } finally {
       this.abortController = null;
+      this.agentTree?.clearAll();
+      this.compositor?.repaint();
       if (!separatorWritten) {
         this.smartInput?.writeOutputLine(this.buildSeparatorLine());
       }
@@ -1721,6 +1764,12 @@ export class ReplService {
     const order: ReplInputMode[] = ['request-always', 'accept-edits', 'plan'];
     const currentIndex = order.indexOf(this.inputMode);
     this.inputMode = order[(currentIndex + 1) % order.length] ?? 'request-always';
+    const newlineHint = this.kittySupported ? 'Ctrl+Enter newline' : 'Ctrl+J newline';
+    this.smartInput?.setFooterStatus({
+      mode: this.getInputModeLabel(),
+      model: this.getModelDisplayName(),
+      hints: [newlineHint],
+    });
     this.smartInput?.refresh();
   }
 
@@ -1758,6 +1807,9 @@ export class ReplService {
 
   stop(): void {
     this.stopSpinner();
+    if (this.kittySupported) {
+      process.stdout.write(KITTY_DISABLE);
+    }
     this.smartInput?.destroy();
   }
 
