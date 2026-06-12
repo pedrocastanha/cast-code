@@ -1,6 +1,10 @@
 export const KITTY_ENABLE = '\x1b[>1u';
 export const KITTY_DISABLE = '\x1b[<u';
 
+/** xterm modifyOtherKeys level 2 — makes the terminal disambiguate Shift+Enter. */
+export const MODIFY_OTHER_KEYS_ENABLE = '\x1b[>4;2m';
+export const MODIFY_OTHER_KEYS_DISABLE = '\x1b[>4;0m';
+
 export interface KittyDetectOptions {
   stdin: NodeJS.ReadStream;
   write: (s: string) => void;

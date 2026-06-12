@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { detectKittyProtocol, KITTY_ENABLE, KITTY_DISABLE } from './kitty-protocol';
+import { detectKittyProtocol, KITTY_ENABLE, KITTY_DISABLE, MODIFY_OTHER_KEYS_ENABLE, MODIFY_OTHER_KEYS_DISABLE } from './kitty-protocol';
 import { EventEmitter } from 'node:events';
 
 function fakeStdin(): NodeJS.ReadStream & EventEmitter {
@@ -58,5 +58,12 @@ describe('detectKittyProtocol', () => {
   test('enable/disable sequences are the kitty push/pop codes', () => {
     assert.equal(KITTY_ENABLE, '\x1b[>1u');
     assert.equal(KITTY_DISABLE, '\x1b[<u');
+  });
+});
+
+describe('modifyOtherKeys sequences', () => {
+  test('enable/disable are the xterm XTMODKEYS codes', () => {
+    assert.equal(MODIFY_OTHER_KEYS_ENABLE, '\x1b[>4;2m');
+    assert.equal(MODIFY_OTHER_KEYS_DISABLE, '\x1b[>4;0m');
   });
 });
