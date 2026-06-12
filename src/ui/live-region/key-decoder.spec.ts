@@ -21,9 +21,14 @@ describe('KeyDecoder', () => {
     assert.deepEqual(feed(d, '\n'), [{ type: 'newline' }]);
   });
 
-  test('kitty Ctrl+Enter CSI-u sequence is newline', () => {
+  test('kitty Shift+Enter CSI-u sequence is newline', () => {
     const d = new KeyDecoder();
-    assert.deepEqual(feed(d, '\x1b[13;5u'), [{ type: 'newline' }]);
+    assert.deepEqual(feed(d, '\x1b[13;2u'), [{ type: 'newline' }]);
+  });
+
+  test('kitty Ctrl+Enter CSI-u sequence submits as enter', () => {
+    const d = new KeyDecoder();
+    assert.deepEqual(feed(d, '\x1b[13;5u'), [{ type: 'enter' }]);
   });
 
   test('kitty plain Enter CSI-u sequence is enter', () => {

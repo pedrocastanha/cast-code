@@ -110,8 +110,10 @@ export class KeyDecoder {
           const [codeStr, modStr] = params.split(';');
           if (codeStr === '13') {
             const mod = Number.parseInt(modStr || '1', 10);
-            // modifier 5 = Ctrl (1 + 4); any Ctrl combination inserts newline
-            events.push(mod >= 5 ? { type: 'newline' } : { type: 'enter' });
+            // kitty modifiers = 1 + bitmask (shift=1, alt=2, ctrl=4):
+            // Shift+Enter inserts a newline, anything else submits
+            const shiftHeld = ((mod - 1) & 1) === 1;
+            events.push(shiftHeld ? { type: 'newline' } : { type: 'enter' });
           }
           continue; // other CSI-u (incl. ?-flag replies) swallowed
         }

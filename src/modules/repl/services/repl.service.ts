@@ -227,7 +227,7 @@ export class ReplService {
       process.stdout.write(KITTY_ENABLE);
     }
 
-    const newlineHint = this.kittySupported ? 'Ctrl+Enter newline' : 'Ctrl+J newline';
+    const newlineHint = this.kittySupported ? 'Shift+Enter newline' : 'Ctrl+J newline';
     this.smartInput.setFooterStatus({
       mode: this.getInputModeLabel(),
       model: this.getModelDisplayName(),
@@ -1764,7 +1764,7 @@ export class ReplService {
     const order: ReplInputMode[] = ['request-always', 'accept-edits', 'plan'];
     const currentIndex = order.indexOf(this.inputMode);
     this.inputMode = order[(currentIndex + 1) % order.length] ?? 'request-always';
-    const newlineHint = this.kittySupported ? 'Ctrl+Enter newline' : 'Ctrl+J newline';
+    const newlineHint = this.kittySupported ? 'Shift+Enter newline' : 'Ctrl+J newline';
     this.smartInput?.setFooterStatus({
       mode: this.getInputModeLabel(),
       model: this.getModelDisplayName(),
