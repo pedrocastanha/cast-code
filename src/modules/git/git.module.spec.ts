@@ -10,6 +10,7 @@ import { PrGeneratorService } from './services/pr-generator.service';
 import { CodeReviewService } from './services/code-review.service';
 import { ReleaseNotesService } from './services/release-notes.service';
 import { UnitTestGeneratorService } from './services/unit-test-generator.service';
+import { BranchSplitService } from './services/branch-split.service';
 
 const declaredServices = [
   CommitGeneratorService,
@@ -18,6 +19,7 @@ const declaredServices = [
   CodeReviewService,
   ReleaseNotesService,
   UnitTestGeneratorService,
+  BranchSplitService,
 ];
 
 const getModuleMetadata = (key: string) => Reflect.getMetadata(key, GitModule) ?? [];

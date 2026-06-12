@@ -68,6 +68,7 @@ export class ReplCommandsService {
           ['/log', 'recent commits'],
           ['/up', 'smart commit and push'],
           ['/split-up', 'split into multiple commits'],
+          ['/branch-split', 'split branch into reviewable sub-branches'],
           ['/pr', 'create PR with AI description'],
           ['/unit-test', 'generate tests for branch changes'],
           ['/review [files]', 'code review'],
