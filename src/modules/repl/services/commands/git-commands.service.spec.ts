@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { GitCommandsService } from './git-commands.service';
 
-async function captureStdout(run: () => Promise<void>): Promise<string> {
+async function captureStdout(run: () => Promise<unknown>): Promise<string> {
   const originalWrite = process.stdout.write;
   let output = '';
   process.stdout.write = ((chunk: string | Uint8Array) => {
