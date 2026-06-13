@@ -1,5 +1,4 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { DeepAgentService } from '../../../core/services/deep-agent.service';
 import { LocalSessionStoreService } from '../../../state/services/local-session-store.service';
 import type { LocalMessage, LocalSessionSummary, LocalToolCall } from '../../../state/types/state.types';
 import { CommandUiService } from '../command-ui.service';
@@ -12,8 +11,6 @@ export class SessionsCommandsService {
   constructor(
     @Optional()
     private readonly store?: LocalSessionStoreService,
-    @Optional()
-    private readonly deepAgent?: DeepAgentService,
   ) {}
 
   async cmdSessions(args: string[]): Promise<void> {
@@ -36,62 +33,15 @@ export class SessionsCommandsService {
     case 'inspect':
       await this.show(args.slice(1).join(' '));
       return;
-    case 'resume':
-      await this.cmdResume(args.slice(1));
-      return;
     case 'help':
     default:
       this.printHelp();
     }
   }
 
-  async cmdResume(args: string[]): Promise<void> {
-    if (!this.store) {
-      process.stdout.write(this.ui.error('Local session storage is not available in this runtime.'));
-      return;
-    }
-    const selector = args.join(' ').trim();
-    if (!selector) {
-      process.stdout.write(this.ui.error('Usage: /resume <session-id-or-search>'));
-      return;
-    }
-
-    const session = await this.store.findSession(selector, process.cwd());
-    if (!session) {
-      process.stdout.write(this.ui.warning(`No local session found for: ${selector}`));
-      return;
-    }
-
-    const messages = await this.store.listSessionMessages(session.id, 24);
-    const tools = await this.store.listSessionToolCalls(session.id, 12);
-    const content = this.buildSessionContext(session, messages, tools);
-    this.deepAgent?.addSessionContext?.(`Session ${session.id}`, content);
-
-    process.stdout.write(this.ui.success(`Session resumed: ${session.id}`));
-    process.stdout.write(this.ui.panel({
-      title: 'Session resumed',
-      subtitle: session.id,
-      sections: [
-        {
-          rows: [
-            { label: 'Project', value: this.compactPath(session.projectRoot) },
-            { label: 'Messages', value: String(session.messageCount) },
-            { label: 'Tool calls', value: String(session.toolCallCount) },
-            { label: 'Last activity', value: this.formatDate(session.lastActivityAt) },
-          ],
-        },
-        {
-          title: 'Injected context',
-          lines: [session.preview ? this.truncate(session.preview, 140) : colorize('No preview stored.', 'muted')],
-        },
-      ],
-      footer: 'The selected session summary is now available to the agent as context.',
-    }));
-  }
-
   private async list(): Promise<void> {
     const sessions = await this.store!.listSessions(process.cwd(), 20);
-    this.printSessions('Sessions', sessions, '/sessions search <query> - /resume <id-or-query>');
+    this.printSessions('Sessions', sessions, '/resume opens the interactive session picker');
   }
 
   private async search(query: string): Promise<void> {
@@ -101,7 +51,7 @@ export class SessionsCommandsService {
       return;
     }
     const sessions = await this.store!.searchSessions(trimmed, process.cwd(), 20);
-    this.printSessions('Sessions', sessions, `/resume ${sessions[0]?.id ?? '<id>'} injects a session into context`);
+    this.printSessions('Sessions', sessions, '/resume opens the interactive session picker');
   }
 
   private async show(selector: string): Promise<void> {
@@ -147,7 +97,7 @@ export class SessionsCommandsService {
             : [colorize('No tool calls stored.', 'muted')],
         },
       ],
-      footer: `/resume ${session.id} injects this session into the agent context`,
+      footer: '/resume opens the interactive session picker',
     }));
   }
 
@@ -178,35 +128,6 @@ export class SessionsCommandsService {
     }));
   }
 
-  private buildSessionContext(session: LocalSessionSummary, messages: LocalMessage[], tools: LocalToolCall[]): string {
-    const messageLines = messages.map((message) => this.formatContextMessage(message));
-    const toolLines = tools.map((tool) => this.formatContextTool(tool));
-    return [
-      `Session id: ${session.id}`,
-      `Project: ${session.projectRoot}`,
-      `Started: ${this.formatDate(session.startedAt)}`,
-      `Ended: ${this.formatDate(session.endedAt)}`,
-      `Model: ${session.model ?? 'unknown'}`,
-      session.preview ? `Preview: ${session.preview}` : undefined,
-      '',
-      'Recent messages:',
-      ...(messageLines.length > 0 ? messageLines : ['- none stored']),
-      '',
-      'Recent tool calls:',
-      ...(toolLines.length > 0 ? toolLines : ['- none stored']),
-    ].filter((line): line is string => line !== undefined).join('\n');
-  }
-
-  private formatContextMessage(message: LocalMessage): string {
-    const body = message.redactedContent ?? message.contentPreview ?? '';
-    return `- ${this.formatDate(message.createdAt)} ${message.role}: ${this.truncate(body.replace(/\s+/g, ' '), 600)}`;
-  }
-
-  private formatContextTool(tool: LocalToolCall): string {
-    const output = tool.outputPreview ? ` - ${this.truncate(tool.outputPreview.replace(/\s+/g, ' '), 400)}` : '';
-    return `- ${this.formatDate(tool.createdAt)} ${tool.toolName} ${tool.status}${output}`;
-  }
-
   private formatMessageLine(message: LocalMessage): string {
     const body = message.redactedContent ?? message.contentPreview ?? '';
     return `${colorize(message.role, 'cyan')}  ${colorize(this.formatDate(message.createdAt), 'subtle')}  ${this.truncate(body.replace(/\s+/g, ' '), 110)}`;
@@ -225,7 +146,7 @@ export class SessionsCommandsService {
           '/sessions                         list recent local sessions for this project',
           '/sessions search <query>          search saved session messages and tool calls',
           '/sessions show <id-or-query>      inspect one saved session',
-          '/resume <id-or-query>             inject a saved session summary into context',
+          '/resume                           open the interactive session picker',
         ],
       }],
       footer: 'Sessions are stored locally in the Cast state database.',

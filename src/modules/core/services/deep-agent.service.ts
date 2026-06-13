@@ -152,6 +152,12 @@ export type SessionSummarySaveResult = {
   replayPath?: string;
 };
 
+export interface RestorableEntry {
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  toolName?: string;
+}
+
 const DEEPAGENT_BUILTIN_TOOLS = new Set([
   'read_file', 'write_file', 'edit_file', 'glob', 'grep', 'ls',
   'write_todos', 'task',
@@ -2273,6 +2279,28 @@ Keep the summary under 500 words. Output ONLY the summary, no preamble.`
     this.cumulativeInputTokens = 0;
     this.cumulativeOutputTokens = 0;
     this.cumulativeCachedInputTokens = 0;
+  }
+
+  /**
+   * Replaces the in-memory conversation with a previously saved session.
+   * Used by /resume. Tool results are restored as system notes since the
+   * original tool_call linkage is not preserved in replay entries.
+   */
+  restoreConversation(entries: RestorableEntry[]): number {
+    this.clearHistory();
+    for (const entry of entries) {
+      if (!entry.content) continue;
+      if (entry.role === 'user') {
+        this.messages.push(new HumanMessage(entry.content));
+      } else if (entry.role === 'assistant') {
+        this.messages.push(new AIMessage(entry.content));
+      } else {
+        this.messages.push(
+          new SystemMessage(`[restored tool result: ${entry.toolName ?? 'unknown'}]\n${entry.content}`),
+        );
+      }
+    }
+    return this.messages.length;
   }
 
   private extractTextFromModelContent(content: unknown): string {

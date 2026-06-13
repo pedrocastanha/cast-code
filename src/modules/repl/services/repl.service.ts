@@ -24,7 +24,7 @@ import { ConfigCommandsService } from '../../config/services/config-commands.ser
 import { ProjectCommandsService } from './commands/project-commands.service';
 import { SnapshotCommandsService } from './commands/snapshot-commands.service';
 import { StatsCommandsService } from './commands/stats-commands.service';
-import { ReplayCommandsService } from './commands/replay-commands.service';
+import { ResumeCommandsService } from './commands/resume-commands.service';
 import { SessionsCommandsService } from './commands/session-commands.service';
 import { VaultCommandsService } from './commands/vault-commands.service';
 import { PlatformCommandsService } from './commands/platform-commands.service';
@@ -103,7 +103,7 @@ export class ReplService {
     private readonly projectCommands: ProjectCommandsService,
     private readonly snapshotCommandsService: SnapshotCommandsService,
     private readonly statsCommandsService: StatsCommandsService,
-    private readonly replayCommandsService: ReplayCommandsService,
+    private readonly resumeCommandsService: ResumeCommandsService,
     private readonly vaultCommandsService: VaultCommandsService,
     private readonly toolsRegistry: ToolsRegistryService,
     private readonly kanbanServer: KanbanServerService,
@@ -507,9 +507,8 @@ export class ReplService {
       { text: '/remote', display: '/remote', description: 'Start remote web interface via ngrok' },
       { text: '/rollback', display: '/rollback', description: 'Rollback file to previous snapshot' },
       { text: '/stats', display: '/stats', description: 'Show session usage stats' },
-      { text: '/replay', display: '/replay', description: 'Save or view session replays' },
       { text: '/sessions', display: '/sessions', description: 'Search local sessions' },
-      { text: '/resume', display: '/resume', description: 'Resume a local session' },
+      { text: '/resume', display: '/resume', description: 'Resume a saved session (interactive picker)' },
       { text: '/vault', display: '/vault', description: 'Manage code snippet vault' },
       { text: '/benchmark', display: '/benchmark', description: 'Local Benchmark Lab' },
       { text: '/env', display: '/env', description: 'Cast environments' },
@@ -1114,9 +1113,6 @@ export class ReplService {
     case 'stats':
       this.statsCommandsService.cmdStats();
       break;
-    case 'replay':
-      this.replayCommandsService.cmdReplay(args.join(' '));
-      break;
     case 'sessions':
       if (!this.sessionsCommands?.cmdSessions) {
         process.stdout.write(this.ui.error('Local session commands are not available in this runtime.'));
@@ -1125,11 +1121,7 @@ export class ReplService {
       await this.sessionsCommands.cmdSessions(args);
       break;
     case 'resume':
-      if (!this.sessionsCommands?.cmdResume) {
-        process.stdout.write(this.ui.error('Local session commands are not available in this runtime.'));
-        break;
-      }
-      await this.sessionsCommands.cmdResume(args);
+      await this.resumeCommandsService.cmdResume(args, this.smartInput!);
       break;
     case 'vault':
       this.vaultCommandsService.cmdVault(args.join(' '));

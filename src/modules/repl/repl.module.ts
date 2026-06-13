@@ -9,7 +9,7 @@ import { ConfigCommandsService } from '../config/services/config-commands.servic
 import { ProjectCommandsService } from './services/commands/project-commands.service';
 import { SnapshotCommandsService } from './services/commands/snapshot-commands.service';
 import { StatsCommandsService } from './services/commands/stats-commands.service';
-import { ReplayCommandsService } from './services/commands/replay-commands.service';
+import { ResumeCommandsService } from './services/commands/resume-commands.service';
 import { SessionsCommandsService } from './services/commands/session-commands.service';
 import { VaultCommandsService } from './services/commands/vault-commands.service';
 import { PlatformCommandsService } from './services/commands/platform-commands.service';
@@ -78,7 +78,7 @@ import { RuntimeModule } from '../runtime/runtime.module';
     ProjectCommandsService,
     SnapshotCommandsService,
     StatsCommandsService,
-    ReplayCommandsService,
+    ResumeCommandsService,
     SessionsCommandsService,
     VaultCommandsService,
     PlatformCommandsService,
