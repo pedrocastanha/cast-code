@@ -18,6 +18,7 @@ import {
 } from './modules/bridge/providers/claude-bridge-adapter';
 import { GitCommandsService } from './modules/repl/services/commands/git-commands.service';
 import { HeadlessSmartInput } from './modules/repl/services/headless-smart-input';
+import { BranchSplitService } from './modules/git/services/branch-split.service';
 
 config({ quiet: true });
 
@@ -307,6 +308,30 @@ async function bootstrap() {
     } catch (error) {
       const message = error instanceof Error ? error.stack || error.message : String(error);
       console.error(`\nFailed to run ${command}:\n`, message);
+      process.exitCode = 1;
+    } finally {
+      await app.close();
+    }
+    return;
+  }
+
+  if (command === 'branch-split-create') {
+    const app = await NestFactory.createApplicationContext(AppModule, {
+      logger: false,
+    });
+    try {
+      const branchSplit = app.get(BranchSplitService);
+      const { created, failed } = await branchSplit.createPullRequests();
+      for (const entry of created) {
+        console.log(`  ✓ ${entry.branch} → ${entry.prUrl}`);
+      }
+      for (const entry of failed) {
+        console.error(`  ✗ ${entry.branch}: ${entry.error}`);
+      }
+      if (failed.length > 0) process.exitCode = 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`\nbranch-split-create failed: ${message}`);
       process.exitCode = 1;
     } finally {
       await app.close();

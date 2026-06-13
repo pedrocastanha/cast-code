@@ -39,6 +39,7 @@ test('cmdSplitUp reports provider errors without throwing out of the CLI', async
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
 
   const output = await captureStdout(() => service.cmdSplitUp({} as any));

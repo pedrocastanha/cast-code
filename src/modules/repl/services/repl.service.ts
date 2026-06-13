@@ -484,6 +484,7 @@ export class ReplService {
       { text: '/commit', display: '/commit', description: 'Commit changes' },
       { text: '/up', display: '/up', description: 'Smart commit & push' },
       { text: '/split-up', display: '/split-up', description: 'Split commits' },
+      { text: '/branch-split', display: '/branch-split', description: 'Split branch into reviewable sub-branches' },
       { text: '/pr', display: '/pr', description: 'Create Pull Request' },
       { text: '/unit-test', display: '/unit-test', description: 'Generate unit tests' },
       { text: '/review', display: '/review', description: 'Code review' },
@@ -1051,6 +1052,9 @@ export class ReplService {
       break;
     case 'split-up':
       await this.gitCommands.cmdSplitUp(this.smartInput!);
+      break;
+    case 'branch-split':
+      await this.gitCommands.cmdBranchSplit(args, this.smartInput!);
       break;
     case 'pr':
       await this.gitCommands.cmdPr(this.smartInput!);

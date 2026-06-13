@@ -7,24 +7,27 @@ import { PrGeneratorService } from './services/pr-generator.service';
 import { CodeReviewService } from './services/code-review.service';
 import { ReleaseNotesService } from './services/release-notes.service';
 import { UnitTestGeneratorService } from './services/unit-test-generator.service';
+import { BranchSplitService } from './services/branch-split.service';
 
 @Module({
   imports: [CommonModule, forwardRef(() => CoreModule)],
   providers: [
-    CommitGeneratorService, 
-    MonorepoDetectorService, 
+    CommitGeneratorService,
+    MonorepoDetectorService,
     PrGeneratorService,
     CodeReviewService,
     ReleaseNotesService,
     UnitTestGeneratorService,
+    BranchSplitService,
   ],
   exports: [
-    CommitGeneratorService, 
-    MonorepoDetectorService, 
+    CommitGeneratorService,
+    MonorepoDetectorService,
     PrGeneratorService,
     CodeReviewService,
     ReleaseNotesService,
     UnitTestGeneratorService,
+    BranchSplitService,
   ],
 })
 export class GitModule {}

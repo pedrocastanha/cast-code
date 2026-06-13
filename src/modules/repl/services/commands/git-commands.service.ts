@@ -9,6 +9,7 @@ import { PrGeneratorService } from '../../../git/services/pr-generator.service';
 import { CodeReviewService } from '../../../git/services/code-review.service';
 import { ReleaseNotesService } from '../../../git/services/release-notes.service';
 import { UnitTestGeneratorService } from '../../../git/services/unit-test-generator.service';
+import { BranchSplitService } from '../../../git/services/branch-split.service';
 import { ISmartInput } from '../smart-input';
 
 @Injectable()
@@ -21,6 +22,7 @@ export class GitCommandsService {
     private readonly codeReviewService: CodeReviewService,
     private readonly releaseNotesService: ReleaseNotesService,
     private readonly unitTestGenerator: UnitTestGeneratorService,
+    private readonly branchSplit: BranchSplitService,
   ) {}
 
   private w(s: string): void {
@@ -693,5 +695,89 @@ export class GitCommandsService {
     }
 
     this.success(`Wrote ${written} test file(s)`);
+  }
+
+  async cmdBranchSplit(args: string[], smartInput: ISmartInput): Promise<void> {
+    const dryRun = args.includes('--dry-run');
+    const force = args.includes('--force');
+    const positional = args.filter((a) => !a.startsWith('--'));
+
+    let target = positional[0];
+    if (!target) {
+      const detected = this.prGenerator.detectDefaultBaseBranch();
+      const input = await smartInput.question(colorize(`  Target branch (default: ${detected}): `, 'cyan'));
+      target = input.trim() || detected;
+    }
+
+    let analysis;
+    try {
+      analysis = this.branchSplit.analyzeDiff(target);
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    if (analysis.files.length <= 20) {
+      this.success(`Branch has ${analysis.files.length} changed files vs ${target} — no split needed (limit: 20).`);
+      return;
+    }
+
+    this.info(`Grouping ${analysis.files.length} files semantically...`);
+    let groups;
+    try {
+      groups = await this.branchSplit.groupFiles(analysis);
+    } catch (error) {
+      this.error(this.providerErrorMessage(error));
+      return;
+    }
+
+    for (const oversized of groups.filter((g) => g.files.length > 20)) {
+      this.warning(`Group "${oversized.name}" has ${oversized.files.length} files (>20) — kept as one indivisible responsibility.`);
+    }
+
+    this.w(this.ui.panel({
+      title: 'Branch split plan',
+      subtitle: `${analysis.current} → ${groups.length} sub-branches (PRs target ${analysis.current})`,
+      sections: [{
+        lines: groups.map((g, i) =>
+          `${colorize(`${i + 1}.`, 'cyan')} ${this.branchSplit.splitBranchName(analysis.current, i + 1, g.name)} ` +
+          `${colorize(`(${g.files.length} files)`, 'muted')} — ${g.responsibility}`),
+      }],
+      ...(dryRun ? { footer: 'Dry run: nothing will be created.' } : {}),
+    }));
+
+    if (dryRun) return;
+
+    const confirm = await smartInput.askChoice(`Create ${groups.length} sub-branches?`, [
+      { key: 'y', label: 'yes', description: 'Create branches and .branches/ docs' },
+      { key: 'n', label: 'no', description: 'Cancel' },
+    ]);
+    if (confirm !== 'y') { this.warning('Cancelled'); return; }
+
+    let created;
+    try {
+      created = this.branchSplit.createBranches(analysis, groups, process.cwd(), { force });
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    this.info('Generating PR descriptions...');
+    const prDescriptions: Array<{ title: string; description: string }> = [];
+    for (const entry of created) {
+      try {
+        const commits = [{
+          hash: '', message: entry.commit, author: '', date: '',
+          files: entry.files, diff: '',
+        }];
+        const pr = await this.prGenerator.generatePRDescription(entry.branch, commits, analysis.current);
+        prDescriptions.push({ title: pr.title, description: pr.description });
+      } catch {
+        prDescriptions.push({ title: entry.commit, description: entry.responsibility });
+      }
+    }
+
+    this.branchSplit.writeArtifacts(analysis, created, prDescriptions);
+    this.success(`${created.length} sub-branches created. Docs in .branches/ — open PRs with: cast branch-split-create`);
   }
 }
