@@ -371,7 +371,7 @@ export class BranchSplitService {
           } catch (error) {
             throw new Error(`Failed to apply hunks for ${file} on ${branch}: ${error instanceof Error ? error.message : String(error)}`);
           }
-          this.git(worktree, ['add', '-A', '--', file]);
+          this.git(worktree, ['add', '-Af', '--', file]);
         }
         this.git(worktree, ['commit', '-q', '-m', group.commit]);
       } finally {
