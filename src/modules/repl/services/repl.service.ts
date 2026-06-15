@@ -908,7 +908,6 @@ export class ReplService {
     }
 
     this.runLine(trimmed);
-    this.smartInput?.refresh();
   }
 
   private runLine(line: string): void {

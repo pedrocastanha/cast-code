@@ -213,6 +213,19 @@ describe('BranchSplitService.createStackedBranches', () => {
     assert.equal(git(dir, `diff ${created[0].branch}..feature`).trim(), '');
   });
 
+  test('rolls back created branches when a slice fails', () => {
+    const dir = makeFlatRepo(3);
+    const service = makeService();
+    const analysis = service.analyzeDiff('main', dir);
+    const all = service.allHunkIds(analysis);
+    const groups: BranchSplitGroup[] = [
+      { name: 'good', responsibility: 'good', commit: 'feat: good', hunks: [all[0]], order: 1, linesAdded: 0, linesDeleted: 0 },
+      { name: 'bad', responsibility: 'bad', commit: 'feat: bad', hunks: [`${all[1].split('#')[0]}#99`], order: 2, dependsOn: 1, linesAdded: 0, linesDeleted: 0 },
+    ];
+    assert.throws(() => service.createStackedBranches(analysis, groups, dir));
+    assert.equal(git(dir, 'branch --list "feature--split/*"').trim(), '');
+  });
+
   test('refuses when split branches already exist without force', () => {
     const dir = makeFlatRepo(3);
     git(dir, 'branch feature--split/1-old');

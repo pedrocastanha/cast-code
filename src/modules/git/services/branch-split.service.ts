@@ -331,11 +331,14 @@ export class BranchSplitService {
     const fdByFile = new Map(analysis.fileDiffs.map((fd) => [fd.file, fd]));
     const acc = new Map<string, number[]>();
     const created: CreatedBranch[] = [];
+    const madeBranches: string[] = [];
     let parent = analysis.target;
 
+    try {
     groups.forEach((group, i) => {
       const branch = this.splitBranchName(analysis.current, i + 1, group.name);
       this.git(cwd, ['branch', branch, parent]);
+      madeBranches.push(branch);
 
       const filesInSlice = new Set<string>();
       let added = 0;
@@ -394,6 +397,12 @@ export class BranchSplitService {
 
       parent = branch;
     });
+    } catch (error) {
+      for (const branch of madeBranches.reverse()) {
+        try { this.git(cwd, ['branch', '-D', branch]); } catch { /* best-effort */ }
+      }
+      throw error;
+    }
 
     return created;
   }
