@@ -714,6 +714,11 @@ export class GitCommandsService {
     const force = args.includes('--force');
     const positional = args.filter((a) => !a.startsWith('--'));
 
+    if (this.commitGenerator.hasChanges()) {
+      this.warning('Uncommitted changes detected. Commit them first with /split-up (or /up), then run /branch-split.');
+      return;
+    }
+
     let target = positional[0];
     if (!target) {
       const detected = this.prGenerator.detectDefaultBaseBranch();
