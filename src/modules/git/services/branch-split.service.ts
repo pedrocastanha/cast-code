@@ -489,10 +489,24 @@ export class BranchSplitService {
     }
   }
 
+  buildUmbrellaBody(manifest: BranchSplitManifest): string {
+    return [
+      `Stacked split of \`${manifest.current}\` into ${manifest.branches.length} reviewable pull requests.`,
+      '',
+      `Review and merge the stack from the bottom up (\`${manifest.target}\` ← PR1 ← PR2 ← …):`,
+      '',
+      ...manifest.branches.map((b, i) => {
+        const ref = b.prUrl ? b.prUrl : `\`${b.branch}\``;
+        return `${i + 1}. ${ref} → \`${b.base}\` — ${b.responsibility}`;
+      }),
+      '',
+    ].join('\n');
+  }
+
   async createPullRequests(
     cwd: string = process.cwd(),
     opts: { env?: NodeJS.ProcessEnv } = {},
-  ): Promise<{ created: CreatedBranch[]; failed: Array<{ branch: string; error: string }> }> {
+  ): Promise<{ created: CreatedBranch[]; failed: Array<{ branch: string; error: string }>; umbrellaUrl?: string }> {
     const manifestPath = path.join(cwd, '.branches', 'manifest.json');
     if (!fs.existsSync(manifestPath)) {
       throw new Error('No .branches/manifest.json found. Run /branch-split first.');
@@ -537,7 +551,29 @@ export class BranchSplitService {
       }
     }
 
+    let umbrellaUrl: string | undefined;
+    try {
+      const existing = run('gh', ['pr', 'list', '--head', manifest.current, '--base', manifest.target, '--json', 'url']).trim();
+      if (existing && existing !== '[]') {
+        umbrellaUrl = (JSON.parse(existing)[0]?.url as string) ?? undefined;
+      } else {
+        run('git', ['push', '-u', 'origin', manifest.current]);
+        const bodyPath = path.join(cwd, '.branches', '_umbrella.md');
+        fs.writeFileSync(bodyPath, this.buildUmbrellaBody(manifest));
+        const url = run('gh', [
+          'pr', 'create',
+          '--base', manifest.target,
+          '--head', manifest.current,
+          '--title', manifest.current,
+          '--body-file', path.join('.branches', '_umbrella.md'),
+        ]).trim();
+        umbrellaUrl = url.split('\n').pop() ?? url;
+      }
+    } catch (error) {
+      failed.push({ branch: manifest.current, error: error instanceof Error ? error.message : String(error) });
+    }
+
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-    return { created, failed };
+    return { created, failed, umbrellaUrl };
   }
 }

@@ -714,6 +714,11 @@ export class GitCommandsService {
     const force = args.includes('--force');
     const positional = args.filter((a) => !a.startsWith('--'));
 
+    if (positional[0] === 'create') {
+      await this.runBranchSplitCreate();
+      return;
+    }
+
     if (this.commitGenerator.hasChanges()) {
       this.warning('Uncommitted changes detected. Commit them first with /split-up (or /up), then run /branch-split.');
       return;
@@ -799,6 +804,51 @@ export class GitCommandsService {
     }
 
     this.branchSplit.writeArtifacts(analysis, created, prDescriptions);
-    this.success(`${created.length} stacked branches created. Docs in .branches/ — open PRs with: cast branch-split-create`);
+
+    const { platform } = this.prGenerator.detectPlatform();
+    if (platform === 'github') {
+      const confirm = await smartInput.askChoice(`Create ${created.length} stacked PRs on GitHub now?`, [
+        { key: 'y', label: 'yes', description: 'Push branches and open all PRs' },
+        { key: 'n', label: 'no', description: 'Just keep the docs locally' },
+      ]);
+      if (confirm === 'y') {
+        await this.runBranchSplitCreate();
+        return;
+      }
+    }
+
+    this.success(`${created.length} stacked branches created.`);
+    this.w(`  ${colorize('Docs:', 'bold')} ${colorize(path.join(process.cwd(), '.branches'), 'cyan')}\r\n`);
+    this.w(`  ${colorize('Open the PRs later with:', 'muted')} ${colorize('cast branch-split-create', 'cyan')}\r\n\r\n`);
+  }
+
+  private async runBranchSplitCreate(): Promise<void> {
+    this.info('Pushing branches and opening pull requests...');
+
+    let result;
+    try {
+      result = await this.branchSplit.createPullRequests();
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    for (const entry of result.created) {
+      this.w(`    ${colorize('✓', 'success')} ${entry.branch} ${colorize('→', 'muted')} ${colorize(entry.prUrl ?? '', 'cyan')}\r\n`);
+    }
+    for (const entry of result.failed) {
+      this.w(`    ${colorize('✗', 'error')} ${entry.branch}: ${colorize(entry.error, 'muted')}\r\n`);
+    }
+    if (result.umbrellaUrl) {
+      this.w(`    ${colorize('★', 'cyan')} ${colorize('umbrella', 'bold')} ${colorize('→', 'muted')} ${colorize(result.umbrellaUrl, 'cyan')}\r\n`);
+    }
+    this.w('\r\n');
+
+    if (result.failed.length === 0) {
+      try { fs.rmSync(path.join(process.cwd(), '.branches'), { recursive: true, force: true }); } catch {}
+      this.success(`${result.created.length} pull request(s) created.`);
+    } else {
+      this.warning(`${result.failed.length} PR(s) failed. Docs kept in .branches/ — retry with: cast branch-split-create`);
+    }
   }
 }

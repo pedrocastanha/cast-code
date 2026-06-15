@@ -300,8 +300,10 @@ describe('BranchSplitService.createPullRequests', () => {
     assert.equal(result.created.length, 1);
     assert.equal(result.failed.length, 0);
     assert.equal(result.created[0].prUrl, 'https://github.com/o/r/pull/7');
+    assert.equal(result.umbrellaUrl, 'https://github.com/o/r/pull/7');
     const logged = fs.readFileSync(log, 'utf-8');
     assert.match(logged, /pr create --base main --head feature--split\/1-all/);
+    assert.match(logged, /pr create --base main --head feature /);
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, '.branches', 'manifest.json'), 'utf-8'));
     assert.equal(manifest.branches[0].prUrl, 'https://github.com/o/r/pull/7');
   });
@@ -309,5 +311,21 @@ describe('BranchSplitService.createPullRequests', () => {
   test('fails fast without a manifest', async () => {
     const dir = makeFlatRepo(2);
     await assert.rejects(() => makeService().createPullRequests(dir), /branch-split first/i);
+  });
+});
+
+describe('BranchSplitService.buildUmbrellaBody', () => {
+  test('lists split branches with PR links when available', () => {
+    const service = makeService();
+    const body = service.buildUmbrellaBody({
+      version: 2, createdAt: 'now', current: 'feature', target: 'main', base: 'abc',
+      branches: [
+        { branch: 'feature--split/1-a', dir: 'd1', base: 'main', order: 1, commit: 'feat: a', responsibility: 'foundational', files: [], hunks: [], linesAdded: 10, linesDeleted: 0, prUrl: 'https://gh/pull/1' },
+        { branch: 'feature--split/2-b', dir: 'd2', base: 'feature--split/1-a', order: 2, commit: 'feat: b', responsibility: 'builds on a', files: [], hunks: [], linesAdded: 5, linesDeleted: 0 },
+      ],
+    });
+    assert.match(body, /Stacked split of `feature` into 2/);
+    assert.match(body, /https:\/\/gh\/pull\/1 → `main` — foundational/);
+    assert.match(body, /`feature--split\/2-b` → `feature--split\/1-a` — builds on a/);
   });
 });
