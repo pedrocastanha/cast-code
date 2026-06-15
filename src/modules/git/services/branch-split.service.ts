@@ -8,39 +8,60 @@ import { extractText } from '../../../common/types/llm.types';
 import { BRANCH_SPLIT_SYSTEM_PROMPT, buildBranchSplitPrompt } from './branch-split-prompts';
 
 export interface ChangedFile {
-  status: 'A' | 'M' | 'D' | 'R';
+  status: 'A' | 'M' | 'D';
   path: string;
-  /** Original path for renames. */
-  fromPath?: string;
+}
+
+export interface HunkPiece {
+  patch: string;
+  added: number;
+  deleted: number;
+}
+
+export interface FileDiff {
+  file: string;
+  status: ChangedFile['status'];
+  header: string[];
+  hunks: HunkPiece[];
 }
 
 export interface DiffAnalysis {
   current: string;
   target: string;
-  base: string;     // merge-base sha
+  base: string;
   headSha: string;
   files: ChangedFile[];
+  fileDiffs: FileDiff[];
 }
 
 export interface BranchSplitGroup {
-  name: string;            // kebab slug
-  responsibility: string;  // one line
-  commit: string;          // conventional commit message
-  files: string[];         // paths from DiffAnalysis.files
+  name: string;
+  responsibility: string;
+  commit: string;
+  hunks: string[];
+  order: number;
+  dependsOn?: number;
+  linesAdded: number;
+  linesDeleted: number;
 }
 
 export interface CreatedBranch {
   branch: string;
-  dir: string;             // .branches/<dir>/
+  dir: string;
+  base: string;
+  order: number;
   commit: string;
   responsibility: string;
   files: string[];
+  hunks: string[];
+  linesAdded: number;
+  linesDeleted: number;
   title?: string;
   prUrl?: string;
 }
 
 export interface BranchSplitManifest {
-  version: 1;
+  version: 2;
   createdAt: string;
   current: string;
   target: string;
@@ -48,8 +69,8 @@ export interface BranchSplitManifest {
   branches: CreatedBranch[];
 }
 
-export const MAX_FILES_PER_BRANCH = 20;
-export const MIN_FILES_PER_BRANCH = 5;
+export const TARGET_LINES_MIN = 200;
+export const TARGET_LINES_MAX = 300;
 
 @Injectable()
 export class BranchSplitService {
@@ -57,6 +78,10 @@ export class BranchSplitService {
 
   private git(cwd: string, args: string[]): string {
     return execFileSync('git', args, { cwd, encoding: 'utf-8' });
+  }
+
+  private hunkId(file: string, index: number): string {
+    return `${file}#${index}`;
   }
 
   analyzeDiff(target: string, cwd: string = process.cwd()): DiffAnalysis {
@@ -79,99 +104,214 @@ export class BranchSplitService {
     const base = this.git(cwd, ['merge-base', target, 'HEAD']).trim();
     const headSha = this.git(cwd, ['rev-parse', 'HEAD']).trim();
 
-    const raw = this.git(cwd, ['diff', '--name-status', '-M', `${base}..HEAD`]);
-    const files: ChangedFile[] = raw.split('\n').filter(Boolean).map((line) => {
-      const parts = line.split('\t');
-      const code = parts[0][0] as ChangedFile['status'];
-      if (code === 'R') {
-        return { status: 'R', fromPath: parts[1], path: parts[2] };
-      }
-      return { status: code === 'A' || code === 'M' || code === 'D' ? code : 'M', path: parts[1] };
-    });
+    const raw = this.git(cwd, ['diff', '--no-color', '--no-renames', `${base}..HEAD`]);
+    const fileDiffs = this.parseDiff(raw);
+    const files: ChangedFile[] = fileDiffs.map((fd) => ({ status: fd.status, path: fd.file }));
 
-    return { current, target, base, headSha, files };
+    return { current, target, base, headSha, files, fileDiffs };
   }
 
-  validateGroups(groups: BranchSplitGroup[], allFiles: string[]): string[] {
+  parseDiff(raw: string): FileDiff[] {
+    const files: FileDiff[] = [];
+    let cur: FileDiff | null = null;
+    let hunk: string[] | null = null;
+
+    const flushHunk = (): void => {
+      if (cur && hunk) {
+        const added = hunk.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;
+        const deleted = hunk.filter((l) => l.startsWith('-') && !l.startsWith('---')).length;
+        cur.hunks.push({ patch: hunk.join('\n'), added, deleted });
+      }
+      hunk = null;
+    };
+
+    for (const line of raw.split('\n')) {
+      if (line.startsWith('diff --git ')) {
+        flushHunk();
+        if (cur) files.push(cur);
+        const match = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+        const file = match ? match[2] : line.replace('diff --git ', '');
+        cur = { file, status: 'M', header: [line], hunks: [] };
+      } else if (line.startsWith('@@')) {
+        flushHunk();
+        hunk = [line];
+      } else if (hunk) {
+        hunk.push(line);
+      } else if (cur) {
+        cur.header.push(line);
+        if (line.startsWith('new file')) cur.status = 'A';
+        else if (line.startsWith('deleted file')) cur.status = 'D';
+      }
+    }
+    flushHunk();
+    if (cur) files.push(cur);
+    return files;
+  }
+
+  allHunkIds(analysis: DiffAnalysis): string[] {
+    const ids: string[] = [];
+    for (const fd of analysis.fileDiffs) {
+      fd.hunks.forEach((_, i) => ids.push(this.hunkId(fd.file, i)));
+    }
+    return ids;
+  }
+
+  hunkWeights(analysis: DiffAnalysis): Map<string, HunkPiece> {
+    const map = new Map<string, HunkPiece>();
+    for (const fd of analysis.fileDiffs) {
+      fd.hunks.forEach((h, i) => map.set(this.hunkId(fd.file, i), h));
+    }
+    return map;
+  }
+
+  validateGroups(groups: BranchSplitGroup[], allHunks: string[]): string[] {
     const errors: string[] = [];
     const seen = new Map<string, number>();
     for (const group of groups) {
-      if (group.files.length === 0) errors.push(`group "${group.name}" is empty`);
-      for (const file of group.files) {
-        seen.set(file, (seen.get(file) ?? 0) + 1);
-        if (!allFiles.includes(file)) errors.push(`unknown file in group "${group.name}": ${file}`);
+      if (group.hunks.length === 0) errors.push(`group "${group.name}" is empty`);
+      for (const id of group.hunks) {
+        seen.set(id, (seen.get(id) ?? 0) + 1);
+        if (!allHunks.includes(id)) errors.push(`unknown hunk in group "${group.name}": ${id}`);
       }
     }
-    for (const file of allFiles) {
-      const count = seen.get(file) ?? 0;
-      if (count === 0) errors.push(`file missing from all groups: ${file}`);
-      if (count > 1) errors.push(`file in multiple groups: ${file}`);
+    for (const id of allHunks) {
+      const count = seen.get(id) ?? 0;
+      if (count === 0) errors.push(`hunk missing from all groups: ${id}`);
+      if (count > 1) errors.push(`hunk in multiple groups: ${id}`);
     }
     return errors;
   }
 
-  normalizeGroupSizes(groups: BranchSplitGroup[]): BranchSplitGroup[] {
-    const result = groups.map((g) => ({ ...g, files: [...g.files] }));
-    while (result.length > 1) {
-      result.sort((a, b) => a.files.length - b.files.length);
-      if (result[0].files.length >= MIN_FILES_PER_BRANCH) break;
-      const [smallest, nextSmallest] = result;
-      nextSmallest.files.push(...smallest.files);
-      nextSmallest.responsibility = `${nextSmallest.responsibility}; ${smallest.responsibility}`;
-      result.shift();
+  private weighGroup(group: BranchSplitGroup, weights: Map<string, HunkPiece>): BranchSplitGroup {
+    let added = 0;
+    let deleted = 0;
+    for (const id of group.hunks) {
+      const h = weights.get(id);
+      if (h) { added += h.added; deleted += h.deleted; }
     }
-    return result;
+    return { ...group, linesAdded: added, linesDeleted: deleted };
   }
 
-  async groupFiles(analysis: DiffAnalysis, cwd: string = process.cwd()): Promise<BranchSplitGroup[]> {
-    const diffStat = this.git(cwd, ['diff', '--stat', `${analysis.base}..HEAD`]);
-    const llm = this.llmClientFactory.create('cheap');
-    const allPaths = analysis.files.map((f) => f.path);
+  normalizeBudget(groups: BranchSplitGroup[], weights: Map<string, HunkPiece>): BranchSplitGroup[] {
+    const weighed = groups.map((g) => this.weighGroup(g, weights));
+    const result: BranchSplitGroup[] = [];
+    for (const group of weighed) {
+      const prev = result[result.length - 1];
+      const size = group.linesAdded + group.linesDeleted;
+      const prevSize = prev ? prev.linesAdded + prev.linesDeleted : 0;
+      if (prev && prevSize < TARGET_LINES_MIN && prevSize + size <= TARGET_LINES_MAX) {
+        prev.hunks.push(...group.hunks);
+        prev.responsibility = `${prev.responsibility}; ${group.responsibility}`;
+        prev.linesAdded += group.linesAdded;
+        prev.linesDeleted += group.linesDeleted;
+      } else {
+        result.push({ ...group, hunks: [...group.hunks] });
+      }
+    }
+    return result.map((g, i) => ({ ...g, order: i + 1, dependsOn: i === 0 ? undefined : i }));
+  }
 
-    let lastErrors: string[] = [];
+  async groupHunks(analysis: DiffAnalysis, cwd: string = process.cwd()): Promise<BranchSplitGroup[]> {
+    const weights = this.hunkWeights(analysis);
+    const allIds = this.allHunkIds(analysis);
+    const llm = this.llmClientFactory.create('cheap');
+
+    let parsed: BranchSplitGroup[] | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const retryNote = lastErrors.length > 0
-        ? `\n\nYour previous answer had these errors, fix them:\n${lastErrors.join('\n')}`
-        : '';
       const response = await llm.invoke([
         { role: 'system', content: BRANCH_SPLIT_SYSTEM_PROMPT },
-        { role: 'user', content: buildBranchSplitPrompt(analysis.files, diffStat) + retryNote },
+        { role: 'user', content: buildBranchSplitPrompt(analysis.fileDiffs) },
       ]);
-      const groups = this.parseGroups(extractText(response));
-      if (!groups) { lastErrors = ['response was not a valid JSON array of groups']; continue; }
-      lastErrors = this.validateGroups(groups, allPaths);
-      if (lastErrors.length === 0) return this.normalizeGroupSizes(groups);
+      parsed = this.parseGroups(extractText(response), allIds);
+      if (parsed) break;
     }
-    throw new Error(`Could not produce a valid file grouping:\n${lastErrors.join('\n')}`);
+
+    const repaired = this.repairGroups(parsed ?? [], allIds);
+    const errors = this.validateGroups(repaired, allIds);
+    if (errors.length > 0) {
+      throw new Error(`Could not produce a valid hunk grouping:\n${errors.join('\n')}`);
+    }
+    return this.normalizeBudget(repaired, weights);
   }
 
-  private parseGroups(content: string): BranchSplitGroup[] | null {
+  private parseGroups(content: string, allIds: string[]): BranchSplitGroup[] | null {
     const match = content.match(/\[[\s\S]*\]/);
     if (!match) return null;
     try {
       const parsed = JSON.parse(match[0]) as Array<Record<string, unknown>>;
       if (!Array.isArray(parsed)) return null;
-      return parsed.map((g) => ({
+      return parsed.map((g, i) => ({
         name: String(g.name ?? 'group').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'group',
         responsibility: String(g.responsibility ?? ''),
         commit: String(g.commit ?? 'chore: split changes'),
-        files: Array.isArray(g.files) ? g.files.map(String) : [],
+        hunks: Array.isArray(g.hunks) ? this.resolveHunkRefs(g.hunks, allIds) : [],
+        order: i + 1,
+        dependsOn: i === 0 ? undefined : i,
+        linesAdded: 0,
+        linesDeleted: 0,
       }));
     } catch {
       return null;
     }
   }
 
+  private resolveHunkRefs(refs: unknown[], allIds: string[]): string[] {
+    const out: string[] = [];
+    for (const ref of refs) {
+      const n = Number(ref);
+      if (Number.isInteger(n) && n >= 1 && n <= allIds.length) {
+        out.push(allIds[n - 1]);
+      } else if (typeof ref === 'string' && allIds.includes(ref)) {
+        out.push(ref);
+      }
+    }
+    return out;
+  }
+
+  private repairGroups(groups: BranchSplitGroup[], allIds: string[]): BranchSplitGroup[] {
+    const valid = new Set(allIds);
+    const used = new Set<string>();
+    const cleaned = groups.map((g) => ({ ...g, hunks: [] as string[] }));
+    groups.forEach((g, gi) => {
+      for (const id of g.hunks) {
+        if (valid.has(id) && !used.has(id)) {
+          used.add(id);
+          cleaned[gi].hunks.push(id);
+        }
+      }
+    });
+
+    let result = cleaned.filter((g) => g.hunks.length > 0);
+    if (result.length === 0) {
+      result = [{ name: 'all-changes', responsibility: 'all changes', commit: 'chore: split changes', hunks: [], order: 1, linesAdded: 0, linesDeleted: 0 }];
+    }
+
+    const fileOf = (id: string): string => id.slice(0, id.lastIndexOf('#'));
+    for (const id of allIds) {
+      if (used.has(id)) continue;
+      const file = fileOf(id);
+      const target = result.find((g) => g.hunks.some((h) => fileOf(h) === file)) ?? result[result.length - 1];
+      target.hunks.push(id);
+      used.add(id);
+    }
+
+    return result.map((g, i) => ({ ...g, order: i + 1, dependsOn: i === 0 ? undefined : i }));
+  }
+
   splitBranchName(current: string, index: number, slug: string): string {
     return `${current}--split/${index}-${slug}`;
   }
 
-  /** Maps branch name to a filesystem-safe .branches/ directory name. */
   branchDirName(branch: string): string {
     return branch.replace(/\//g, '__');
   }
 
-  createBranches(
+  private buildPatch(fd: FileDiff, indices: number[]): string {
+    const sorted = [...indices].sort((a, b) => a - b);
+    return [...fd.header, ...sorted.map((i) => fd.hunks[i].patch)].join('\n') + '\n';
+  }
+
+  createStackedBranches(
     analysis: DiffAnalysis,
     groups: BranchSplitGroup[],
     cwd: string = process.cwd(),
@@ -188,28 +328,53 @@ export class BranchSplitService {
       for (const branch of existing) this.git(cwd, ['branch', '-D', branch]);
     }
 
+    const fdByFile = new Map(analysis.fileDiffs.map((fd) => [fd.file, fd]));
+    const acc = new Map<string, number[]>();
     const created: CreatedBranch[] = [];
-    const byPath = new Map(analysis.files.map((f) => [f.path, f]));
+    const madeBranches: string[] = [];
+    let parent = analysis.target;
 
+    try {
     groups.forEach((group, i) => {
       const branch = this.splitBranchName(analysis.current, i + 1, group.name);
-      this.git(cwd, ['branch', branch, analysis.base]);
+      this.git(cwd, ['branch', branch, parent]);
+      madeBranches.push(branch);
 
-      // mkdtemp creates the dir; git worktree add wants a non-existing path → use a subpath.
+      const filesInSlice = new Set<string>();
+      let added = 0;
+      let deleted = 0;
+      for (const id of group.hunks) {
+        const hash = id.lastIndexOf('#');
+        const file = id.slice(0, hash);
+        const index = Number(id.slice(hash + 1));
+        filesInSlice.add(file);
+        const list = acc.get(file) ?? [];
+        list.push(index);
+        acc.set(file, list);
+        const piece = fdByFile.get(file)?.hunks[index];
+        if (piece) { added += piece.added; deleted += piece.deleted; }
+      }
+
       const worktreeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'branch-split-wt-'));
       const worktree = path.join(worktreeParent, 'wt');
       try {
         this.git(cwd, ['worktree', 'add', '--quiet', worktree, branch]);
-        for (const file of group.files) {
-          const change = byPath.get(file);
-          if (change?.status === 'D') {
-            this.git(worktree, ['rm', '-q', '--', file]);
+        for (const file of filesInSlice) {
+          const fd = fdByFile.get(file);
+          if (!fd) continue;
+          if (fd.status === 'A') {
+            try { fs.rmSync(path.join(worktree, file), { force: true }); } catch { /* absent */ }
           } else {
-            if (change?.status === 'R' && change.fromPath) {
-              try { this.git(worktree, ['rm', '-q', '--', change.fromPath]); } catch { /* not at base */ }
-            }
-            this.git(worktree, ['checkout', analysis.headSha, '--', file]);
+            this.git(worktree, ['checkout', analysis.base, '--', file]);
           }
+          const patchPath = path.join(worktreeParent, 'slice.patch');
+          fs.writeFileSync(patchPath, this.buildPatch(fd, acc.get(file)!));
+          try {
+            this.git(worktree, ['apply', '--whitespace=nowarn', patchPath]);
+          } catch (error) {
+            throw new Error(`Failed to apply hunks for ${file} on ${branch}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          this.git(worktree, ['add', '-Af', '--', file]);
         }
         this.git(worktree, ['commit', '-q', '-m', group.commit]);
       } finally {
@@ -220,11 +385,24 @@ export class BranchSplitService {
       created.push({
         branch,
         dir: this.branchDirName(branch),
+        base: parent,
+        order: i + 1,
         commit: group.commit,
         responsibility: group.responsibility,
-        files: group.files,
+        files: [...filesInSlice],
+        hunks: group.hunks,
+        linesAdded: added,
+        linesDeleted: deleted,
       });
+
+      parent = branch;
     });
+    } catch (error) {
+      for (const branch of madeBranches.reverse()) {
+        try { this.git(cwd, ['branch', '-D', branch]); } catch { /* best-effort */ }
+      }
+      throw error;
+    }
 
     return created;
   }
@@ -243,22 +421,29 @@ export class BranchSplitService {
       entry.title = prDescriptions[i]?.title ?? entry.commit;
       const branchDir = path.join(root, entry.dir);
       fs.mkdirSync(branchDir, { recursive: true });
+      const dependsOn = i > 0 ? branches[i - 1].branch : analysis.target;
+      const requiredBy = i < branches.length - 1 ? branches[i + 1].branch : null;
       fs.writeFileSync(path.join(branchDir, 'PR.md'), [
         `# ${entry.title}`,
         '',
-        `> PR: \`${entry.branch}\` → \`${analysis.current}\``,
+        `> PR ${i + 1}/${branches.length}: \`${entry.branch}\` → \`${entry.base}\``,
+        `> +${entry.linesAdded} −${entry.linesDeleted} lines`,
+        '',
+        `**Depends on:** \`${dependsOn}\``,
+        requiredBy ? `**Required by:** \`${requiredBy}\`` : '**Required by:** _(top of stack)_',
         '',
         prDescriptions[i]?.description ?? entry.responsibility,
         '',
-        '## Files in this branch',
+        '## Files in this slice',
         '',
         ...entry.files.map((f) => `- \`${f}\``),
         '',
         '## How to open this PR',
         '',
         '```bash',
+        `git push -u origin "${entry.base}"`,
         `git push -u origin "${entry.branch}"`,
-        `gh pr create --base ${analysis.current} --head "${entry.branch}" --title "${entry.title.replace(/"/g, '\\"')}" --body-file ".branches/${entry.dir}/PR.md"`,
+        `gh pr create --base "${entry.base}" --head "${entry.branch}" --title "${entry.title.replace(/"/g, '\\"')}" --body-file ".branches/${entry.dir}/PR.md"`,
         '```',
         '',
         `Or run \`cast branch-split-create\` to push and open every PR automatically.`,
@@ -267,7 +452,7 @@ export class BranchSplitService {
     });
 
     const manifest: BranchSplitManifest = {
-      version: 1,
+      version: 2,
       createdAt: new Date().toISOString(),
       current: analysis.current,
       target: analysis.target,
@@ -277,19 +462,17 @@ export class BranchSplitService {
     fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
     fs.writeFileSync(path.join(root, 'README.md'), [
-      `# Branch split of \`${analysis.current}\``,
+      `# Stacked split of \`${analysis.current}\``,
       '',
       `Target: \`${analysis.target}\` · base: \`${analysis.base.slice(0, 8)}\` · created ${manifest.createdAt}`,
       '',
-      'Each sub-branch below holds one reviewable slice of this branch, cut from the merge-base.',
-      `PRs open against \`${analysis.current}\`; GitHub shows only each slice's diff. Merging them into`,
-      `\`${analysis.current}\` is a no-op (the content is already here) — they exist for review granularity.`,
-      `The final merge to \`${analysis.target}\` happens through \`${analysis.current}\` as usual.`,
+      'Each PR below is one reviewable slice stacked on the previous one. Review and merge',
+      `top-down: \`${analysis.target}\` ← PR1 ← PR2 ← … Each PR shows only its own diff.`,
       '',
-      '| # | Branch | Responsibility | Files | PR doc |',
-      '|---|--------|----------------|-------|--------|',
+      '| # | Branch | Base | Responsibility | +/− | Files | PR doc |',
+      '|---|--------|------|----------------|-----|-------|--------|',
       ...branches.map((b, i) =>
-        `| ${i + 1} | \`${b.branch}\` | ${b.responsibility} | ${b.files.length} | [PR.md](./${b.dir}/PR.md) |`),
+        `| ${i + 1} | \`${b.branch}\` | \`${b.base}\` | ${b.responsibility} | +${b.linesAdded} −${b.linesDeleted} | ${b.files.length} | [PR.md](./${b.dir}/PR.md) |`),
       '',
       'Open all PRs: `cast branch-split-create` (requires `gh` authenticated).',
       '',
@@ -325,19 +508,14 @@ export class BranchSplitService {
       throw new Error('GitHub CLI not authenticated. Run: gh auth login');
     }
 
-    const currentBase = run('git', ['merge-base', manifest.target, manifest.current]).trim();
-    if (currentBase && currentBase !== manifest.base) {
-      process.stdout.write(`  Warning: merge-base moved since the split (${manifest.base.slice(0, 8)} → ${currentBase.slice(0, 8)}).\n`);
-    }
-
-    run('git', ['push', '-u', 'origin', manifest.current]);
+    run('git', ['push', '-u', 'origin', manifest.target]);
 
     const created: CreatedBranch[] = [];
     const failed: Array<{ branch: string; error: string }> = [];
 
     for (const entry of manifest.branches) {
       try {
-        if (entry.prUrl) { created.push(entry); continue; } // idempotent re-run
+        if (entry.prUrl) { created.push(entry); continue; }
         const existing = run('gh', ['pr', 'list', '--head', entry.branch, '--json', 'url']).trim();
         if (existing && existing !== '[]') {
           entry.prUrl = (JSON.parse(existing)[0]?.url as string) ?? entry.prUrl;
@@ -347,7 +525,7 @@ export class BranchSplitService {
         run('git', ['push', '-u', 'origin', entry.branch]);
         const url = run('gh', [
           'pr', 'create',
-          '--base', manifest.current,
+          '--base', entry.base,
           '--head', entry.branch,
           '--title', entry.title ?? entry.commit,
           '--body-file', path.join('.branches', entry.dir, 'PR.md'),
