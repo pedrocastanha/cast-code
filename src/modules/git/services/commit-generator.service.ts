@@ -141,7 +141,9 @@ export class CommitGeneratorService {
     return this.normalizeCommitMessage(message, 'chore', scope);
   }
 
-  async splitCommits(): Promise<SplitCommit[] | null> {
+  async splitCommits(
+    onProgress?: (p: { current: number; total: number; label: string }) => void,
+  ): Promise<SplitCommit[] | null> {
     const diffInfo = this.getDiffInfo();
     if (!diffInfo) return null;
 
@@ -170,7 +172,13 @@ export class CommitGeneratorService {
     }
 
     const splitCommits: SplitCommit[] = [];
-    for (const group of normalizedGroups) {
+    for (let i = 0; i < normalizedGroups.length; i++) {
+      const group = normalizedGroups[i];
+      onProgress?.({
+        current: i + 1,
+        total: normalizedGroups.length,
+        label: group.scope ? `${group.scope}` : (group.files[0] ?? 'group'),
+      });
       const message = await this.generateMessageForGroup(group);
       splitCommits.push({ ...group, message });
     }
@@ -215,11 +223,14 @@ export class CommitGeneratorService {
       originalHead = execSync('git rev-parse HEAD', { cwd, encoding: 'utf-8' }).trim();
 
       for (const commit of commits) {
-        execSync('git reset', { cwd });
+        execSync('git reset', { cwd, stdio: ['ignore', 'ignore', 'ignore'] });
 
         for (const file of this.normalizeFiles(commit.files)) {
           try {
-            execSync(`git add -- ${this.escapeShellArg(file)}`, { cwd });
+            execSync(`git add -A -- ${this.escapeShellArg(file)}`, {
+              cwd,
+              stdio: ['ignore', 'ignore', 'pipe'],
+            });
           } catch {}
         }
 
