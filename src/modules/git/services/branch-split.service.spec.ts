@@ -140,6 +140,36 @@ describe('BranchSplitService.normalizeBudget', () => {
   });
 });
 
+describe('BranchSplitService.groupHunks', () => {
+  function serviceWithLlm(content: string): BranchSplitService {
+    const factory = { create: () => ({ invoke: async () => ({ content }) }) };
+    return new BranchSplitService(factory as never);
+  }
+
+  test('repairs mangled LLM output into a complete disjoint partition', async () => {
+    const dir = makeFlatRepo(3);
+    const json = JSON.stringify([
+      { name: 'a', responsibility: 'r', commit: 'feat: a', hunks: [1, 2, 2, 99] },
+      { name: 'b', responsibility: 'r', commit: 'feat: b', hunks: [3] },
+    ]);
+    const service = serviceWithLlm(json);
+    const analysis = service.analyzeDiff('main', dir);
+    const groups = await service.groupHunks(analysis, dir);
+
+    const got = groups.flatMap((g) => g.hunks).sort();
+    assert.deepEqual(got, [...service.allHunkIds(analysis)].sort());
+    assert.deepEqual(service.validateGroups(groups, service.allHunkIds(analysis)), []);
+  });
+
+  test('recovers when the model returns no usable hunks', async () => {
+    const dir = makeFlatRepo(2);
+    const service = serviceWithLlm('not json at all');
+    const analysis = service.analyzeDiff('main', dir);
+    const groups = await service.groupHunks(analysis, dir);
+    assert.deepEqual(service.validateGroups(groups, service.allHunkIds(analysis)), []);
+  });
+});
+
 describe('BranchSplitService.createStackedBranches', () => {
   test('stacks branches and reconstructs the full diff (hunk-level)', () => {
     const dir = makeHunkRepo();
