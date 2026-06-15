@@ -251,14 +251,26 @@ export class GitCommandsService {
       return true;
     }
 
-    this.info('Analyzing changes for split commits...');
+    const frames = ['◐', '◓', '◑', '◒'];
+    let frame = 0;
+    let progressText = 'Analyzing changes for split commits...';
+    const spinner = setInterval(() => {
+      const icon = frames[frame++ % frames.length];
+      this.w(`\r  ${colorize(icon, 'cyan')} ${colorize(progressText, 'muted')}\x1b[K`);
+    }, 90);
 
     let proposedCommits;
     try {
-      proposedCommits = await this.commitGenerator.splitCommits();
+      proposedCommits = await this.commitGenerator.splitCommits(({ current, total, label }) => {
+        const shortLabel = label.length > 48 ? `...${label.slice(-45)}` : label;
+        progressText = `Writing commit messages [${current}/${total}] ${shortLabel}`;
+      });
     } catch (error) {
       this.error(`Failed to split commits: ${this.providerErrorMessage(error)}`);
       return false;
+    } finally {
+      clearInterval(spinner);
+      this.w('\r\x1b[K');
     }
     const commits = (proposedCommits || []).filter(c => c.files && c.files.length > 0);
 
@@ -717,46 +729,50 @@ export class GitCommandsService {
       return;
     }
 
-    if (analysis.files.length <= 20) {
-      this.success(`Branch has ${analysis.files.length} changed files vs ${target} — no split needed (limit: 20).`);
+    const totalLines = analysis.fileDiffs.reduce(
+      (sum, fd) => sum + fd.hunks.reduce((s, h) => s + h.added + h.deleted, 0),
+      0,
+    );
+    if (totalLines <= 300) {
+      this.success(`Branch has ${totalLines} changed lines vs ${target} — no split needed (target: 200-300 per PR).`);
       return;
     }
 
-    this.info(`Grouping ${analysis.files.length} files semantically...`);
+    this.info(`Grouping ${totalLines} changed lines into a dependency-ordered stack...`);
     let groups;
     try {
-      groups = await this.branchSplit.groupFiles(analysis);
+      groups = await this.branchSplit.groupHunks(analysis);
     } catch (error) {
       this.error(this.providerErrorMessage(error));
       return;
     }
 
-    for (const oversized of groups.filter((g) => g.files.length > 20)) {
-      this.warning(`Group "${oversized.name}" has ${oversized.files.length} files (>20) — kept as one indivisible responsibility.`);
+    for (const oversized of groups.filter((g) => g.linesAdded + g.linesDeleted > 300 && g.hunks.length > 1)) {
+      this.warning(`Slice "${oversized.name}" has ${oversized.linesAdded + oversized.linesDeleted} lines (>300) — review for further splitting.`);
     }
 
     this.w(this.ui.panel({
-      title: 'Branch split plan',
-      subtitle: `${analysis.current} → ${groups.length} sub-branches (PRs target ${analysis.current})`,
+      title: 'Stacked split plan',
+      subtitle: `${analysis.target} ← ${groups.length} PRs (stacked on ${analysis.current})`,
       sections: [{
         lines: groups.map((g, i) =>
           `${colorize(`${i + 1}.`, 'cyan')} ${this.branchSplit.splitBranchName(analysis.current, i + 1, g.name)} ` +
-          `${colorize(`(${g.files.length} files)`, 'muted')} — ${g.responsibility}`),
+          `${colorize(`(+${g.linesAdded} −${g.linesDeleted})`, 'muted')} — ${g.responsibility}`),
       }],
       ...(dryRun ? { footer: 'Dry run: nothing will be created.' } : {}),
     }));
 
     if (dryRun) return;
 
-    const confirm = await smartInput.askChoice(`Create ${groups.length} sub-branches?`, [
-      { key: 'y', label: 'yes', description: 'Create branches and .branches/ docs' },
+    const confirm = await smartInput.askChoice(`Create ${groups.length} stacked branches?`, [
+      { key: 'y', label: 'yes', description: 'Create stacked branches and .branches/ docs' },
       { key: 'n', label: 'no', description: 'Cancel' },
     ]);
     if (confirm !== 'y') { this.warning('Cancelled'); return; }
 
     let created;
     try {
-      created = this.branchSplit.createBranches(analysis, groups, process.cwd(), { force });
+      created = this.branchSplit.createStackedBranches(analysis, groups, process.cwd(), { force });
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));
       return;
@@ -770,7 +786,7 @@ export class GitCommandsService {
           hash: '', message: entry.commit, author: '', date: '',
           files: entry.files, diff: '',
         }];
-        const pr = await this.prGenerator.generatePRDescription(entry.branch, commits, analysis.current);
+        const pr = await this.prGenerator.generatePRDescription(entry.branch, commits, entry.base);
         prDescriptions.push({ title: pr.title, description: pr.description });
       } catch {
         prDescriptions.push({ title: entry.commit, description: entry.responsibility });
@@ -778,6 +794,6 @@ export class GitCommandsService {
     }
 
     this.branchSplit.writeArtifacts(analysis, created, prDescriptions);
-    this.success(`${created.length} sub-branches created. Docs in .branches/ — open PRs with: cast branch-split-create`);
+    this.success(`${created.length} stacked branches created. Docs in .branches/ — open PRs with: cast branch-split-create`);
   }
 }
