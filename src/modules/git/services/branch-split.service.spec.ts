@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { after, describe, test } from 'node:test';
-import { BranchSplitService, BranchSplitGroup } from './branch-split.service';
+import { BranchSplitService, BranchSplitGroup, HunkPiece } from './branch-split.service';
 
 const tmpDirs: string[] = [];
 after(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }); });
@@ -13,21 +13,44 @@ function git(cwd: string, cmd: string): string {
   return execSync(`git ${cmd}`, { cwd, encoding: 'utf-8' });
 }
 
-/** Repo with main + feature branch containing `fileCount` changed files. */
-function makeFixtureRepo(fileCount: number): string {
+function initRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'branch-split-'));
   tmpDirs.push(dir);
   git(dir, 'init -q -b main');
   git(dir, 'config user.email t@t.dev');
   git(dir, 'config user.name t');
+  return dir;
+}
+
+function makeService(): BranchSplitService {
+  return new BranchSplitService(undefined as never);
+}
+
+/** main has a 20-line app.ts; feature edits the top and bottom (two hunks) and adds feature.ts. */
+function makeHunkRepo(): string {
+  const dir = initRepo();
+  const base = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n';
+  fs.writeFileSync(path.join(dir, 'app.ts'), base);
+  git(dir, 'add -A');
+  git(dir, 'commit -qm base');
+  git(dir, 'checkout -qb feature');
+  const edited = base.replace('line 0', 'line 0 CHANGED').replace('line 19', 'line 19 CHANGED');
+  fs.writeFileSync(path.join(dir, 'app.ts'), edited);
+  fs.writeFileSync(path.join(dir, 'feature.ts'), 'export const feature = true;\n');
+  git(dir, 'add -A');
+  git(dir, 'commit -qm "feature work"');
+  return dir;
+}
+
+/** Simple repo: N one-line files + base.txt modified, each a single hunk. */
+function makeFlatRepo(fileCount: number): string {
+  const dir = initRepo();
   fs.writeFileSync(path.join(dir, 'base.txt'), 'base\n');
   git(dir, 'add -A');
   git(dir, 'commit -qm base');
   git(dir, 'checkout -qb feature');
   for (let i = 0; i < fileCount; i++) {
-    const sub = i % 2 === 0 ? 'auth' : 'billing';
-    fs.mkdirSync(path.join(dir, 'src', sub), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'src', sub, `f${i}.ts`), `export const v${i} = ${i};\n`);
+    fs.writeFileSync(path.join(dir, `f${i}.ts`), `export const v${i} = ${i};\n`);
   }
   fs.writeFileSync(path.join(dir, 'base.txt'), 'modified\n');
   git(dir, 'add -A');
@@ -35,168 +58,167 @@ function makeFixtureRepo(fileCount: number): string {
   return dir;
 }
 
-function makeService(): BranchSplitService {
-  // llmClientFactory only needed for grouping; diff analysis is pure git.
-  return new BranchSplitService(undefined as never);
-}
-
 describe('BranchSplitService.analyzeDiff', () => {
-  test('returns base, current branch and changed files vs target', () => {
-    const dir = makeFixtureRepo(6);
-    const service = makeService();
-    const analysis = service.analyzeDiff('main', dir);
+  test('returns base, current branch, files and per-file hunks', () => {
+    const dir = makeHunkRepo();
+    const analysis = makeService().analyzeDiff('main', dir);
     assert.equal(analysis.current, 'feature');
-    assert.equal(analysis.files.length, 7); // 6 new + base.txt modified
-    assert.ok(analysis.files.some((f) => f.status === 'A' && f.path === 'src/auth/f0.ts'));
-    assert.ok(analysis.files.some((f) => f.status === 'M' && f.path === 'base.txt'));
     assert.equal(analysis.base, git(dir, 'merge-base main feature').trim());
+    const app = analysis.fileDiffs.find((f) => f.file === 'app.ts');
+    assert.ok(app);
+    assert.equal(app!.status, 'M');
+    assert.equal(app!.hunks.length, 2);
+    const feat = analysis.fileDiffs.find((f) => f.file === 'feature.ts');
+    assert.equal(feat!.status, 'A');
   });
 
   test('throws on dirty working tree', () => {
-    const dir = makeFixtureRepo(2);
+    const dir = makeFlatRepo(2);
     fs.writeFileSync(path.join(dir, 'dirty.txt'), 'x');
-    const service = makeService();
-    assert.throws(() => service.analyzeDiff('main', dir), /working tree/i);
+    assert.throws(() => makeService().analyzeDiff('main', dir), /working tree/i);
   });
 
   test('throws when target equals current branch', () => {
-    const dir = makeFixtureRepo(2);
-    const service = makeService();
-    assert.throws(() => service.analyzeDiff('feature', dir), /current branch/i);
+    const dir = makeFlatRepo(2);
+    assert.throws(() => makeService().analyzeDiff('feature', dir), /current branch/i);
   });
 
   test('throws when target branch does not exist', () => {
-    const dir = makeFixtureRepo(2);
-    const service = makeService();
-    assert.throws(() => service.analyzeDiff('nope', dir), /not found/i);
+    const dir = makeFlatRepo(2);
+    assert.throws(() => makeService().analyzeDiff('nope', dir), /not found/i);
   });
 });
 
 describe('BranchSplitService.validateGroups', () => {
-  const files = Array.from({ length: 12 }, (_, i) => `f${i}.ts`);
   const service = makeService();
+  const ids = ['a#0', 'a#1', 'b#0'];
 
-  test('accepts a complete partition', () => {
+  test('accepts a complete hunk partition', () => {
     const groups: BranchSplitGroup[] = [
-      { name: 'a', responsibility: 'r1', commit: 'feat: a', files: files.slice(0, 6) },
-      { name: 'b', responsibility: 'r2', commit: 'feat: b', files: files.slice(6) },
+      { name: 'g1', responsibility: 'r', commit: 'c', hunks: ['a#0', 'b#0'], order: 1, linesAdded: 0, linesDeleted: 0 },
+      { name: 'g2', responsibility: 'r', commit: 'c', hunks: ['a#1'], order: 2, linesAdded: 0, linesDeleted: 0 },
     ];
-    assert.deepEqual(service.validateGroups(groups, files), []);
+    assert.deepEqual(service.validateGroups(groups, ids), []);
   });
 
-  test('reports missing and duplicated files', () => {
+  test('reports missing and duplicated hunks', () => {
     const groups: BranchSplitGroup[] = [
-      { name: 'a', responsibility: 'r', commit: 'c', files: ['f0.ts', 'f1.ts'] },
-      { name: 'b', responsibility: 'r', commit: 'c', files: ['f1.ts'] },
+      { name: 'g1', responsibility: 'r', commit: 'c', hunks: ['a#0'], order: 1, linesAdded: 0, linesDeleted: 0 },
+      { name: 'g2', responsibility: 'r', commit: 'c', hunks: ['a#0'], order: 2, linesAdded: 0, linesDeleted: 0 },
     ];
-    const errors = service.validateGroups(groups, ['f0.ts', 'f1.ts', 'f2.ts']);
-    assert.ok(errors.some((e) => e.includes('f2.ts')));      // missing
-    assert.ok(errors.some((e) => e.includes('f1.ts')));      // duplicated
+    const errors = service.validateGroups(groups, ids);
+    assert.ok(errors.some((e) => e.includes('a#1')));
+    assert.ok(errors.some((e) => e.includes('a#0')));
+    assert.ok(errors.some((e) => e.includes('b#0')));
   });
 });
 
-describe('BranchSplitService.normalizeGroupSizes', () => {
+describe('BranchSplitService.normalizeBudget', () => {
   const service = makeService();
-  const mkGroup = (name: string, n: number): BranchSplitGroup => ({
-    name, responsibility: name, commit: `feat: ${name}`,
-    files: Array.from({ length: n }, (_, i) => `${name}/${i}.ts`),
-  });
+  const weights = new Map<string, HunkPiece>([
+    ['a#0', { patch: '', added: 50, deleted: 0 }],
+    ['b#0', { patch: '', added: 40, deleted: 0 }],
+    ['c#0', { patch: '', added: 260, deleted: 0 }],
+  ]);
+  const mk = (name: string, hunks: string[]): BranchSplitGroup =>
+    ({ name, responsibility: name, commit: `feat: ${name}`, hunks, order: 0, linesAdded: 0, linesDeleted: 0 });
 
-  test('merges undersized groups into the smallest sibling', () => {
-    const result = service.normalizeGroupSizes([mkGroup('big', 10), mkGroup('tiny', 2), mkGroup('small', 4)]);
-    assert.equal(result.length, 2);
-    const sizes = result.map((g) => g.files.length).sort((a, b) => a - b);
-    assert.deepEqual(sizes, [6, 10]); // tiny+small merged
-    assert.equal(result.reduce((n, g) => n + g.files.length, 0), 16);
-  });
-
-  test('keeps a single undersized group when nothing to merge with', () => {
-    const result = service.normalizeGroupSizes([mkGroup('only', 3)]);
+  test('merges undersized leading group into the next while under budget', () => {
+    const result = service.normalizeBudget([mk('tiny', ['a#0']), mk('small', ['b#0'])], weights);
     assert.equal(result.length, 1);
+    assert.deepEqual(result[0].hunks.sort(), ['a#0', 'b#0']);
+    assert.equal(result[0].order, 1);
   });
 
-  test('leaves well-sized groups alone', () => {
-    const result = service.normalizeGroupSizes([mkGroup('a', 7), mkGroup('b', 8)]);
+  test('keeps a large group standalone and assigns dependency order', () => {
+    const result = service.normalizeBudget([mk('big', ['c#0']), mk('tiny', ['a#0'])], weights);
     assert.equal(result.length, 2);
+    assert.equal(result[0].order, 1);
+    assert.equal(result[0].dependsOn, undefined);
+    assert.equal(result[1].order, 2);
+    assert.equal(result[1].dependsOn, 1);
   });
 });
 
-describe('BranchSplitService.createBranches', () => {
-  test('creates one branch per group from merge-base containing only its files', () => {
-    const dir = makeFixtureRepo(8); // 8 new files + base.txt modified = 9
+describe('BranchSplitService.createStackedBranches', () => {
+  test('stacks branches and reconstructs the full diff (hunk-level)', () => {
+    const dir = makeHunkRepo();
     const service = makeService();
     const analysis = service.analyzeDiff('main', dir);
     const groups: BranchSplitGroup[] = [
-      { name: 'auth', responsibility: 'auth files', commit: 'feat: auth files',
-        files: analysis.files.filter((f) => f.path.startsWith('src/auth/')).map((f) => f.path) },
-      { name: 'rest', responsibility: 'everything else', commit: 'feat: rest',
-        files: analysis.files.filter((f) => !f.path.startsWith('src/auth/')).map((f) => f.path) },
+      { name: 'top', responsibility: 'top edit', commit: 'feat: top', hunks: ['app.ts#0'], order: 1, linesAdded: 0, linesDeleted: 0 },
+      { name: 'rest', responsibility: 'bottom + new file', commit: 'feat: rest', hunks: ['app.ts#1', 'feature.ts#0'], order: 2, dependsOn: 1, linesAdded: 0, linesDeleted: 0 },
     ];
 
-    const created = service.createBranches(analysis, groups, dir);
+    const created = service.createStackedBranches(analysis, groups, dir);
 
     assert.equal(created.length, 2);
-    assert.equal(created[0].branch, 'feature--split/1-auth');
-    const diff = git(dir, `diff --name-only ${analysis.base}..feature--split/1-auth`).split('\n').filter(Boolean);
-    assert.deepEqual(diff.sort(), [...groups[0].files].sort());
+    assert.equal(created[0].branch, 'feature--split/1-top');
+    assert.equal(created[0].base, 'main');
+    assert.equal(created[1].base, 'feature--split/1-top');
+
+    assert.equal(git(dir, 'diff feature--split/2-rest..feature').trim(), '');
+
+    const b1 = git(dir, 'diff --name-only main..feature--split/1-top').split('\n').filter(Boolean);
+    assert.deepEqual(b1, ['app.ts']);
+    const b2 = git(dir, 'diff --name-only feature--split/1-top..feature--split/2-rest').split('\n').filter(Boolean);
+    assert.deepEqual(b2.sort(), ['app.ts', 'feature.ts']);
+
     assert.equal(git(dir, 'branch --show-current').trim(), 'feature');
     assert.equal(git(dir, 'rev-parse HEAD').trim(), analysis.headSha);
     assert.ok(!git(dir, 'worktree list').includes('branch-split-wt'));
   });
 
   test('handles deletions', () => {
-    const dir = makeFixtureRepo(5);
+    const dir = makeFlatRepo(3);
     git(dir, 'rm -q base.txt');
     git(dir, 'commit -qm "remove base"');
     const service = makeService();
     const analysis = service.analyzeDiff('main', dir);
-    const groups: BranchSplitGroup[] = [
-      { name: 'all', responsibility: 'all', commit: 'feat: all', files: analysis.files.map((f) => f.path) },
-    ];
-    const created = service.createBranches(analysis, groups, dir);
+    const created = service.createStackedBranches(analysis, [
+      { name: 'all', responsibility: 'all', commit: 'feat: all', hunks: service.allHunkIds(analysis), order: 1, linesAdded: 0, linesDeleted: 0 },
+    ], dir);
     const lsTree = git(dir, `ls-tree -r --name-only ${created[0].branch}`);
     assert.ok(!lsTree.includes('base.txt'));
+    assert.equal(git(dir, `diff ${created[0].branch}..feature`).trim(), '');
   });
 
   test('refuses when split branches already exist without force', () => {
-    const dir = makeFixtureRepo(5);
+    const dir = makeFlatRepo(3);
     git(dir, 'branch feature--split/1-old');
     const service = makeService();
     const analysis = service.analyzeDiff('main', dir);
-    assert.throws(
-      () => service.createBranches(analysis, [{ name: 'x', responsibility: 'x', commit: 'c', files: ['base.txt'] }], dir),
-      /already exist/i,
-    );
-    const created = service.createBranches(
-      analysis, [{ name: 'x', responsibility: 'x', commit: 'feat: x', files: ['base.txt'] }], dir, { force: true },
-    );
+    const group: BranchSplitGroup = { name: 'x', responsibility: 'x', commit: 'feat: x', hunks: service.allHunkIds(analysis), order: 1, linesAdded: 0, linesDeleted: 0 };
+    assert.throws(() => service.createStackedBranches(analysis, [group], dir), /already exist/i);
+    const created = service.createStackedBranches(analysis, [group], dir, { force: true });
     assert.equal(created.length, 1);
     assert.ok(!git(dir, 'branch --list "feature--split/*"').includes('1-old'));
   });
 });
 
 describe('BranchSplitService.writeArtifacts', () => {
-  test('writes README, manifest and one PR.md per branch; gitignores .branches/', () => {
-    const dir = makeFixtureRepo(5);
+  test('writes README, manifest v2 with bases and one PR.md per branch', () => {
+    const dir = makeFlatRepo(3);
     const service = makeService();
     const analysis = service.analyzeDiff('main', dir);
-    const created = [
-      { branch: 'feature--split/1-auth', dir: 'feature--split__1-auth', commit: 'feat: auth',
-        responsibility: 'auth', files: ['src/auth/f0.ts'], title: 'feat: auth' },
-    ];
+    const created = service.createStackedBranches(analysis, [
+      { name: 'first', responsibility: 'first', commit: 'feat: first', hunks: [service.allHunkIds(analysis)[0]], order: 1, linesAdded: 0, linesDeleted: 0 },
+      { name: 'rest', responsibility: 'rest', commit: 'feat: rest', hunks: service.allHunkIds(analysis).slice(1), order: 2, dependsOn: 1, linesAdded: 0, linesDeleted: 0 },
+    ], dir);
     service.writeArtifacts(analysis, created, [
-      { title: 'feat: auth', description: '## Summary\nauth changes' },
+      { title: 'feat: first', description: '## Summary\nfirst' },
+      { title: 'feat: rest', description: '## Summary\nrest' },
     ], dir);
 
     const root = path.join(dir, '.branches');
     assert.ok(fs.existsSync(path.join(root, 'README.md')));
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf-8'));
-    assert.equal(manifest.version, 1);
-    assert.equal(manifest.current, 'feature');
-    assert.equal(manifest.branches[0].branch, 'feature--split/1-auth');
-    const prMd = fs.readFileSync(path.join(root, 'feature--split__1-auth', 'PR.md'), 'utf-8');
-    assert.match(prMd, /feat: auth/);
-    assert.match(prMd, /gh pr create --base feature --head "feature--split\/1-auth"/);
+    assert.equal(manifest.version, 2);
+    assert.equal(manifest.branches[0].base, 'main');
+    assert.equal(manifest.branches[1].base, 'feature--split/1-first');
+    const prMd = fs.readFileSync(path.join(root, manifest.branches[1].dir, 'PR.md'), 'utf-8');
+    assert.match(prMd, /Depends on/);
+    assert.match(prMd, /gh pr create --base "feature--split\/1-first" --head "feature--split\/2-rest"/);
     assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8'), /\.branches\//);
   });
 });
@@ -219,12 +241,12 @@ function installFakeGh(dir: string, log: string): string {
 }
 
 describe('BranchSplitService.createPullRequests', () => {
-  test('pushes branches and opens PRs from the manifest, recording URLs', async () => {
-    const dir = makeFixtureRepo(5);
+  test('opens PRs along the stack, PR1 based on target', async () => {
+    const dir = makeFlatRepo(3);
     const service = makeService();
     const analysis = service.analyzeDiff('main', dir);
-    const created = service.createBranches(analysis, [
-      { name: 'all', responsibility: 'all', commit: 'feat: all', files: analysis.files.map((f) => f.path) },
+    const created = service.createStackedBranches(analysis, [
+      { name: 'all', responsibility: 'all', commit: 'feat: all', hunks: service.allHunkIds(analysis), order: 1, linesAdded: 0, linesDeleted: 0 },
     ], dir);
     service.writeArtifacts(analysis, created, [{ title: 'feat: all', description: 'd' }], dir);
 
@@ -236,14 +258,13 @@ describe('BranchSplitService.createPullRequests', () => {
     assert.equal(result.failed.length, 0);
     assert.equal(result.created[0].prUrl, 'https://github.com/o/r/pull/7');
     const logged = fs.readFileSync(log, 'utf-8');
-    assert.match(logged, /pr create --base feature --head feature--split\/1-all/);
+    assert.match(logged, /pr create --base main --head feature--split\/1-all/);
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, '.branches', 'manifest.json'), 'utf-8'));
     assert.equal(manifest.branches[0].prUrl, 'https://github.com/o/r/pull/7');
   });
 
   test('fails fast without a manifest', async () => {
-    const dir = makeFixtureRepo(2);
-    const service = makeService();
-    await assert.rejects(() => service.createPullRequests(dir), /branch-split first/i);
+    const dir = makeFlatRepo(2);
+    await assert.rejects(() => makeService().createPullRequests(dir), /branch-split first/i);
   });
 });
