@@ -216,24 +216,25 @@ export class BranchSplitService {
     const allIds = this.allHunkIds(analysis);
     const llm = this.llmClientFactory.create('cheap');
 
-    let lastErrors: string[] = [];
+    let parsed: BranchSplitGroup[] | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const retryNote = lastErrors.length > 0
-        ? `\n\nYour previous answer had these errors, fix them:\n${lastErrors.join('\n')}`
-        : '';
       const response = await llm.invoke([
         { role: 'system', content: BRANCH_SPLIT_SYSTEM_PROMPT },
-        { role: 'user', content: buildBranchSplitPrompt(analysis.fileDiffs) + retryNote },
+        { role: 'user', content: buildBranchSplitPrompt(analysis.fileDiffs) },
       ]);
-      const groups = this.parseGroups(extractText(response));
-      if (!groups) { lastErrors = ['response was not a valid JSON array of groups']; continue; }
-      lastErrors = this.validateGroups(groups, allIds);
-      if (lastErrors.length === 0) return this.normalizeBudget(groups, weights);
+      parsed = this.parseGroups(extractText(response), allIds);
+      if (parsed) break;
     }
-    throw new Error(`Could not produce a valid hunk grouping:\n${lastErrors.join('\n')}`);
+
+    const repaired = this.repairGroups(parsed ?? [], allIds);
+    const errors = this.validateGroups(repaired, allIds);
+    if (errors.length > 0) {
+      throw new Error(`Could not produce a valid hunk grouping:\n${errors.join('\n')}`);
+    }
+    return this.normalizeBudget(repaired, weights);
   }
 
-  private parseGroups(content: string): BranchSplitGroup[] | null {
+  private parseGroups(content: string, allIds: string[]): BranchSplitGroup[] | null {
     const match = content.match(/\[[\s\S]*\]/);
     if (!match) return null;
     try {
@@ -243,7 +244,7 @@ export class BranchSplitService {
         name: String(g.name ?? 'group').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'group',
         responsibility: String(g.responsibility ?? ''),
         commit: String(g.commit ?? 'chore: split changes'),
-        hunks: Array.isArray(g.hunks) ? g.hunks.map(String) : [],
+        hunks: Array.isArray(g.hunks) ? this.resolveHunkRefs(g.hunks, allIds) : [],
         order: i + 1,
         dependsOn: i === 0 ? undefined : i,
         linesAdded: 0,
@@ -252,6 +253,49 @@ export class BranchSplitService {
     } catch {
       return null;
     }
+  }
+
+  private resolveHunkRefs(refs: unknown[], allIds: string[]): string[] {
+    const out: string[] = [];
+    for (const ref of refs) {
+      const n = Number(ref);
+      if (Number.isInteger(n) && n >= 1 && n <= allIds.length) {
+        out.push(allIds[n - 1]);
+      } else if (typeof ref === 'string' && allIds.includes(ref)) {
+        out.push(ref);
+      }
+    }
+    return out;
+  }
+
+  private repairGroups(groups: BranchSplitGroup[], allIds: string[]): BranchSplitGroup[] {
+    const valid = new Set(allIds);
+    const used = new Set<string>();
+    const cleaned = groups.map((g) => ({ ...g, hunks: [] as string[] }));
+    groups.forEach((g, gi) => {
+      for (const id of g.hunks) {
+        if (valid.has(id) && !used.has(id)) {
+          used.add(id);
+          cleaned[gi].hunks.push(id);
+        }
+      }
+    });
+
+    let result = cleaned.filter((g) => g.hunks.length > 0);
+    if (result.length === 0) {
+      result = [{ name: 'all-changes', responsibility: 'all changes', commit: 'chore: split changes', hunks: [], order: 1, linesAdded: 0, linesDeleted: 0 }];
+    }
+
+    const fileOf = (id: string): string => id.slice(0, id.lastIndexOf('#'));
+    for (const id of allIds) {
+      if (used.has(id)) continue;
+      const file = fileOf(id);
+      const target = result.find((g) => g.hunks.some((h) => fileOf(h) === file)) ?? result[result.length - 1];
+      target.hunks.push(id);
+      used.add(id);
+    }
+
+    return result.map((g, i) => ({ ...g, order: i + 1, dependsOn: i === 0 ? undefined : i }));
   }
 
   splitBranchName(current: string, index: number, slug: string): string {
