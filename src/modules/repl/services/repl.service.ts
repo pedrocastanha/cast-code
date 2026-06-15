@@ -76,6 +76,7 @@ export class ReplService {
   private kittySupported = false;
   private abortController: AbortController | null = null;
   private pendingLines: string[] = [];
+  private currentLine: string | null = null;
   private isProcessing = false;
   private isBroadcasting = false;
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
@@ -894,6 +895,10 @@ export class ReplService {
     }
 
     if (this.isProcessing) {
+      if (trimmed === this.currentLine || this.pendingLines.includes(trimmed)) {
+        this.smartInput?.refresh();
+        return;
+      }
       this.pendingLines.push(trimmed);
       this.writeInline(
         `  ${Colors.magenta}↳${Colors.reset} ${Colors.dim}Queued${Colors.reset} ${Colors.subtle}(${this.pendingLines.length})${Colors.reset}\r\n`,
@@ -903,11 +908,11 @@ export class ReplService {
     }
 
     this.runLine(trimmed);
-    this.smartInput?.refresh();
   }
 
   private runLine(line: string): void {
     this.isProcessing = true;
+    this.currentLine = line;
     void this.processLine(line);
   }
 
@@ -953,6 +958,8 @@ export class ReplService {
     const next = this.pendingLines.shift();
     if (next) {
       this.runLine(next);
+    } else {
+      this.currentLine = null;
     }
   }
 

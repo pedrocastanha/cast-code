@@ -321,9 +321,12 @@ async function bootstrap() {
     });
     try {
       const branchSplit = app.get(BranchSplitService);
-      const { created, failed } = await branchSplit.createPullRequests();
+      const { created, failed, umbrellaUrl } = await branchSplit.createPullRequests();
       for (const entry of created) {
         console.log(`  ✓ ${entry.branch} → ${entry.prUrl}`);
+      }
+      if (umbrellaUrl) {
+        console.log(`  ★ umbrella → ${umbrellaUrl}`);
       }
       for (const entry of failed) {
         console.error(`  ✗ ${entry.branch}: ${entry.error}`);
