@@ -40,10 +40,55 @@ test('cmdSplitUp reports provider errors without throwing out of the CLI', async
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
+    {} as any,
   );
 
   const output = await captureStdout(() => service.cmdSplitUp({} as any));
 
   assert.match(output, /Failed to split commits/i);
   assert.match(output, /rate-limited/i);
+});
+
+test('createAzurePr guides the user when Azure is not configured', async () => {
+  const service = new GitCommandsService(
+    {} as any,
+    { detectPlatform: () => ({ platform: 'azure', url: 'https://dev.azure.com/org/Proj/_git/repo' }) } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    { parseAzureRemote: () => ({ organizationUrl: 'https://dev.azure.com/org', project: 'Proj', repository: 'repo' }) } as any,
+    { loadConfig: async () => {}, getAzureConfig: async () => undefined } as any,
+  );
+
+  const output = await captureStdout(() =>
+    (service as any).createAzurePr('feature/x', 'main', 'Title', 'Body'),
+  );
+
+  assert.match(output, /Azure DevOps is not configured/i);
+});
+
+test('createAzurePr errors when the Azure repository is unknown', async () => {
+  const service = new GitCommandsService(
+    {} as any,
+    { detectPlatform: () => ({ platform: 'azure', url: 'https://dev.azure.com/org/Proj/_git/repo' }) } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    { parseAzureRemote: () => ({ organizationUrl: 'https://dev.azure.com/org', project: 'Proj' }) } as any,
+    {
+      loadConfig: async () => {},
+      getAzureConfig: async () => ({
+        pat: 'p', organizationUrl: 'https://dev.azure.com/org', project: 'Proj', repository: undefined,
+      }),
+    } as any,
+  );
+
+  const output = await captureStdout(() =>
+    (service as any).createAzurePr('feature/x', 'main', 'Title', 'Body'),
+  );
+
+  assert.match(output, /Could not determine the Azure repository/i);
 });
