@@ -1,7 +1,7 @@
 # Azure DevOps Provider Configuration — Tasks
 
 **Design**: `.specs/features/git-provider-config/design.md`
-**Status**: In Progress
+**Status**: Done (T1–T8 implemented, all gates green)
 
 Gate commands (repo convention — no TESTING.md):
 - **quick**: `npm test -- <spec glob>` (`node --test -r ts-node/register`)
