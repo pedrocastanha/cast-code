@@ -106,7 +106,6 @@ export function copyTextToClipboard(
 @Injectable()
 export class PrGeneratorService {
   private prTemplateCache?: string;
-  private readonly prTemplatePath = '/home/pedro-castanheira/Downloads/pull-request.template.md';
 
   constructor(
     private readonly llmClientFactory: LlmClientFactory,
@@ -476,26 +475,8 @@ export class PrGeneratorService {
     if (this.prTemplateCache) {
       return this.prTemplateCache;
     }
-
-    try {
-      const fs = require('fs');
-      const raw = fs.readFileSync(this.prTemplatePath, 'utf-8').trimEnd();
-      this.prTemplateCache = this.normalizeTemplate(raw);
-      return this.prTemplateCache;
-    } catch {
-      const fallback = this.buildDefaultTemplate();
-      this.prTemplateCache = fallback;
-      return this.prTemplateCache;
-    }
-  }
-
-  private normalizeTemplate(raw: string): string {
-    const trimmed = raw.trimEnd();
-    const reminder = this.getReviewReminder();
-    if (trimmed.includes(reminder)) {
-      return trimmed;
-    }
-    return `${trimmed}\n\n${reminder}`;
+    this.prTemplateCache = this.buildDefaultTemplate();
+    return this.prTemplateCache;
   }
 
   private buildDefaultTemplate(): string {

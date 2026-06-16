@@ -124,6 +124,7 @@ export class ConfigCommandsService {
         { key: '5', label: 'Configure model', description: 'Set model for a purpose' },
         { key: '6', label: 'Change API key', description: 'Update provider credential' },
         { key: '7', label: 'Configure Remote UI', description: 'Enable/Disable or change password' },
+        { key: 'a', label: 'Configure Azure DevOps', description: 'PAT, organization and project for PRs' },
         { key: '8', label: 'View config file path', description: 'Location of config.yaml' },
         { key: 'l', label: 'Change language', description: 'Switch UI language' },
         { key: 't', label: 'Edit prompt template', description: 'Customize AI system prompts' },
@@ -156,6 +157,9 @@ export class ConfigCommandsService {
         break;
       case '7':
         await this.runInquirerFlow(smartInput, () => this.setRemoteInteractive());
+        break;
+      case 'a':
+        await this.runInquirerFlow(smartInput, () => this.setAzureInteractive());
         break;
       case '8':
         w(this.ui.panel({
@@ -232,6 +236,16 @@ export class ConfigCommandsService {
             { label: 'Status', value: config.remote?.enabled ? colorize('active', 'success') : colorize('disabled', 'muted') },
             { label: 'Whisper', value: config.remote?.openaiApiKey ? colorize('configured', 'success') : colorize('not configured', 'muted') },
           ],
+        },
+        {
+          title: 'Azure DevOps',
+          rows: config.azureDevops
+            ? [
+              { label: 'PAT', value: colorize(ConfigManagerService.maskSecret(config.azureDevops.pat), 'success') },
+              { label: 'Organization', value: colorize(config.azureDevops.organizationUrl, 'subtle') },
+              { label: 'Project', value: colorize(config.azureDevops.project, 'subtle') },
+            ]
+            : [{ label: 'Status', value: colorize('not configured', 'muted') }],
         },
       ],
       footer: `File: ${this.configManager.getConfigPath()}`,
@@ -661,6 +675,84 @@ export class ConfigCommandsService {
 
     await this.configManager.saveConfig(config);
     this.success('Remote Access configured successfully.');
+  }
+
+  private async setAzureInteractive(): Promise<void> {
+    await this.configManager.loadConfig();
+    const existing = this.configManager.getAzureGlobalConfig();
+
+    this.header('Azure DevOps', 'Press ESC to cancel.');
+    process.stdout.write(`  ${colorize('→ Create a PAT (Code: Read & Write) at https://dev.azure.com → User settings → Personal access tokens', 'muted')}\r\n`);
+
+    const patRaw = await inputWithEsc({
+      message: existing?.pat
+        ? `Personal Access Token (leave blank to keep ${ConfigManagerService.maskSecret(existing.pat)}):`
+        : 'Personal Access Token:',
+      validate: (v) => {
+        const clean = v.trim();
+        if (!clean && existing?.pat) return true;
+        return clean.length > 0 ? true : 'PAT cannot be empty';
+      },
+    });
+    if (patRaw === null) { this.warning('Cancelled.'); return; }
+    const pat = patRaw.trim() || existing?.pat || '';
+
+    const orgRaw = await inputWithEsc({
+      message: 'Organization URL (e.g. https://dev.azure.com/myorg):',
+      default: existing?.organizationUrl || '',
+      validate: (v) => v.trim().length > 0 ? true : 'Organization URL is required',
+    });
+    if (orgRaw === null) { this.warning('Cancelled.'); return; }
+
+    const projectRaw = await inputWithEsc({
+      message: 'Project name:',
+      default: existing?.project || '',
+      validate: (v) => v.trim().length > 0 ? true : 'Project is required',
+    });
+    if (projectRaw === null) { this.warning('Cancelled.'); return; }
+
+    const reviewersRaw = await inputWithEsc({
+      message: '(Optional) Required reviewers, comma-separated:',
+      default: (existing?.reviewers || []).join(', '),
+    });
+    if (reviewersRaw === null) { this.warning('Cancelled.'); return; }
+    const reviewers = reviewersRaw.split(',').map((r) => r.trim()).filter((r) => r.length > 0);
+
+    try {
+      await this.configManager.setAzureGlobalConfig({
+        pat,
+        organizationUrl: orgRaw.trim(),
+        project: projectRaw.trim(),
+        reviewers,
+      });
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    const setRepo = await confirmWithEsc({
+      message: 'Set a target branch / repository override for THIS repo now?',
+      default: false,
+    });
+    if (setRepo === null) return;
+    if (setRepo) {
+      const targetRaw = await inputWithEsc({
+        message: '(Optional) Target branch for PRs in this repo:',
+        default: '',
+      });
+      if (targetRaw === null) return;
+      const repoNameRaw = await inputWithEsc({
+        message: '(Optional) Repository name (blank = derive from remote):',
+        default: '',
+      });
+      if (repoNameRaw === null) return;
+      await this.configManager.setAzureRepoConfig(process.cwd(), {
+        targetBranch: targetRaw.trim() || undefined,
+        repository: repoNameRaw.trim() || undefined,
+      });
+    }
+
+    this.success('Azure DevOps configured successfully.');
   }
 
   private async editTemplateInteractive(smartInput?: ISmartInput): Promise<void> {

@@ -115,6 +115,31 @@ export interface PlatformGlobalConfig {
   apiUrl?: string;
 }
 
+/** Global Azure DevOps settings (stored in ~/.cast/config.yaml). */
+export interface AzureDevopsGlobalConfig {
+  /** Personal Access Token; delivered to `az` via AZURE_DEVOPS_EXT_PAT, never on argv. */
+  pat: string;
+  /** Organization URL, e.g. https://dev.azure.com/myorg — maps to `--organization`. */
+  organizationUrl: string;
+  /** Project name or id — maps to `--project`. */
+  project: string;
+  /** Optional required reviewers — maps to `--required-reviewers`. */
+  reviewers?: string[];
+}
+
+/** Per-repo Azure DevOps overrides (stored in <repo>/.cast/config.yaml). */
+export interface AzureDevopsRepoConfig {
+  /** Repository name — maps to `--repository`; defaults from the git remote. */
+  repository?: string;
+  /** Target branch — maps to `--target-branch`; defaults to the repo default branch. */
+  targetBranch?: string;
+}
+
+/** Global + per-repo Azure config merged with remote-derived defaults. */
+export interface ResolvedAzureConfig
+  extends AzureDevopsGlobalConfig,
+    AzureDevopsRepoConfig {}
+
 export interface CastConfig {
   version: number;
   language?: 'en' | 'pt';
@@ -123,6 +148,7 @@ export interface CastConfig {
   effort?: EffortLevel;
   remote?: RemoteConfig;
   platform?: PlatformGlobalConfig;
+  azureDevops?: AzureDevopsGlobalConfig;
 }
 
 export interface ProviderMetadata {

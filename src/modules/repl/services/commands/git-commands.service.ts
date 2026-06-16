@@ -10,7 +10,11 @@ import { CodeReviewService } from '../../../git/services/code-review.service';
 import { ReleaseNotesService } from '../../../git/services/release-notes.service';
 import { UnitTestGeneratorService } from '../../../git/services/unit-test-generator.service';
 import { BranchSplitService } from '../../../git/services/branch-split.service';
+import { AzureDevopsService } from '../../../git/services/azure-devops.service';
+import { ConfigManagerService } from '../../../config/services/config-manager.service';
 import { ISmartInput } from '../smart-input';
+
+type PrProvider = 'github' | 'azure' | 'none';
 
 @Injectable()
 export class GitCommandsService {
@@ -23,7 +27,43 @@ export class GitCommandsService {
     private readonly releaseNotesService: ReleaseNotesService,
     private readonly unitTestGenerator: UnitTestGeneratorService,
     private readonly branchSplit: BranchSplitService,
+    private readonly azureDevops: AzureDevopsService,
+    private readonly configManager: ConfigManagerService,
   ) {}
+
+  /**
+   * Resolve the PR provider from the git remote. GitHub and Azure run automatically;
+   * unknown/other remotes prompt the user (GitHub / Azure / No).
+   */
+  private async resolveProvider(
+    platform: string,
+    smartInput: ISmartInput,
+  ): Promise<PrProvider> {
+    if (platform === 'github') return 'github';
+    if (platform === 'azure') return 'azure';
+
+    const choice = await smartInput.askChoice('Open PR on which provider?', [
+      { key: 'g', label: 'GitHub', description: 'Create on GitHub (requires gh)' },
+      { key: 'a', label: 'Azure', description: 'Create on Azure DevOps (requires config)' },
+      { key: 'n', label: 'No', description: 'Just copy the description' },
+    ]);
+    if (choice === 'g') return 'github';
+    if (choice === 'a') return 'azure';
+    return 'none';
+  }
+
+  /** Build a resolved Azure config from settings + remote-derived defaults. */
+  private async resolveAzureConfig(targetBranch: string) {
+    await this.configManager.loadConfig();
+    const { url } = this.prGenerator.detectPlatform();
+    const remoteInfo = this.azureDevops.parseAzureRemote(url);
+    return this.configManager.getAzureConfig(process.cwd(), {
+      organizationUrl: remoteInfo.organizationUrl,
+      project: remoteInfo.project,
+      repository: remoteInfo.repository,
+      targetBranch,
+    });
+  }
 
   private w(s: string): void {
     process.stdout.write(s);
@@ -402,13 +442,14 @@ export class GitCommandsService {
     }));
 
     const { platform } = this.prGenerator.detectPlatform();
-    const canCreateAutomatically = platform === 'github';
+    const provider = await this.resolveProvider(platform, smartInput);
+    const canCreateAutomatically = provider !== 'none';
 
     const confirm = await smartInput.askChoice(canCreateAutomatically ? 'Create this PR?' : 'Copy PR description?', [
       {
         key: 'y',
         label: canCreateAutomatically ? 'yes' : 'copy',
-        description: canCreateAutomatically ? 'Create PR on GitHub' : `Copy description for ${platform} PR`,
+        description: canCreateAutomatically ? `Create PR on ${provider === 'azure' ? 'Azure DevOps' : 'GitHub'}` : `Copy description for ${platform} PR`,
       },
       { key: 'n', label: 'no', description: 'Cancel' },
       { key: 'e', label: 'edit', description: 'Edit title/description' },
@@ -449,7 +490,12 @@ export class GitCommandsService {
       }
     }
 
-    if (platform === 'github') {
+    if (provider === 'azure') {
+      await this.createAzurePr(branch, baseBranch, finalTitle, finalDescription);
+      return;
+    }
+
+    if (provider === 'github') {
       try {
         execSync(`git push origin ${branch}`, { cwd: process.cwd() });
       } catch (e: any) {
@@ -485,6 +531,54 @@ export class GitCommandsService {
         }
       }
       this.w('\r\n');
+    }
+  }
+
+  private async createAzurePr(
+    branch: string,
+    targetBranch: string,
+    title: string,
+    description: string,
+  ): Promise<void> {
+    const azureCfg = await this.resolveAzureConfig(targetBranch);
+    if (!azureCfg) {
+      this.warning('Azure DevOps is not configured. Run /config → Configure Azure DevOps.');
+      return;
+    }
+    if (!azureCfg.repository) {
+      this.error('Could not determine the Azure repository. Set it in /config → Configure Azure DevOps.');
+      return;
+    }
+
+    try {
+      execSync(`git push -u origin ${branch}`, { cwd: process.cwd() });
+    } catch (e: any) {
+      const errorMessage = e?.stderr?.toString().trim() || e?.message || 'unknown error';
+      this.error(`Push failed: ${errorMessage}`);
+      return;
+    }
+
+    const result = this.azureDevops.createPr({
+      organizationUrl: azureCfg.organizationUrl,
+      project: azureCfg.project,
+      repository: azureCfg.repository,
+      sourceBranch: branch,
+      targetBranch: azureCfg.targetBranch || targetBranch,
+      title,
+      description,
+      reviewers: azureCfg.reviewers,
+      pat: azureCfg.pat,
+    });
+
+    if (result.success) {
+      this.success(`Pull Request created: ${result.url ?? '(no url returned)'}`);
+    } else {
+      this.error(result.error || 'Failed to create Azure DevOps PR');
+      this.w(this.ui.panel({
+        title: 'PR Description',
+        sections: [{ lines: description.split('\n').slice(0, 30) }],
+        width: 88,
+      }));
     }
   }
 
@@ -715,7 +809,12 @@ export class GitCommandsService {
     const positional = args.filter((a) => !a.startsWith('--'));
 
     if (positional[0] === 'create') {
-      await this.runBranchSplitCreate();
+      const { platform } = this.prGenerator.detectPlatform();
+      if (platform === 'azure') {
+        await this.runBranchSplitCreateAzure();
+      } else {
+        await this.runBranchSplitCreate();
+      }
       return;
     }
 
@@ -806,13 +905,18 @@ export class GitCommandsService {
     this.branchSplit.writeArtifacts(analysis, created, prDescriptions);
 
     const { platform } = this.prGenerator.detectPlatform();
-    if (platform === 'github') {
-      const confirm = await smartInput.askChoice(`Create ${created.length} stacked PRs on GitHub now?`, [
+    if (platform === 'github' || platform === 'azure') {
+      const label = platform === 'azure' ? 'Azure DevOps' : 'GitHub';
+      const confirm = await smartInput.askChoice(`Create ${created.length} stacked PRs on ${label} now?`, [
         { key: 'y', label: 'yes', description: 'Push branches and open all PRs' },
         { key: 'n', label: 'no', description: 'Just keep the docs locally' },
       ]);
       if (confirm === 'y') {
-        await this.runBranchSplitCreate();
+        if (platform === 'azure') {
+          await this.runBranchSplitCreateAzure();
+        } else {
+          await this.runBranchSplitCreate();
+        }
         return;
       }
     }
@@ -841,6 +945,55 @@ export class GitCommandsService {
     }
     if (result.umbrellaUrl) {
       this.w(`    ${colorize('★', 'cyan')} ${colorize('umbrella', 'bold')} ${colorize('→', 'muted')} ${colorize(result.umbrellaUrl, 'cyan')}\r\n`);
+    }
+    this.w('\r\n');
+
+    if (result.failed.length === 0) {
+      try { fs.rmSync(path.join(process.cwd(), '.branches'), { recursive: true, force: true }); } catch {}
+      this.success(`${result.created.length} pull request(s) created.`);
+    } else {
+      this.warning(`${result.failed.length} PR(s) failed. Docs kept in .branches/ — retry with: cast branch-split-create`);
+    }
+  }
+
+  private async runBranchSplitCreateAzure(): Promise<void> {
+    const manifestPath = path.join(process.cwd(), '.branches', 'manifest.json');
+    if (!fs.existsSync(manifestPath)) {
+      this.error('No .branches/manifest.json found. Run /branch-split first.');
+      return;
+    }
+
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    } catch (error) {
+      this.error(`Could not read manifest: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+
+    if (!this.azureDevops.isAzAvailable()) {
+      this.error('Azure CLI (az) not found. Install from https://aka.ms/azure-cli');
+      return;
+    }
+
+    const azureCfg = await this.resolveAzureConfig(manifest.target);
+    if (!azureCfg) {
+      this.warning('Azure DevOps is not configured. Run /config → Configure Azure DevOps.');
+      return;
+    }
+    if (!azureCfg.repository) {
+      this.error('Could not determine the Azure repository. Set it in /config → Configure Azure DevOps.');
+      return;
+    }
+
+    this.info('Pushing branches and opening Azure DevOps pull requests...');
+    const result = this.azureDevops.createStackedPrs(manifest, azureCfg);
+
+    for (const entry of result.created) {
+      this.w(`    ${colorize('✓', 'success')} ${entry.branch} ${colorize('→', 'muted')} ${colorize(entry.prUrl ?? '', 'cyan')}\r\n`);
+    }
+    for (const entry of result.failed) {
+      this.w(`    ${colorize('✗', 'error')} ${entry.branch}: ${colorize(entry.error, 'muted')}\r\n`);
     }
     this.w('\r\n');
 

@@ -14,6 +14,9 @@ import {
   EffortLevel,
   OllamaConfig,
   PlatformGlobalConfig,
+  AzureDevopsGlobalConfig,
+  AzureDevopsRepoConfig,
+  ResolvedAzureConfig,
   providerRequiresBaseUrl,
   normalizeEffortLevel,
 } from '../types/config.types';
@@ -174,6 +177,126 @@ export class ConfigManagerService {
     return CONFIG_FILE;
   }
 
+  /** Mask a secret for display, keeping only the last 4 chars. */
+  static maskSecret(value?: string): string {
+    if (!value) return '';
+    const trimmed = value.trim();
+    if (trimmed.length <= 4) return '••••';
+    return `••••${trimmed.slice(-4)}`;
+  }
+
+  /** Path to the per-repo Azure config file. */
+  private repoConfigPath(cwd: string): string {
+    return path.join(cwd, '.cast', 'config.yaml');
+  }
+
+  getAzureGlobalConfig(): AzureDevopsGlobalConfig | undefined {
+    return this.config.azureDevops;
+  }
+
+  /** Read per-repo Azure overrides from <cwd>/.cast/config.yaml. */
+  async getAzureRepoConfig(cwd: string = process.cwd()): Promise<AzureDevopsRepoConfig | undefined> {
+    try {
+      const content = await fs.readFile(this.repoConfigPath(cwd), 'utf-8');
+      const parsed = yaml.load(content) as { azureDevops?: AzureDevopsRepoConfig } | undefined;
+      const repo = parsed?.azureDevops;
+      if (!repo) return undefined;
+      const repository = repo.repository?.trim();
+      const targetBranch = repo.targetBranch?.trim();
+      if (!repository && !targetBranch) return undefined;
+      return {
+        ...(repository ? { repository } : {}),
+        ...(targetBranch ? { targetBranch } : {}),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Merge global Azure config with per-repo overrides (per-repo wins) and
+   * remote-derived defaults (lowest precedence, supplied by the caller).
+   * Returns undefined when the required global fields are absent.
+   */
+  async getAzureConfig(
+    cwd: string = process.cwd(),
+    remoteDefaults: Partial<AzureDevopsRepoConfig & Pick<AzureDevopsGlobalConfig, 'organizationUrl' | 'project'>> = {},
+  ): Promise<ResolvedAzureConfig | undefined> {
+    const global = this.config.azureDevops;
+    if (!global?.pat) return undefined;
+
+    const repo = await this.getAzureRepoConfig(cwd);
+    const organizationUrl = global.organizationUrl || remoteDefaults.organizationUrl || '';
+    const project = global.project || remoteDefaults.project || '';
+    if (!organizationUrl || !project) return undefined;
+
+    return {
+      pat: global.pat,
+      organizationUrl,
+      project,
+      ...(global.reviewers ? { reviewers: global.reviewers } : {}),
+      repository: repo?.repository || remoteDefaults.repository,
+      targetBranch: repo?.targetBranch || remoteDefaults.targetBranch,
+    };
+  }
+
+  /** Persist global Azure fields to ~/.cast/config.yaml. Throws on missing required fields. */
+  async setAzureGlobalConfig(cfg: AzureDevopsGlobalConfig): Promise<void> {
+    const pat = cfg.pat?.trim();
+    const organizationUrl = cfg.organizationUrl?.trim();
+    const project = cfg.project?.trim();
+    if (!pat) throw new Error('Personal Access Token is required');
+    if (!organizationUrl) throw new Error('Organization URL is required');
+    if (!project) throw new Error('Project is required');
+
+    const reviewers = (cfg.reviewers || [])
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0);
+
+    this.config.azureDevops = {
+      pat,
+      organizationUrl,
+      project,
+      ...(reviewers.length > 0 ? { reviewers } : {}),
+    };
+    await this.saveConfig();
+  }
+
+  /** Persist per-repo Azure overrides to <cwd>/.cast/config.yaml and gitignore .cast/. */
+  async setAzureRepoConfig(cwd: string, cfg: AzureDevopsRepoConfig): Promise<void> {
+    const repository = cfg.repository?.trim();
+    const targetBranch = cfg.targetBranch?.trim();
+    const payload: { azureDevops?: AzureDevopsRepoConfig } = {};
+    if (repository || targetBranch) {
+      payload.azureDevops = {
+        ...(repository ? { repository } : {}),
+        ...(targetBranch ? { targetBranch } : {}),
+      };
+    }
+
+    const dir = path.join(cwd, '.cast');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      this.repoConfigPath(cwd),
+      yaml.dump(payload, { indent: 2, lineWidth: 100 }),
+      'utf-8',
+    );
+    await this.ensureCastGitignored(cwd);
+  }
+
+  private async ensureCastGitignored(cwd: string): Promise<void> {
+    const gitignorePath = path.join(cwd, '.gitignore');
+    let current = '';
+    try {
+      current = await fs.readFile(gitignorePath, 'utf-8');
+    } catch {
+      current = '';
+    }
+    if (current.split('\n').some((l) => l.trim() === '.cast/')) return;
+    await fs.writeFile(gitignorePath, `${current.replace(/\n*$/, '\n')}\n.cast/\n`, 'utf-8');
+  }
+
+
   private mergeWithDefaults(parsed: CastConfig): CastConfig {
     return {
       version: parsed.version || CONFIG_VERSION,
@@ -185,9 +308,29 @@ export class ConfigManagerService {
       effort: normalizeEffortLevel(parsed.effort) || DEFAULT_EFFORT,
       remote: parsed.remote,
       platform: normalizePlatformConfig(parsed.platform),
+      azureDevops: normalizeAzureConfig(parsed.azureDevops),
       language: parsed.language,
     };
   }
+}
+
+function normalizeAzureConfig(
+  azure: AzureDevopsGlobalConfig | undefined,
+): AzureDevopsGlobalConfig | undefined {
+  if (!azure) return undefined;
+  const pat = typeof azure.pat === 'string' ? azure.pat.trim() : '';
+  const organizationUrl = typeof azure.organizationUrl === 'string' ? azure.organizationUrl.trim() : '';
+  const project = typeof azure.project === 'string' ? azure.project.trim() : '';
+  if (!pat || !organizationUrl || !project) return undefined;
+  const reviewers = Array.isArray(azure.reviewers)
+    ? azure.reviewers.map((r) => String(r).trim()).filter((r) => r.length > 0)
+    : [];
+  return {
+    pat,
+    organizationUrl,
+    project,
+    ...(reviewers.length > 0 ? { reviewers } : {}),
+  };
 }
 
 function normalizePlatformConfig(platform: PlatformGlobalConfig | undefined): PlatformGlobalConfig | undefined {

@@ -89,6 +89,14 @@ export class InitConfigService {
       return;
     }
 
+    console.log(chalk.cyan('\n🔷 Configuração do Azure DevOps (opcional)\n'));
+    console.log('Necessário apenas se você abre PRs no Azure DevOps. Pode pular.\n');
+    const azureConfigured = await this.configureAzure(config);
+    if (!azureConfigured) {
+      console.log(chalk.yellow('\n❌ Configuração cancelada.\n'));
+      return;
+    }
+
     await this.configManager.saveConfig(config);
 
     console.log(chalk.green.bold('\n✅ Configuração salva com sucesso!\n'));
@@ -397,6 +405,48 @@ export class InitConfigService {
       password,
       openaiApiKey,
       ngrokAuthToken,
+    };
+
+    return true;
+  }
+
+  private async configureAzure(config: CastConfig): Promise<boolean> {
+    const enable = await confirmWithEsc({
+      message: 'Deseja configurar o Azure DevOps agora?',
+      default: false,
+    });
+    if (enable === null) return false;
+    if (!enable) return true;
+
+    const patRaw = await inputWithEsc({
+      message: 'Personal Access Token (Code: Read & Write):',
+      validate: (v) => v.trim().length > 0 ? true : 'O PAT não pode ser vazio',
+    });
+    if (patRaw === null) return false;
+
+    const orgRaw = await inputWithEsc({
+      message: 'Organization URL (ex: https://dev.azure.com/myorg):',
+      validate: (v) => v.trim().length > 0 ? true : 'A Organization URL é obrigatória',
+    });
+    if (orgRaw === null) return false;
+
+    const projectRaw = await inputWithEsc({
+      message: 'Nome do projeto:',
+      validate: (v) => v.trim().length > 0 ? true : 'O projeto é obrigatório',
+    });
+    if (projectRaw === null) return false;
+
+    const reviewersRaw = await inputWithEsc({
+      message: '(Opcional) Reviewers obrigatórios, separados por vírgula:',
+    });
+    if (reviewersRaw === null) return false;
+    const reviewers = reviewersRaw.split(',').map((r) => r.trim()).filter((r) => r.length > 0);
+
+    config.azureDevops = {
+      pat: patRaw.trim(),
+      organizationUrl: orgRaw.trim(),
+      project: projectRaw.trim(),
+      ...(reviewers.length > 0 ? { reviewers } : {}),
     };
 
     return true;

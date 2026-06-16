@@ -8,6 +8,7 @@ import { CodeReviewService } from './services/code-review.service';
 import { ReleaseNotesService } from './services/release-notes.service';
 import { UnitTestGeneratorService } from './services/unit-test-generator.service';
 import { BranchSplitService } from './services/branch-split.service';
+import { AzureDevopsService } from './services/azure-devops.service';
 
 @Module({
   imports: [CommonModule, forwardRef(() => CoreModule)],
@@ -19,6 +20,7 @@ import { BranchSplitService } from './services/branch-split.service';
     ReleaseNotesService,
     UnitTestGeneratorService,
     BranchSplitService,
+    AzureDevopsService,
   ],
   exports: [
     CommitGeneratorService,
@@ -28,6 +30,7 @@ import { BranchSplitService } from './services/branch-split.service';
     ReleaseNotesService,
     UnitTestGeneratorService,
     BranchSplitService,
+    AzureDevopsService,
   ],
 })
 export class GitModule {}
