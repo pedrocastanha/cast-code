@@ -1,8 +1,10 @@
 # Cast Code
 
-> Uma CLI multi-agente que pensa, planeja e escreve código junto com você — direto no seu terminal.
+> Uma CLI multi-agente com **loop engineering** embutido — planeja, age, verifica e se critica até o trabalho fechar. No seu terminal.
 
 Cast é um assistente autônomo de IA para engenheiros. Ele lê o codebase, delega para sub-agentes especialistas, escreve e edita arquivos, gera commits, cria PRs e se conecta a ferramentas externas via MCP — tudo com um único comando `cast`.
+
+O diferencial não é só “chamar um LLM com tools”. É **projetar o loop** que o agente executa: quando esclarecer, quando planejar, quando agir, quando validar e quando parar — com limites de iteração e política configurável.
 
 Feito por [pedrocastanha](https://github.com/pedrocastanha). Inspirado no Claude Code, OpenAI Codex e Kimi.
 
@@ -33,10 +35,50 @@ Recarregue o shell e rode `cast`.
 
 ---
 
+## Loop engineering (padrões de agente)
+
+Em 2026, agentes sérios não são “um prompt e torcer”. São **loops especificados**: objetivo, execução com tools/skills, verificação e regra de parada. O Cast implementa isso no runtime — não só na documentação.
+
+```text
+  clarify? ──► plan? ──► act (tools / subagents) ──► observe
+      ▲                                              │
+      │         self-critique / validation           │
+      └──────────── iterations ≤ max ────────────────┘
+                         │
+                      stop (done | blocked | budget)
+```
+
+| Padrão | No Cast | O que faz |
+|--------|---------|-----------|
+| **Clarify gate** | ligado por padrão | Antes de codar, levanta ambiguidades que mudam comportamento — evita loop “implementei o errado” |
+| **Plan-and-execute** | plan mode | Tarefas amplas viram plano aprovável; só então o loop de execução roda |
+| **ReAct / tool loop** | DeepAgent + tools | Razão → tool → observação, com permissões e sandbox |
+| **Multi-agent** | subagentes + swarm | Especialistas (`coder`, `architect`, `reviewer`…) em paralelo ou em cadeia |
+| **Reflection / self-critique** | ligado por padrão | Depois de mudanças reais em arquivos: fraquezas, premissas, melhorias concretas |
+| **Verification** | policy `requireValidation` | Preferir checagens reais (diff, testes, review) em vez de “modelo acha que está ok” |
+| **Bounded loop** | `maxIterations` (default 3, teto 10) | Loop sem teto = custo e alucinação; o Cast corta e nomeia o fim |
+| **Skills como passos nomeados** | `.cast/skills/` + remote | Execução por capacidades versionadas, não prompt monólito |
+
+Política efetiva (standalone defaults seguros):
+
+| Campo | Default | Significado |
+|-------|---------|-------------|
+| `clarifyGate` | on | Perguntas de esclarecimento antes de trabalho ambíguo |
+| `selfCritique` | true | Passo de crítica após editar código |
+| `requireValidation` | true | Empurra validação real no loop |
+| `maxIterations` | 3 | Teto de iterações do loop agentic |
+
+Via Cast Platform, `runtimePolicy` no projeto pode ajustar isso sem rebuild do CLI. Em runs automatizados/evals, o Cast **suprime** extras de loop (clarify/critique) quando precisa de trajetória determinística.
+
+**Por que isso importa:** prompt step-by-step não escala. Loop engineering escala — o mesmo harness, o mesmo objetivo, com verificação e stop rules. É o que separa demo de coding agent de produto que você confia em repo real.
+
+---
+
 ## O que o Cast faz
 
 | Capacidade | Como |
 |---|---|
+| Loop engineering no runtime | Clarify → plan → act → critique, com teto de iterações e policy |
 | Explorar e entender o codebase | Lê arquivos, busca padrões, mapeia a estrutura |
 | Escrever, editar e refatorar código | Ciclo completo: leitura → plano → escrita → verificação |
 | Gerar commits semânticos | `/up` — IA lê o diff e escreve a mensagem |
